@@ -1,0 +1,174 @@
+start_session:
+  name: Start session
+  description: Start a Cat TV play session on the configured media player.
+  fields:
+    entry_id:
+      name: Config entry
+      description: Cat TV Play config entry id. Required when multiple entries exist.
+      selector:
+        text:
+    session_id:
+      name: Session id
+      description: Optional stable id for review notes and recordings.
+      selector:
+        text:
+    media_url:
+      name: Media URL
+      description: Absolute media URL reachable by the display device.
+      selector:
+        text:
+    media_content_type:
+      name: Media content type
+      default: video/mp4
+      selector:
+        text:
+    media_player_entity_id:
+      name: Media player
+      description: Override the configured media player for this session.
+      selector:
+        entity:
+          domain: media_player
+    camera_entity_id:
+      name: Camera
+      description: Override the configured review camera for this session.
+      selector:
+        entity:
+          domain: camera
+
+stop_session:
+  name: Stop session
+  description: Stop the active Cat TV play session.
+  fields:
+    entry_id:
+      name: Config entry
+      selector:
+        text:
+    media_player_entity_id:
+      name: Media player
+      selector:
+        entity:
+          domain: media_player
+    reason:
+      name: Reason
+      default: manual
+      selector:
+        text:
+
+record_observation:
+  name: Record observation
+  description: Store a human or automation behavior observation for the current session.
+  fields:
+    behavior:
+      name: Behavior
+      required: true
+      selector:
+        select:
+          options:
+            - noticed
+            - watching
+            - stalking
+            - paw
+            - jump
+            - left
+            - ignored
+            - other
+    session_id:
+      name: Session id
+      selector:
+        text:
+    confidence:
+      name: Confidence
+      selector:
+        number:
+          min: 0
+          max: 1
+          step: 0.01
+    image_x:
+      name: Image X
+      selector:
+        number:
+          mode: box
+    image_y:
+      name: Image Y
+      selector:
+        number:
+          mode: box
+    wall_x_cm:
+      name: Wall X cm
+      selector:
+        number:
+          mode: box
+    wall_y_cm:
+      name: Wall Y cm
+      selector:
+        number:
+          mode: box
+    jump_height_cm:
+      name: Jump height cm
+      selector:
+        number:
+          mode: box
+    note:
+      name: Note
+      selector:
+        text:
+
+save_calibration:
+  name: Save calibration
+  description: Save a wall-plane calibration from image points with known wall coordinates.
+  fields:
+    calibration_id:
+      name: Calibration id
+      default: default
+      selector:
+        text:
+    points:
+      name: Points
+      required: true
+      description: List of points with image_x, image_y, wall_x_cm, wall_y_cm.
+      example:
+        - image_x: 616
+          image_y: 719
+          wall_x_cm: 0
+          wall_y_cm: 0
+        - image_x: 615
+          image_y: 425
+          wall_x_cm: 0
+          wall_y_cm: 100
+        - image_x: 469
+          image_y: 427
+          wall_x_cm: -52
+          wall_y_cm: 100
+        - image_x: 755
+          image_y: 416
+          wall_x_cm: 48
+          wall_y_cm: 100
+      selector:
+        object:
+    note:
+      name: Note
+      selector:
+        text:
+
+measure_image_point:
+  name: Measure image point
+  description: Convert an image point into wall centimeters using a saved calibration.
+  fields:
+    calibration_id:
+      name: Calibration id
+      default: default
+      selector:
+        text:
+    image_x:
+      name: Image X
+      required: true
+      selector:
+        number:
+          mode: box
+    image_y:
+      name: Image Y
+      required: true
+      selector:
+        number:
+          mode: box
+

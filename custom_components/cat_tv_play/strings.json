@@ -1,0 +1,31 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Cat TV Play",
+        "description": "Choose the display player and optional review camera.",
+        "data": {
+          "media_player_entity_id": "Display media player",
+          "camera_entity_id": "Review camera",
+          "default_media_url": "Default media URL",
+          "recorder_switch_entity_ids": "Recorder switch entities, comma separated",
+          "snapshot_switch_entity_ids": "Snapshot switch entities, comma separated"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Cat TV Play options",
+        "data": {
+          "media_player_entity_id": "Display media player",
+          "camera_entity_id": "Review camera",
+          "default_media_url": "Default media URL",
+          "recorder_switch_entity_ids": "Recorder switch entities, comma separated",
+          "snapshot_switch_entity_ids": "Snapshot switch entities, comma separated"
+        }
+      }
+    }
+  }
+}

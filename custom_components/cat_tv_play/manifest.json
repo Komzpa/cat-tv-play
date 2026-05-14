@@ -1,0 +1,12 @@
+{
+  "domain": "cat_tv_play",
+  "name": "Cat TV Play",
+  "codeowners": ["@Komzpa"],
+  "config_flow": true,
+  "documentation": "https://github.com/Komzpa/cat-tv-play",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/Komzpa/cat-tv-play/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
+
