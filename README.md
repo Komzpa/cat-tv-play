@@ -27,6 +27,8 @@ still a pilot until it has broader Home Assistant runtime testing.
   markers.
 - `cat_tv_play.measure_image_point` converts image coordinates into wall
   centimeters and returns `jump_height_cm`.
+- Source-subtraction helpers can remove the known projected clip from review
+  camera frames before proposing cat candidates.
 - `sensor.cat_tv_play_session` exposes the active session and recent observation.
 
 ## Installation
@@ -180,6 +182,15 @@ For higher jumps, start below the cat's known maximum and climb in short steps:
 
 Keep the landing area clear and stop before the cat is tired.
 
+## Source Subtraction
+
+When the clip shown on the projector is known, review tooling can warp that
+source frame into the review camera and subtract it. This prevents projected
+prey from becoming the main candidate when the real cat is lower, occluded, or
+partly outside the projected rectangle.
+
+See [docs/source-subtraction.md](docs/source-subtraction.md).
+
 ## Example Automation
 
 ```yaml
@@ -209,4 +220,3 @@ python3 -m compileall custom_components tests scripts
 The name is deliberately **Cat TV Play**, not "trainer". The goal is an
 interactive play loop: show prey-like video, observe behavior, measure jumps,
 and choose better play sessions.
-
