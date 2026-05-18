@@ -189,6 +189,11 @@ source frame into the review camera and subtract it. This prevents projected
 prey from becoming the main candidate when the real cat is lower, occluded, or
 partly outside the projected rectangle.
 
+Use a room background from frames known not to contain the cat, or update an
+adaptive background through a mask that excludes the possible cat path. Do not
+average the whole active clip: a tired cat that sits still can otherwise become
+part of the background and disappear from detection.
+
 See [docs/source-subtraction.md](docs/source-subtraction.md).
 
 ## Example Automation

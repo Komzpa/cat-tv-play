@@ -16,12 +16,27 @@ does this:
 Those candidates are not final cat detections. A downstream model or human
 review still decides whether each candidate is the cat.
 
+Do not build the room background from arbitrary active-session pixels. If the
+cat sits still for most of the clip, median or percentile aggregation will learn
+the cat as part of the background and erase it.
+
+For live review, keep an adaptive background but update it only through a mask
+that excludes every pixel where the cat could plausibly be. Draw this exclusion
+generously: the floor line, stool/chair area, lower wall, entry side, and the
+observed jump corridor. Pixels outside that path can keep adapting to IR
+exposure and projector brightness changes; pixels inside the path keep their
+last no-cat value until a reviewed no-cat frame refreshes them.
+
 ## Inputs
 
 - `camera_frame`: the review-camera frame.
 - `source_frame`: the frame currently being played by the projector.
 - `projector_polygon`: the four camera-image corners of the projected source
   plane.
+- `room_background`: optional camera background built from no-cat frames; this
+  is what keeps a static sitting cat visible outside the projected rectangle.
+- `update_mask`: optional background-learning mask. `True` means a pixel may
+  update from the current frame; keep possible-cat pixels `False`.
 - `residual_baseline`: optional percentile residual image computed over nearby
   frames to remove stable calibration and brightness mismatch.
 

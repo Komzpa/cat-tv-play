@@ -22,6 +22,19 @@ PROJECTOR_POLYGON = (
 )
 
 
+def _camera_room_with_projection(source: Image.Image, *, room_luma: int = 95) -> Image.Image:
+    warped = source_subtraction.warp_source_to_camera(
+        source,
+        projector_polygon=PROJECTOR_POLYGON,
+        width=1280,
+        height=720,
+    )
+    camera_arr = np.full((720, 1280), room_luma, dtype=np.uint8)
+    mask = source_subtraction.projection_mask(PROJECTOR_POLYGON, 1280, 720)
+    camera_arr[mask] = warped[mask]
+    return Image.fromarray(camera_arr).convert("RGB")
+
+
 def test_source_subtracted_candidates_ignore_projected_prey_and_keep_cat() -> None:
     cv2 = pytest.importorskip("cv2")
     source = Image.new("RGB", (1280, 720), "white")
@@ -81,6 +94,58 @@ def test_source_subtracted_candidates_accept_residual_baseline() -> None:
     x, y, width, height = candidates[0].bbox_xywh
     assert x <= 625 <= x + width
     assert y <= 435 <= y + height
+
+
+def test_room_background_from_no_cat_frame_keeps_static_sitting_cat() -> None:
+    pytest.importorskip("cv2")
+    source = Image.new("RGB", (1280, 720), "white")
+    no_cat_camera = _camera_room_with_projection(source)
+    camera_with_cat = no_cat_camera.copy()
+    ImageDraw.Draw(camera_with_cat).rectangle((585, 650, 675, 715), fill="black")
+    good_background = source_subtraction.build_room_background([no_cat_camera])
+
+    good_candidates = source_subtraction.detect_source_subtracted_candidates(
+        camera_with_cat,
+        source_frame=source,
+        projector_polygon=PROJECTOR_POLYGON,
+        room_background=good_background,
+    )
+
+    assert any(580 <= candidate.bbox_xywh[0] <= 620 and candidate.bbox_xywh[1] >= 640 for candidate in good_candidates)
+    assert good_background.frame_count == 1
+
+
+def test_room_background_matches_ir_brightness_shift() -> None:
+    pytest.importorskip("cv2")
+    source = Image.new("RGB", (1280, 720), "white")
+    no_cat_camera = _camera_room_with_projection(source).convert("L")
+    dark_current = no_cat_camera.point(lambda value: max(0, int(value * 0.55)))
+    camera_with_cat = dark_current.convert("RGB")
+    ImageDraw.Draw(camera_with_cat).rectangle((585, 650, 675, 715), fill="black")
+    background = source_subtraction.build_room_background([no_cat_camera])
+
+    candidates = source_subtraction.detect_source_subtracted_candidates(
+        camera_with_cat,
+        source_frame=source,
+        projector_polygon=PROJECTOR_POLYGON,
+        room_background=background,
+    )
+
+    assert any(580 <= candidate.bbox_xywh[0] <= 620 and candidate.bbox_xywh[1] >= 640 for candidate in candidates)
+
+
+def test_background_update_mask_keeps_possible_cat_path_out_of_average() -> None:
+    base = Image.new("L", (100, 80), 120)
+    current = Image.new("L", (100, 80), 180)
+    ImageDraw.Draw(current).rectangle((40, 55, 60, 75), fill=20)
+    update_mask = np.ones((80, 100), dtype=bool)
+    update_mask[45:80, 30:70] = False
+
+    updated = source_subtraction.update_room_background(base, current, update_mask=update_mask, alpha=0.5)
+    updated_arr = np.asarray(updated)
+
+    assert updated_arr[10, 10] == 150
+    assert updated_arr[60, 50] == 120
 
 
 def test_source_subtracted_candidates_reject_bad_baseline_shape() -> None:
