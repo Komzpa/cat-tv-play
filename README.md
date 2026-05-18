@@ -204,7 +204,8 @@ Review tooling should transform candidate points into wall centimeters before
 filtering. `custom_components/cat_tv_play/tracking.py` provides a conservative
 wall-plane tracker: it predicts the current track, gates impossible candidates,
 updates only with accepted detections, and keeps raw accepted heights for peak
-extraction.
+extraction. `custom_components/cat_tv_play/review_overlay.py` can hold the
+best three jump-peak crops in a right-side review panel for annotated clips.
 
 See [docs/tracking.md](docs/tracking.md).
 

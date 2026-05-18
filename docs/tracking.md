@@ -47,3 +47,14 @@ down. Review output should keep both raw accepted height and filtered height.
 
 The metric is wall-plane reach/contact height. If the point is not actually on
 the wall plane, camera parallax can still affect the physical interpretation.
+
+## Top-3 Peak Holds
+
+Annotated review clips should keep a right-side `TOP JUMPS` panel with the best
+three jump peak crops. Use `review_overlay.crop_jump_peak_hold` when a local
+maximum is confirmed, feed it through `update_top_jump_holds`, then pass the
+accumulated list to `render_top_jump_holds_overlay` for every following frame.
+
+Nearby peak frames are merged by timestamp so one jump does not fill all three
+slots. The panel is a persistent hold display: once a higher jump appears, it
+replaces the lower record and remains visible in the right side of the video.
