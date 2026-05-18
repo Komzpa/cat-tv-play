@@ -35,6 +35,32 @@ class AdaptiveBackground:
     source: str = "recent_no_cat_frames"
 
 
+def robust_component_top_px(
+    labels: np.ndarray,
+    label: int,
+    *,
+    top_percentile: float = 3.0,
+    cap_height_px: int = 5,
+    min_cap_pixels: int = 8,
+) -> tuple[float, float] | None:
+    """Return a stable top point for a connected component.
+
+    A single isolated high pixel must not become a fake jump apex. Use a thin
+    upper cap of the component and report its median point instead.
+    """
+
+    ys, xs = np.nonzero(labels == label)
+    if len(ys) < min_cap_pixels:
+        return None
+
+    robust_top_y = float(np.percentile(ys, top_percentile))
+    cap = ys <= robust_top_y + cap_height_px
+    if int(cap.sum()) < min_cap_pixels:
+        return None
+
+    return float(np.median(xs[cap])), float(np.median(ys[cap]))
+
+
 def projector_polygon_for_size(
     projector_polygon_1280: Iterable[tuple[float, float]],
     width: int,
@@ -269,13 +295,15 @@ def detect_source_subtracted_candidates(
             continue
         if int(candidate_width) > int(width * 0.28) or int(candidate_height) > int(height * 0.36):
             continue
-        ys, xs = np.nonzero(labels == label)
-        top_xs = xs[ys == ys.min()]
+        top_point = robust_component_top_px(labels, label)
+        if top_point is None:
+            continue
+        top_x_px, top_y_px = top_point
         candidates.append(
             SourceSubtractionCandidate(
                 bbox_xywh=(float(left), float(top), float(candidate_width), float(candidate_height)),
-                top_x_px=float(top_xs.mean()),
-                top_y_px=float(top),
+                top_x_px=top_x_px,
+                top_y_px=top_y_px,
                 area_px=int(area),
             )
         )

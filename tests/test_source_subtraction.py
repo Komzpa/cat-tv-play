@@ -167,3 +167,23 @@ def test_source_subtracted_candidates_reject_bad_baseline_shape() -> None:
             projector_polygon=PROJECTOR_POLYGON,
             residual_baseline=np.zeros((10, 10), dtype=np.float32),
         )
+
+
+def test_robust_component_top_ignores_single_high_noise_pixel() -> None:
+    labels = np.zeros((40, 40), dtype=np.int32)
+    labels[10:30, 15:25] = 1
+    labels[2, 5] = 1
+
+    top = source_subtraction.robust_component_top_px(labels, 1)
+
+    assert top is not None
+    top_x, top_y = top
+    assert 15 <= top_x <= 24
+    assert 10 <= top_y <= 15
+
+
+def test_robust_component_top_rejects_tiny_components() -> None:
+    labels = np.zeros((12, 12), dtype=np.int32)
+    labels[4:6, 4:6] = 1
+
+    assert source_subtraction.robust_component_top_px(labels, 1) is None

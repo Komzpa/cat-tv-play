@@ -29,6 +29,8 @@ still a pilot until it has broader Home Assistant runtime testing.
   centimeters and returns `jump_height_cm`.
 - Source-subtraction helpers can remove the known projected clip from review
   camera frames before proposing cat candidates.
+- Wall-plane tracking rejects physically impossible candidate jumps before
+  smoothing and extracts peak height from accepted raw detections.
 - `sensor.cat_tv_play_session` exposes the active session and recent observation.
 
 ## Installation
@@ -195,6 +197,16 @@ average the whole active clip: a tired cat that sits still can otherwise become
 part of the background and disappear from detection.
 
 See [docs/source-subtraction.md](docs/source-subtraction.md).
+
+## Jump Tracking
+
+Review tooling should transform candidate points into wall centimeters before
+filtering. `custom_components/cat_tv_play/tracking.py` provides a conservative
+wall-plane tracker: it predicts the current track, gates impossible candidates,
+updates only with accepted detections, and keeps raw accepted heights for peak
+extraction.
+
+See [docs/tracking.md](docs/tracking.md).
 
 ## Example Automation
 

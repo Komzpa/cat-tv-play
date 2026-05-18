@@ -10,7 +10,7 @@ from homeassistant.helpers.storage import Store
 from .const import STORAGE_KEY, STORAGE_VERSION
 
 
-class PetTvStore:
+class CatTvPlayStore:
     """Small JSON-backed store for sessions, observations, and calibrations."""
 
     def __init__(self, hass: HomeAssistant) -> None:
@@ -30,3 +30,5 @@ class PetTvStore:
     async def async_save(self) -> None:
         await self._store.async_save(self.data)
 
+
+PetTvStore = CatTvPlayStore
