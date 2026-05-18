@@ -8,8 +8,8 @@ residual components for a downstream cat/not-cat detector or human review.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -195,7 +195,10 @@ def source_subtracted_residual(
     else:
         background_image = room_background.image if isinstance(room_background, AdaptiveBackground) else room_background
         matched_background = match_background_luma(background_image, camera_frame, ~projection)
-        expected = np.asarray(matched_background.convert("L").resize((width, height)), dtype=np.uint8).astype(np.float32)
+        expected = np.asarray(
+            matched_background.convert("L").resize((width, height)),
+            dtype=np.uint8,
+        ).astype(np.float32)
 
     fit_mask = projection.copy()
     fit_mask[int(height * 0.69) :, :] = False
