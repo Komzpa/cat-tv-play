@@ -117,14 +117,14 @@ def render_top_jump_holds_overlay(
         y += 14
 
         thumb = _fit_thumbnail(hold.image, max_thumb_width, thumbnail_height_px)
-        thumb_x = panel_left + padding_px
+        thumb_x = panel_left + padding_px + (max_thumb_width - thumb.width) // 2
         output.alpha_composite(thumb.convert("RGBA"), (thumb_x, y))
         draw.rectangle(
             (thumb_x, y, thumb_x + thumb.width - 1, y + thumb.height - 1),
             outline=(255, 215, 64, 255),
             width=2,
         )
-        y += thumbnail_height_px + padding_px
+        y += thumb.height + padding_px
 
     return output.convert("RGB")
 
@@ -134,8 +134,4 @@ def _fit_thumbnail(image: Image.Image, max_width: int, max_height: int) -> Image
     width, height = source.size
     scale = min(max_width / width, max_height / height)
     resized = source.resize((max(1, int(width * scale)), max(1, int(height * scale))))
-    canvas = Image.new("RGB", (max_width, max_height), (16, 16, 16))
-    left = (max_width - resized.width) // 2
-    top = (max_height - resized.height) // 2
-    canvas.paste(resized, (left, top))
-    return canvas
+    return resized

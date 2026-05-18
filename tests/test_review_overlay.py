@@ -71,3 +71,30 @@ def test_render_top_jump_holds_overlay_draws_on_right_side() -> None:
     assert rendered.size == frame.size
     assert rendered.getpixel((620, 20)) != frame.getpixel((620, 20))
     assert rendered.getpixel((20, 20)) == frame.getpixel((20, 20))
+
+
+def test_render_top_jump_holds_overlay_frames_vertical_crop_with_vertical_box() -> None:
+    frame = _frame("white")
+    hold_image = Image.new("RGB", (48, 160), "white")
+    ImageDraw.Draw(hold_image).rectangle((14, 24, 34, 140), fill="black")
+    hold = review_overlay.JumpPeakHold(
+        t=0.0,
+        height_cm=126.9,
+        image=hold_image,
+        peak_x_px=24,
+        peak_y_px=40,
+    )
+
+    rendered = review_overlay.render_top_jump_holds_overlay(frame, [hold], panel_width_px=180)
+
+    yellow_columns = {
+        x
+        for x in range(rendered.width - 180, rendered.width)
+        for y in range(20, 170)
+        if (
+            (pixel := rendered.getpixel((x, y)))[0] > 210
+            and pixel[1] > 170
+            and pixel[2] < 100
+        )
+    }
+    assert 20 < len(yellow_columns) < 80
