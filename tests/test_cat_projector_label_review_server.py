@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
+import threading
 from pathlib import Path
+from urllib.request import Request, urlopen
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "cat_projector_label_review_server.py"
 SCRIPT_SPEC = importlib.util.spec_from_file_location("cat_projector_label_review_server", SCRIPT_PATH)
@@ -21,6 +24,8 @@ def test_fake_smoke_builds_review_queue_and_action_records(tmp_path: Path) -> No
     assert len(label_files) == 2
     assert len(action_files) == 2
     assert len(mask_files) == 1
+    saved_labels = [json.loads(path.read_text(encoding="utf-8")) for path in label_files]
+    assert {row["label_candidate_is_cat"] for row in saved_labels} == {"yes", "no"}
 
 
 def test_segment_endpoint_requires_configured_sam_without_explicit_degraded_fallback(tmp_path: Path) -> None:
@@ -42,3 +47,54 @@ def test_segment_endpoint_requires_configured_sam_without_explicit_degraded_fall
             raise AssertionError("segment unexpectedly fell back without allow_fallback")
     finally:
         server.SAM_ENDPOINT = old_endpoint
+
+
+def test_file_api_supports_get_and_head_for_discovered_images(tmp_path: Path) -> None:
+    fake_dataset = server.build_fake_corpus(tmp_path)
+    fake_state = tmp_path / "state"
+    original_dataset = server.DATASET_ROOT
+    original_state = server.STATE_ROOT
+    original_review = server.REVIEW_ROOT
+    original_labels = server.LABELS_ROOT
+    original_masks = server.MASKS_ROOT
+    original_queue = server.QUEUE_ROOT
+    original_scan_roots = server.SCAN_ROOTS
+    original_allowed = server.ALLOWED_ROOTS
+    try:
+        server.DATASET_ROOT = fake_dataset
+        server.STATE_ROOT = fake_state
+        server.REVIEW_ROOT = fake_state / "label-review"
+        server.LABELS_ROOT = server.REVIEW_ROOT / "labels"
+        server.MASKS_ROOT = server.REVIEW_ROOT / "masks"
+        server.QUEUE_ROOT = server.REVIEW_ROOT / "actions"
+        server.SCAN_ROOTS = (fake_dataset / "datasets",)
+        server.ALLOWED_ROOTS = (fake_dataset, fake_state, server.REVIEW_ROOT)
+
+        httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.CatProjectorLabelReviewHandler)
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        base_url = f"http://127.0.0.1:{httpd.server_address[1]}"
+        try:
+            with urlopen(f"{base_url}/api/cat-projector-label-review/cases?limit=1", timeout=10) as response:
+                image_url = json.loads(response.read().decode("utf-8"))["cases"][0]["image_url"]
+            with urlopen(f"{base_url}{image_url}", timeout=10) as response:
+                assert response.status == 200
+                assert response.headers["Content-Type"] == "image/jpeg"
+                assert response.read(16)
+            head_request = Request(f"{base_url}{image_url}", method="HEAD")
+            with urlopen(head_request, timeout=10) as response:
+                assert response.status == 200
+                assert response.headers["Content-Type"] == "image/jpeg"
+                assert int(response.headers["Content-Length"]) > 0
+        finally:
+            httpd.shutdown()
+            thread.join(timeout=5)
+    finally:
+        server.DATASET_ROOT = original_dataset
+        server.STATE_ROOT = original_state
+        server.REVIEW_ROOT = original_review
+        server.LABELS_ROOT = original_labels
+        server.MASKS_ROOT = original_masks
+        server.QUEUE_ROOT = original_queue
+        server.SCAN_ROOTS = original_scan_roots
+        server.ALLOWED_ROOTS = original_allowed

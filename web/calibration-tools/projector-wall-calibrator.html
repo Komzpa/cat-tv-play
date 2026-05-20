@@ -1901,6 +1901,16 @@
       return "unsure";
     }
 
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, character => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#39;"
+      }[character]));
+    }
+
     function reviewCasePassesFilter(item) {
       const filter = reviewFilter.value;
       const label = normaliseReviewLabel(item.human_label);
@@ -1929,9 +1939,9 @@
         const label = normaliseReviewLabel(item.human_label);
         const title = item.label || item.image_path?.split("/").pop() || item.id;
         row.innerHTML = `
-          <div class="review-item-title" title="${item.image_path}">${title}</div>
+          <div class="review-item-title" title="${escapeHtml(item.image_path)}">${escapeHtml(title)}</div>
           <div class="review-item-meta">${probability} · uncertainty ${Number(item.uncertainty_score || 0).toFixed(2)}</div>
-          <div class="review-item-meta">${status} · ${label} · ${item.source || "corpus"}</div>
+          <div class="review-item-meta">${escapeHtml(status)} · ${escapeHtml(label)} · ${escapeHtml(item.source || "corpus")}</div>
         `;
         row.addEventListener("click", () => openReviewCase(item.id).catch(error => {
           reviewStatus.textContent = error.message;
@@ -2018,10 +2028,11 @@
       }
       const probability = typeof item.detector_probability === "number" ? item.detector_probability.toFixed(3) : "?";
       const video = item.source_video_path ? `video: ${item.source_video_path}` : "";
+      const videoLink = item.source_video_url ? `<a href="${escapeHtml(item.source_video_url)}" target="_blank" rel="noopener">open video context</a>` : "";
       reviewDetail.innerHTML = `
-        <div class="review-detail-title">${activeReviewLabel} · p=${probability} · ${item.review_status || "unreviewed"}</div>
-        <div class="review-detail-path">${item.image_path}</div>
-        ${video ? `<div class="review-detail-path">${video}</div>` : ""}
+        <div class="review-detail-title">${escapeHtml(activeReviewLabel)} · p=${escapeHtml(probability)} · ${escapeHtml(item.review_status || "unreviewed")}</div>
+        <div class="review-detail-path">${escapeHtml(item.image_path)}</div>
+        ${video ? `<div class="review-detail-path">${escapeHtml(video)} ${videoLink}</div>` : ""}
       `;
       updateReviewLabelButtons();
     }

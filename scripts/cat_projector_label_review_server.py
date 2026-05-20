@@ -278,7 +278,12 @@ def _discover_cases(limit: int) -> list[ReviewCase]:
                         break
                 except ValueError:
                     pass
-            human_label = saved.get("label") or row.get("label_cat_present") or None
+            human_label = (
+                saved.get("label")
+                or row.get("label_cat_present")
+                or row.get("label_candidate_is_cat")
+                or None
+            )
             review_status = saved.get("review_status") or row.get("review_status") or "unreviewed"
             label = str(saved.get("title") or image_path.name)
             cases.append(
@@ -546,6 +551,8 @@ def _save_label(payload: dict[str, Any]) -> dict[str, Any]:
         "source_recording_dir": payload.get("source_recording_dir"),
         "label": label,
         "label_cat_present": "yes" if label == "cat" else "no" if label == "not_cat" else "",
+        "label_candidate_is_cat": payload.get("label_candidate_is_cat")
+        or ("yes" if label == "cat" else "no" if label == "not_cat" else ""),
         "review_status": review_status,
         "candidate_bbox_xywh": payload.get("candidate_bbox_xywh"),
         "notes": payload.get("notes") or "",
@@ -631,11 +638,7 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
             self._send_json({"kind": LABEL_NAMESPACE + "_queue_v1", "cases": cases})
             return
         if parsed.path.startswith("/api/cat-projector-label-review/file/"):
-            token = unquote(parsed.path.rsplit("/", 1)[-1])
-            try:
-                self._send_file(_decode_path(token))
-            except (OSError, ValueError) as exc:
-                self._send_error_json(HTTPStatus.NOT_FOUND, str(exc))
+            self._send_api_file(parsed.path)
             return
         if parsed.path == "/api/cat-projector-label-review/label":
             query = parse_qs(parsed.query)
@@ -656,6 +659,9 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
 
     def do_HEAD(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/cat-projector-label-review/file/"):
+            self._send_api_file(parsed.path, include_body=False)
+            return
         if self._send_static_if_exists(WEB_ROOT, parsed.path, include_body=False):
             return
         if self._send_dataset_static_if_exists(parsed.path, include_body=False):
@@ -691,6 +697,13 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
             self._send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
             return
         self._send_error_json(HTTPStatus.NOT_FOUND, "unknown endpoint")
+
+    def _send_api_file(self, request_path: str, *, include_body: bool = True) -> None:
+        token = unquote(request_path.rsplit("/", 1)[-1])
+        try:
+            self._send_file(_decode_path(token), include_body=include_body)
+        except (OSError, ValueError) as exc:
+            self._send_error_json(HTTPStatus.NOT_FOUND, str(exc))
 
     def _send_file(self, path: Path, *, include_body: bool = True) -> None:
         path = _safe_local_path(path)
