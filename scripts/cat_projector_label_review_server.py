@@ -645,6 +645,12 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
             return
         super().do_GET()
 
+    def do_HEAD(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        if self._send_dataset_static_if_exists(parsed.path, include_body=False):
+            return
+        super().do_HEAD()
+
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         try:
@@ -674,7 +680,7 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
             return
         self._send_error_json(HTTPStatus.NOT_FOUND, "unknown endpoint")
 
-    def _send_file(self, path: Path) -> None:
+    def _send_file(self, path: Path, *, include_body: bool = True) -> None:
         path = _safe_local_path(path)
         ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         stat = path.stat()
@@ -683,6 +689,8 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(stat.st_size))
         self.send_header("Cache-Control", "private, max-age=60")
         self.end_headers()
+        if not include_body:
+            return
         with path.open("rb") as handle:
             while True:
                 chunk = handle.read(1024 * 1024)
@@ -690,14 +698,14 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
                     break
                 self.wfile.write(chunk)
 
-    def _send_dataset_static_if_exists(self, request_path: str) -> bool:
+    def _send_dataset_static_if_exists(self, request_path: str, *, include_body: bool = True) -> bool:
         relative = Path(unquote(request_path).lstrip("/"))
         if any(part in {"", ".", ".."} for part in relative.parts):
             return False
         path = DATASET_ROOT / relative
         if not path.is_file():
             return False
-        self._send_file(path)
+        self._send_file(path, include_body=include_body)
         return True
 
 
