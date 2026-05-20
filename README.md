@@ -209,6 +209,31 @@ best three jump-peak crops in a right-side review panel for annotated clips.
 
 See [docs/tracking.md](docs/tracking.md).
 
+## Label Review UI
+
+The repository also ships a local-only Sher jump-frame review tool at
+`web/calibration-tools/projector-wall-calibrator.html`. It extends the
+calibration surface with a `review` mode for browsing local
+`cat-tv-learning` frames, sorting uncertain detector cases first, saving
+`cat` / `not_cat` / `unsure` labels, editing bbox/mask annotations, and queuing
+explicit retrain or rescore actions.
+
+Run the backend locally:
+
+```bash
+python3 scripts/cat_projector_label_review_server.py --host 0.0.0.0 --port 8790
+```
+
+By default it reads `CAT_TV_LEARNING_ROOT`, a repo-local
+`datasets/cat-tv-learning`, or the house `tasks-loop` dataset if present, and
+writes labels/masks/actions under
+`~/.openclaw/state/cat-tv-learning/label-review/`. Household frames stay on the
+local machine. Set `CAT_PROJECTOR_SAM_ENDPOINT` to a localhost or private-LAN
+SAM/SAM2 service for promptable masks; without that, the backend falls back to
+a CPU click-to-contour mask so manual labeling still works.
+
+See [docs/label-review.md](docs/label-review.md).
+
 ## Example Automation
 
 ```yaml
@@ -231,6 +256,7 @@ action:
 ```bash
 python3 -m pytest
 python3 -m compileall custom_components tests scripts
+python3 scripts/cat_projector_label_review_server.py --fake-smoke
 ```
 
 ## Name

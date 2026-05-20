@@ -1,0 +1,2971 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cat Projector Wall Calibrator</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #111315;
+      --panel: #1b1f23;
+      --panel2: #242a30;
+      --text: #e9edf1;
+      --muted: #aeb7c2;
+      --line: #48525d;
+      --accent: #67d7ff;
+      --bad: #ff7b72;
+      --ok: #7ee787;
+      --warn: #ffa657;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      background: #15191d;
+      z-index: 5;
+      flex: 0 0 auto;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 700;
+      flex: 0 0 auto;
+    }
+
+    button, input, select, textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 1px solid #59636f;
+      background: #27313a;
+      color: var(--text);
+      padding: 7px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      flex: 0 0 auto;
+    }
+
+    button:hover { background: #33404b; }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
+
+    input[type="number"], input[type="text"] {
+      width: 86px;
+      border: 1px solid #59636f;
+      background: #12161a;
+      color: var(--text);
+      padding: 5px 6px;
+      border-radius: 4px;
+    }
+
+    #selLabel {
+      width: 180px;
+    }
+
+    #samEndpoint {
+      width: 260px;
+    }
+
+    #reviewFilter {
+      width: 150px;
+    }
+
+    #reviewQueue {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 260px;
+      overflow: auto;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 6px;
+      padding: 6px;
+      background: rgba(0,0,0,0.12);
+    }
+
+    .review-item {
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 6px;
+      padding: 7px;
+      cursor: pointer;
+      background: #151a1f;
+    }
+
+    .review-item.active {
+      border-color: var(--accent);
+      background: rgba(103,215,255,0.12);
+    }
+
+    .review-item-title {
+      font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .review-item-meta, #reviewStatus, #reviewDetail, #reviewActionLog {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    #reviewNotes {
+      width: 100%;
+      min-height: 76px;
+      resize: vertical;
+    }
+
+    .review-actions button {
+      min-width: 72px;
+    }
+
+    input[type="range"] { width: 120px; }
+
+    .layout {
+      display: grid;
+      grid-template-areas: "points canvas inspector";
+      grid-template-columns: 560px minmax(0, 1fr) 360px;
+      grid-template-rows: minmax(0, 1fr);
+      gap: 0;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    aside {
+      grid-area: points;
+      border-right: 1px solid var(--line);
+      background: var(--panel);
+      overflow: auto;
+      min-height: 0;
+    }
+
+    aside.right {
+      grid-area: inspector;
+      border-right: 0;
+      border-left: 1px solid var(--line);
+    }
+
+    .section {
+      padding: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .section h2 {
+      margin: 0 0 8px;
+      font-size: 13px;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 7px 0;
+    }
+
+    .mode-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid #59636f;
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: #141a20;
+      color: var(--muted);
+      white-space: nowrap;
+      flex: 0 0 auto;
+    }
+
+    .point-row {
+      display: grid;
+      grid-template-columns: 18px minmax(140px, 1fr) 62px 62px 74px 58px 58px;
+      gap: 6px;
+      align-items: center;
+      padding: 5px 4px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .point-row.header {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .point-row.active {
+      background: rgba(103,215,255,0.12);
+    }
+
+    .swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.75);
+    }
+
+    .point-name {
+      white-space: normal;
+      line-height: 1.2;
+    }
+
+    .point-fit-cell {
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      font-size: 12px;
+    }
+
+    .distance-row {
+      display: grid;
+      grid-template-columns: minmax(110px, 1fr) minmax(110px, 1fr) 72px 58px 58px 34px;
+      gap: 6px;
+      align-items: center;
+      padding: 5px 4px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .distance-row.header {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .cat-row {
+      display: grid;
+      grid-template-columns: 18px minmax(130px, 1fr) 64px 34px;
+      gap: 6px;
+      align-items: center;
+      padding: 5px 4px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      cursor: pointer;
+    }
+
+    .cat-row.active {
+      background: rgba(255, 123, 196, 0.12);
+    }
+
+    .cat-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .mini-button {
+      padding: 3px 7px;
+      font-size: 12px;
+    }
+
+    .smoke-row {
+      display: grid;
+      grid-template-columns: minmax(130px, 1fr) 72px;
+      gap: 6px;
+      align-items: center;
+      padding: 4px 0;
+      font-size: 12px;
+    }
+
+    select {
+      min-width: 0;
+      border: 1px solid #59636f;
+      background: #12161a;
+      color: var(--text);
+      padding: 5px 6px;
+      border-radius: 4px;
+    }
+
+    main {
+      grid-area: canvas;
+      overflow: auto;
+      background: #080a0c;
+      display: block;
+      padding: 12px;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    .canvas-wrap {
+      position: relative;
+      background: #000;
+      border: 1px solid var(--line);
+      width: max-content;
+      height: max-content;
+      margin: 0 50vw 50vh 0;
+    }
+
+    canvas {
+      display: block;
+      image-rendering: auto;
+      cursor: crosshair;
+      height: auto;
+      max-width: none;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    th, td {
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding: 5px 4px;
+      text-align: right;
+    }
+
+    th:first-child, td:first-child { text-align: left; }
+
+    .bad { color: var(--bad); }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .muted { color: var(--muted); }
+
+    textarea {
+      width: 100%;
+      min-height: 260px;
+      resize: vertical;
+      border: 1px solid #59636f;
+      background: #11161b;
+      color: var(--text);
+      padding: 8px;
+      border-radius: 5px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid #59636f;
+      border-radius: 999px;
+      padding: 4px 8px;
+      color: var(--muted);
+      background: #141a20;
+      white-space: nowrap;
+      flex: 0 0 auto;
+    }
+
+    @media (max-width: 1250px) {
+      header {
+        gap: 8px;
+        padding: 8px;
+      }
+
+      .layout {
+        grid-template-areas:
+          "canvas"
+          "inspector"
+          "points";
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr) auto auto;
+      }
+
+      aside, aside.right {
+        max-height: 35vh;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      main {
+        min-height: 0;
+        padding: 8px;
+      }
+
+      .point-row {
+        grid-template-columns: 18px minmax(170px, 1fr) 72px 72px 74px 58px 58px;
+      }
+
+      textarea {
+        min-height: 150px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Cat Projector Wall Calibrator</h1>
+    <span class="pill" id="fitBadge">model not fitted</span>
+    <label class="mode-switch">Mode
+      <select id="modeSelect">
+        <option value="wall">wall</option>
+        <option value="cat">cat mask</option>
+        <option value="review">review</option>
+      </select>
+    </label>
+    <button id="resetViewBtn">Reset view</button>
+    <button id="resetPointsBtn">Reset points...</button>
+    <button id="copyBtn">Copy JSON</button>
+    <button id="downloadBtn">Download JSON</button>
+    <button id="zoomOutBtn">-</button>
+    <label class="pill">Zoom <input id="zoom" type="range" min="25" max="500" value="100"></label>
+    <button id="zoomInBtn">+</button>
+    <button id="zoomFitBtn">Fit</button>
+    <button id="zoom100Btn">100%</button>
+    <button id="zoom200Btn">200%</button>
+    <span class="pill">live captures auto-added</span>
+    <input id="imageInput" type="file" accept="image/*" hidden>
+  </header>
+
+  <div class="layout">
+    <aside>
+      <div class="section">
+        <h2>Cases</h2>
+        <div class="row">
+          <select id="caseSelect"></select>
+          <button id="newCaseBtn">New case</button>
+          <button id="duplicateCaseBtn">Duplicate case</button>
+          <button id="deleteCaseBtn">Delete case</button>
+        </div>
+        <div class="row">
+          <label>name <input id="caseName" type="text"></label>
+          <button id="setProjectorReferenceBtn">Set projector reference</button>
+        </div>
+        <div id="smokeCheck"></div>
+      </div>
+
+      <div class="section">
+        <h2>Points</h2>
+        <div class="row">
+          <label><input id="showLines" type="checkbox" checked> grid lines</label>
+          <label><input id="showResiduals" type="checkbox" checked> residual labels</label>
+          <button id="addPointBtn">Add point</button>
+        </div>
+        <div id="points"></div>
+        <h2>Distances</h2>
+        <div class="distance-row">
+          <select id="distancePointA"></select>
+          <select id="distancePointB"></select>
+          <input id="distanceMm" type="number" step="1" placeholder="mm">
+          <button id="addDistanceBtn">+</button>
+        </div>
+        <div id="distances"></div>
+      </div>
+
+      <div class="section">
+        <h2>Cat masks</h2>
+        <div class="row">
+          <button id="addCatBtn">New cat</button>
+          <button id="autoCatBtn">Auto contour</button>
+          <button id="duplicateCatBtn">Duplicate</button>
+          <button id="deleteCatBtn">Delete</button>
+        </div>
+        <div class="row">
+          <label>label <input id="catLabel" type="text" placeholder="Sher"></label>
+          <label>kind
+            <select id="catKind">
+              <option value="cat">cat</option>
+              <option value="not_cat">not cat</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <label>mask API <input id="samEndpoint" type="text" value="/api/cat-projector-label-review/segment"></label>
+        </div>
+        <div class="row">
+          <button id="addCatVertexBtn">Add vertex</button>
+          <button id="deleteCatVertexBtn">Delete vertex</button>
+          <button id="clearCatHintsBtn">Clear hints</button>
+        </div>
+        <div id="catMaskStatus" class="muted">click image in cat mode</div>
+        <div id="catMasks"></div>
+      </div>
+
+      <div class="section">
+        <h2>Review queue</h2>
+        <div class="row">
+          <select id="reviewFilter">
+            <option value="unreviewed">unreviewed</option>
+            <option value="all">all</option>
+            <option value="saved">saved</option>
+            <option value="cat">cat</option>
+            <option value="not_cat">not cat</option>
+            <option value="unsure">unsure</option>
+          </select>
+          <button id="refreshReviewBtn">Refresh</button>
+        </div>
+        <div id="reviewStatus">backend not loaded</div>
+        <div id="reviewQueue"></div>
+      </div>
+    </aside>
+
+    <main>
+      <div class="canvas-wrap">
+        <canvas id="canvas" width="1280" height="720"></canvas>
+      </div>
+    </main>
+
+    <aside class="right">
+      <div class="section">
+        <h2>Selected</h2>
+        <div class="row"><span id="selectedName" class="muted">none</span></div>
+        <div class="row">
+          <label>label <input id="selLabel" type="text"></label>
+          <label>height <input id="selHeight" type="number" step="1"></label>
+        </div>
+        <div class="row">
+          <label>x <input id="selX" type="number" step="0.1"></label>
+          <label>y <input id="selY" type="number" step="0.1"></label>
+        </div>
+        <div class="row">
+          <button id="duplicatePointBtn" disabled>Duplicate point</button>
+          <button id="deletePointBtn" disabled>Delete point</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>JSON</h2>
+        <div class="row">
+          <button id="importBtn">Import JSON</button>
+          <button id="saveLocalBtn">Save local</button>
+          <button id="loadLocalBtn">Load local</button>
+        </div>
+        <textarea id="jsonOut" spellcheck="false"></textarea>
+      </div>
+
+      <div class="section">
+        <h2>Review item</h2>
+        <div id="reviewDetail">open a frame from the review queue</div>
+        <div class="row review-actions">
+          <button id="labelCatBtn">Cat</button>
+          <button id="labelNotCatBtn">Not cat</button>
+          <button id="labelUnsureBtn">Unsure</button>
+          <button id="saveReviewBtn">Save</button>
+        </div>
+        <textarea id="reviewNotes" spellcheck="false" placeholder="notes"></textarea>
+        <div class="row">
+          <button id="retrainModelBtn">Retrain model</button>
+          <button id="rescoreRecordingBtn">Rescore video</button>
+        </div>
+        <div id="reviewActionLog">actions are explicit queue records; nothing retrains silently</div>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    const DEFAULT_IMAGE = "../projector-overlays/height-ruler-20260516-ceiling-constrained-side-meter/current_white_with_side_meter_angles.jpg";
+    const SOURCE_SIZE = { width: 1280, height: 720 };
+    const LOCAL_STORAGE_KEY = "catProjectorWallCalibration";
+    const LABEL_REVIEW_NAMESPACE = "cat_projector_label_review";
+    const LABEL_REVIEW_API = "/api/cat-projector-label-review";
+    const CALIBRATION_SET_KIND = "cat_projector_wall_calibration_set_v1";
+    const CALIBRATION_CASE_KIND = "cat_projector_wall_calibration_points_v1";
+    const SMOKE_LIMITS = {
+      cornerPx: 28,
+      centerPx: 24,
+      areaRatio: 0.08
+    };
+
+    const defaultPoints = [
+      { id: "projection.top_left", label: "projection TL", x: 40, y: 58, color: "#67d7ff", role: "projection" },
+      { id: "projection.top_right", label: "projection TR", x: 937, y: 103, color: "#67d7ff", role: "projection" },
+      { id: "projection.bottom_right", label: "projection BR", x: 908, y: 599, color: "#67d7ff", role: "projection" },
+      { id: "projection.bottom_left", label: "projection BL", x: 46, y: 643, color: "#67d7ff", role: "projection" },
+
+      { id: "left_meter.floor", label: "left meter 0", x: 59, y: 665, height: 0, weight: 1.2, color: "#7ee787" },
+      { id: "left_meter.top", label: "left meter 100", x: 55, y: 454, height: 1000, weight: 1.2, color: "#7ee787" },
+      { id: "right_meter.floor", label: "right meter 0", x: 920, y: 644, height: 0, weight: 1.2, color: "#7ee787" },
+      { id: "right_meter.top", label: "right meter 100", x: 923, y: 414, height: 1000, weight: 1.2, color: "#7ee787" },
+
+      { id: "outlet.top_left", label: "outlet TL 94.5", x: 89, y: 467, height: 945, weight: 4, color: "#ffa657" },
+      { id: "outlet.top_right", label: "outlet TR 94.5", x: 126, y: 468, height: 945, weight: 4, color: "#ffa657" },
+      { id: "outlet.bottom_right", label: "outlet BR 86.5", x: 126, y: 503, height: 865, weight: 4, color: "#ffa657" },
+      { id: "outlet.bottom_left", label: "outlet BL 86.5", x: 89, y: 503, height: 865, weight: 4, color: "#ffa657" },
+
+      { id: "door_trim.top_left", label: "door top L 213", x: 4, y: 55, height: 2130, weight: 3, color: "#ff7b72" },
+      { id: "door_trim.top_right", label: "door top R 213", x: 40, y: 58, height: 2130, weight: 3, color: "#ff7b72" },
+      { id: "air_conditioner.bottom_left", label: "AC bottom L 218", x: 895, y: 105, height: 2180, weight: 3, color: "#d2a8ff" },
+      { id: "air_conditioner.bottom_right", label: "AC bottom R 218", x: 1210, y: 111, height: 2180, weight: 3, color: "#d2a8ff" },
+
+      { id: "ceiling.left", label: "ceiling L 250", x: 40, y: 0, height: 2500, weight: 0.4, color: "#a5d6ff" },
+      { id: "ceiling.mid", label: "ceiling M 250", x: 480, y: 0, height: 2500, weight: 0.4, color: "#a5d6ff" },
+      { id: "ceiling.right", label: "ceiling R 250", x: 937, y: 0, height: 2500, weight: 0.4, color: "#a5d6ff" }
+    ];
+
+    const defaultDistanceConstraints = [
+      { id: "left_meter_1000", a: "left_meter.floor", b: "left_meter.top", distance: 1000 },
+      { id: "right_meter_1000", a: "right_meter.floor", b: "right_meter.top", distance: 1000 },
+      { id: "outlet_top_80", a: "outlet.top_left", b: "outlet.top_right", distance: 80 },
+      { id: "outlet_bottom_80", a: "outlet.bottom_left", b: "outlet.bottom_right", distance: 80 },
+      { id: "outlet_left_80", a: "outlet.top_left", b: "outlet.bottom_left", distance: 80 },
+      { id: "outlet_right_80", a: "outlet.top_right", b: "outlet.bottom_right", distance: 80 }
+    ];
+
+    const bundledCaptureCases = [
+      {
+        id: "capture.20260516T145536+0400.live_projector_wall.projector_camera_http",
+        name: "live projector wall 2026-05-16 14:55",
+        image: "../calibration-captures/20260516T145536+0400_live_projector_wall/frames/projector_camera_http.jpg",
+        manifest: "../calibration-captures/20260516T145536+0400_live_projector_wall/manifest.json",
+        source_size_px: { width: 1280, height: 720 },
+        calibration_revision: "user_marked_20260516T1512",
+        points: [
+          { id: "projection.top_left", label: "projection TL", x: 40.22, y: 57.27, color: "#67d7ff", height_mm: null, role: "projection" },
+          { id: "projection.top_right", label: "projection TR", x: 937.92, y: 101, color: "#67d7ff", height_mm: null, role: "projection" },
+          { id: "projection.bottom_right", label: "projection BR", x: 908, y: 599, color: "#67d7ff", height_mm: null, role: "projection" },
+          { id: "projection.bottom_left", label: "projection BL", x: 48.16, y: 680.97, color: "#67d7ff", height_mm: null, role: "projection" },
+          { id: "right_meter.floor", label: "right meter 0", x: 575.0833536783854, y: 718.1488444010416, color: "#7ee787", height_mm: 0, weight: 1.2, role: "constraint" },
+          { id: "right_meter.floor.copy", label: "right meter 0 copy", x: 819.9718994140625, y: 689.5875244140625, color: "#7ee787", height_mm: 0, weight: 1.2, role: "constraint" },
+          { id: "outlet.top_left", label: "outlet TL 94.5", x: 81.184765625, y: 470.342578125, color: "#ffa657", height_mm: 945, weight: 4, role: "constraint" },
+          { id: "outlet.top_right", label: "outlet TR 94.5", x: 111.958984375, y: 468.37734375, color: "#ffa657", height_mm: 945, weight: 4, role: "constraint" },
+          { id: "outlet.top_right.copy", label: "outlet TR 94.5 copy", x: 110.691015625, y: 665.498046875, color: "#ffa657", height_mm: 350, weight: 4, role: "constraint" },
+          { id: "outlet.top_right.copy.copy", label: "outlet TR 94.5 copy copy", x: 79.806640625, y: 668.797265625, color: "#ffa657", height_mm: 350, weight: 4, role: "constraint" },
+          { id: "outlet.bottom_right", label: "outlet BR 86.5", x: 112.63828125, y: 496.267578125, color: "#ffa657", height_mm: 865, weight: 4, role: "constraint" },
+          { id: "outlet.bottom_left", label: "outlet BL 86.5", x: 82.4578125, y: 498.512890625, color: "#ffa657", height_mm: 865, weight: 4, role: "constraint" },
+          { id: "door_trim.top_left", label: "door top L 213", x: 8.464638157894736, y: 46.07072368421053, color: "#ff7b72", height_mm: 2130, weight: 3, role: "constraint" },
+          { id: "door_trim.top_right", label: "door top R 213", x: 32.493009868421055, y: 46.99671052631579, color: "#ff7b72", height_mm: 2130, weight: 3, role: "constraint" },
+          { id: "air_conditioner.bottom_left", label: "AC bottom L 218", x: 937.7270220588235, y: 71.8671875, color: "#d2a8ff", height_mm: 2180, weight: 3, role: "constraint" },
+          { id: "air_conditioner.bottom_right", label: "AC bottom R 218", x: 1174.017361111111, y: 80.39149305555556, color: "#d2a8ff", height_mm: 2180, weight: 3, role: "constraint" }
+        ],
+        distance_constraints: [
+          { id: "outlet_top_80", a: "outlet.top_left", b: "outlet.top_right", distance: 80 },
+          { id: "outlet_bottom_80", a: "outlet.bottom_left", b: "outlet.bottom_right", distance: 80 },
+          { id: "outlet_left_80", a: "outlet.top_left", b: "outlet.bottom_left", distance: 80 },
+          { id: "outlet_right_80", a: "outlet.top_right", b: "outlet.bottom_right", distance: 80 },
+          { id: "air_conditioner_bottom_970", a: "air_conditioner.bottom_left", b: "air_conditioner.bottom_right", distance: 970 },
+          { id: "low_reference_80", a: "outlet.top_right.copy", b: "outlet.top_right.copy.copy", distance: 80 }
+        ],
+        projector_reference: [
+          { id: "projection.top_left", x: 40.22, y: 57.27 },
+          { id: "projection.top_right", x: 937.92, y: 101 },
+          { id: "projection.bottom_right", x: 908, y: 599 },
+          { id: "projection.bottom_left", x: 48.16, y: 680.97 }
+        ],
+        preferred_active: true
+      }
+    ];
+
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const caseSelect = document.getElementById("caseSelect");
+    const caseName = document.getElementById("caseName");
+    const newCaseBtn = document.getElementById("newCaseBtn");
+    const duplicateCaseBtn = document.getElementById("duplicateCaseBtn");
+    const deleteCaseBtn = document.getElementById("deleteCaseBtn");
+    const setProjectorReferenceBtn = document.getElementById("setProjectorReferenceBtn");
+    const smokeCheck = document.getElementById("smokeCheck");
+    const pointsEl = document.getElementById("points");
+    const distancesEl = document.getElementById("distances");
+    const jsonOut = document.getElementById("jsonOut");
+    const fitBadge = document.getElementById("fitBadge");
+    const selectedName = document.getElementById("selectedName");
+    const selLabel = document.getElementById("selLabel");
+    const selHeight = document.getElementById("selHeight");
+    const selX = document.getElementById("selX");
+    const selY = document.getElementById("selY");
+    const addPointBtn = document.getElementById("addPointBtn");
+    const duplicatePointBtn = document.getElementById("duplicatePointBtn");
+    const deletePointBtn = document.getElementById("deletePointBtn");
+    const distancePointA = document.getElementById("distancePointA");
+    const distancePointB = document.getElementById("distancePointB");
+    const distanceMm = document.getElementById("distanceMm");
+    const addDistanceBtn = document.getElementById("addDistanceBtn");
+    const zoom = document.getElementById("zoom");
+    const zoomOutBtn = document.getElementById("zoomOutBtn");
+    const zoomInBtn = document.getElementById("zoomInBtn");
+    const zoomFitBtn = document.getElementById("zoomFitBtn");
+    const zoom100Btn = document.getElementById("zoom100Btn");
+    const zoom200Btn = document.getElementById("zoom200Btn");
+    const showLines = document.getElementById("showLines");
+    const showResiduals = document.getElementById("showResiduals");
+    const modeSelect = document.getElementById("modeSelect");
+    const catMasksEl = document.getElementById("catMasks");
+    const catMaskStatus = document.getElementById("catMaskStatus");
+    const addCatBtn = document.getElementById("addCatBtn");
+    const autoCatBtn = document.getElementById("autoCatBtn");
+    const duplicateCatBtn = document.getElementById("duplicateCatBtn");
+    const deleteCatBtn = document.getElementById("deleteCatBtn");
+    const catLabel = document.getElementById("catLabel");
+    const catKind = document.getElementById("catKind");
+    const samEndpoint = document.getElementById("samEndpoint");
+    const addCatVertexBtn = document.getElementById("addCatVertexBtn");
+    const deleteCatVertexBtn = document.getElementById("deleteCatVertexBtn");
+    const clearCatHintsBtn = document.getElementById("clearCatHintsBtn");
+    const reviewFilter = document.getElementById("reviewFilter");
+    const refreshReviewBtn = document.getElementById("refreshReviewBtn");
+    const reviewStatus = document.getElementById("reviewStatus");
+    const reviewQueue = document.getElementById("reviewQueue");
+    const reviewDetail = document.getElementById("reviewDetail");
+    const reviewNotes = document.getElementById("reviewNotes");
+    const labelCatBtn = document.getElementById("labelCatBtn");
+    const labelNotCatBtn = document.getElementById("labelNotCatBtn");
+    const labelUnsureBtn = document.getElementById("labelUnsureBtn");
+    const saveReviewBtn = document.getElementById("saveReviewBtn");
+    const retrainModelBtn = document.getElementById("retrainModelBtn");
+    const rescoreRecordingBtn = document.getElementById("rescoreRecordingBtn");
+    const reviewActionLog = document.getElementById("reviewActionLog");
+
+    let image = new Image();
+    let imagePath = DEFAULT_IMAGE;
+    let points = structuredClone(defaultPoints);
+    let distanceConstraints = structuredClone(defaultDistanceConstraints);
+    let catAnnotations = [];
+    let reviewCases = [];
+    let activeReviewCaseId = null;
+    let activeReviewLabel = "unsure";
+    let calibrationCases = [];
+    let activeCaseId = null;
+    let selectedId = null;
+    let activeMode = "wall";
+    let activeCatId = null;
+    let activeCatVertex = null;
+    let dragging = false;
+    let draggingCatVertex = false;
+    let fit = null;
+    let didInitialFit = false;
+    let loadingSavedState = false;
+
+    function byId(id) {
+      return points.find(p => p.id === id);
+    }
+
+    function activeCase() {
+      return calibrationCases.find(item => item.id === activeCaseId) || null;
+    }
+
+    function projectionReferenceFromPoints(sourcePoints) {
+      const map = new Map(sourcePoints.map(p => [p.id, p]));
+      return [
+        "projection.top_left",
+        "projection.top_right",
+        "projection.bottom_right",
+        "projection.bottom_left"
+      ].map(id => {
+        const p = map.get(id);
+        return p ? { id, x: p.x, y: p.y } : null;
+      }).filter(Boolean);
+    }
+
+    function makeCaseId() {
+      return `case.${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 7)}`;
+    }
+
+    function makeCalibrationCase(name = "calibration case") {
+      const id = makeCaseId();
+      return {
+        id,
+        name,
+        image: DEFAULT_IMAGE,
+        image_src: DEFAULT_IMAGE,
+        source_size_px: SOURCE_SIZE,
+        points: structuredClone(defaultPoints),
+        distance_constraints: structuredClone(defaultDistanceConstraints),
+        cat_annotations: [],
+        projector_reference: projectionReferenceFromPoints(defaultPoints)
+      };
+    }
+
+    function storedPointsFrom(sourcePoints) {
+      return sourcePoints.map(p => ({
+        id: p.id,
+        label: p.label,
+        x: p.x,
+        y: p.y,
+        color: p.color,
+        height_mm: typeof p.height_mm === "number"
+          ? p.height_mm
+          : typeof p.height === "number" ? p.height : null,
+        weight: p.weight || null,
+        role: p.role || "constraint"
+      }));
+    }
+
+    function storedDistancesFrom(sourceDistances) {
+      return sourceDistances.map((d, index) => ({
+        id: d.id || `distance.bundled${index + 1}`,
+        a: d.a,
+        b: d.b,
+        distance: typeof d.distance === "number" ? d.distance : d.distance_mm
+      })).filter(d => d.a && d.b && typeof d.distance === "number");
+    }
+
+    function makeCaseFromCapture(capture, baseCase = null) {
+      const base = baseCase || makeCalibrationCase("default image");
+      return {
+        id: capture.id,
+        name: capture.name,
+        image: capture.image,
+        image_src: capture.image,
+        source_size_px: capture.source_size_px || SOURCE_SIZE,
+        points: storedPointsFrom(capture.points || base.points || defaultPoints),
+        distance_constraints: storedDistancesFrom(capture.distance_constraints || base.distance_constraints || defaultDistanceConstraints),
+        cat_annotations: storedCatAnnotationsFrom(capture.cat_annotations || base.cat_annotations || []),
+        projector_reference: structuredClone(capture.projector_reference || base.projector_reference || projectionReferenceFromPoints(defaultPoints)),
+        capture_manifest: capture.manifest || null,
+        capture_revision: capture.calibration_revision || null
+      };
+    }
+
+    function mergeBundledCaptureCases() {
+      let preferredActive = null;
+      for (const capture of bundledCaptureCases) {
+        const existing = calibrationCases.find(item => item.id === capture.id || item.image === capture.image);
+        const needsRevision = existing && capture.calibration_revision &&
+          existing.capture_revision !== capture.calibration_revision;
+        if (existing && needsRevision) {
+          const upgraded = makeCaseFromCapture(capture, existing);
+          Object.assign(existing, upgraded, { id: existing.id, name: existing.name || upgraded.name });
+        }
+        const exists = Boolean(existing);
+        if (exists) {
+          if (capture.preferred_active) preferredActive = capture.id;
+          continue;
+        }
+        const baseCase = activeCase() || calibrationCases[0] || makeCalibrationCase("default image");
+        const item = makeCaseFromCapture(capture, baseCase);
+        calibrationCases.push(item);
+        if (capture.preferred_active) preferredActive = item.id;
+      }
+      if (preferredActive && calibrationCases.some(item => item.id === preferredActive)) {
+        activeCaseId = preferredActive;
+      }
+    }
+
+    function projectionPolygon() {
+      return [
+        byId("projection.top_left"),
+        byId("projection.top_right"),
+        byId("projection.bottom_right"),
+        byId("projection.bottom_left")
+      ].filter(Boolean);
+    }
+
+    function isRequiredProjectionPoint(point) {
+      return point && [
+        "projection.top_left",
+        "projection.top_right",
+        "projection.bottom_right",
+        "projection.bottom_left"
+      ].includes(point.id);
+    }
+
+    function makeUniquePointId(baseId) {
+      const stem = `${baseId}.copy`;
+      let id = stem;
+      let index = 2;
+      while (byId(id)) {
+        id = `${stem}${index}`;
+        index += 1;
+      }
+      return id;
+    }
+
+    function makeUniqueCustomPointId() {
+      let index = 1;
+      while (byId(`custom.point${index}`)) index += 1;
+      return `custom.point${index}`;
+    }
+
+    function makeUniqueDistanceId() {
+      let index = 1;
+      while (distanceConstraints.some(d => d.id === `distance.${index}`)) index += 1;
+      return `distance.${index}`;
+    }
+
+    function makeUniqueCatId() {
+      let index = 1;
+      while (catAnnotations.some(item => item.id === `cat.mask${index}`)) index += 1;
+      return `cat.mask${index}`;
+    }
+
+    function activeCatAnnotation() {
+      return catAnnotations.find(item => item.id === activeCatId) || null;
+    }
+
+    function catBBox(annotation) {
+      const poly = annotation?.polygon || [];
+      if (!poly.length) return null;
+      const xs = poly.map(p => p.x);
+      const ys = poly.map(p => p.y);
+      const minX = Math.min(...xs);
+      const minY = Math.min(...ys);
+      const maxX = Math.max(...xs);
+      const maxY = Math.max(...ys);
+      return {
+        x: Number(minX.toFixed(2)),
+        y: Number(minY.toFixed(2)),
+        width: Number((maxX - minX).toFixed(2)),
+        height: Number((maxY - minY).toFixed(2))
+      };
+    }
+
+    function makeCatAnnotation(seed = selectedViewportCenterPoint()) {
+      const id = makeUniqueCatId();
+      const size = 34;
+      const polygon = [
+        { x: seed.x - size, y: seed.y - size },
+        { x: seed.x + size, y: seed.y - size },
+        { x: seed.x + size, y: seed.y + size },
+        { x: seed.x - size, y: seed.y + size }
+      ].map(p => clampImagePoint(p));
+      return {
+        id,
+        label: "Sher",
+        kind: "cat",
+        source: "manual_polygon",
+        positive_points: [{ x: Number(seed.x.toFixed(2)), y: Number(seed.y.toFixed(2)) }],
+        negative_points: [],
+        polygon,
+        bbox_xywh: catBBox({ polygon }),
+        updated_at: new Date().toISOString()
+      };
+    }
+
+    function storedCatAnnotationsFrom(items) {
+      return (items || []).map((item, index) => {
+        const polygon = (item.polygon || item.contour || []).map(clampImagePoint);
+        return {
+          id: item.id || `cat.imported${index + 1}`,
+          label: item.label || "Sher",
+          kind: item.kind || "cat",
+          source: item.source || "manual_polygon",
+          positive_points: (item.positive_points || []).map(clampImagePoint),
+          negative_points: (item.negative_points || []).map(clampImagePoint),
+          polygon,
+          bbox_xywh: item.bbox_xywh || catBBox({ polygon }),
+          score: typeof item.score === "number" ? item.score : null,
+          updated_at: item.updated_at || null
+        };
+      }).filter(item => item.polygon.length || item.positive_points.length);
+    }
+
+    function clampImagePoint(point) {
+      if (Array.isArray(point)) {
+        point = { x: point[0], y: point[1] };
+      }
+      return {
+        x: Math.max(0, Math.min(image.naturalWidth || SOURCE_SIZE.width, Number(point.x))),
+        y: Math.max(0, Math.min(image.naturalHeight || SOURCE_SIZE.height, Number(point.y)))
+      };
+    }
+
+    function simplifyPolygon(points, tolerance = 2.5) {
+      if (points.length <= 24) return points;
+      const sqTolerance = tolerance * tolerance;
+      function sqDist(a, b) {
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        return dx * dx + dy * dy;
+      }
+      function sqSegDist(p, a, b) {
+        let x = a.x;
+        let y = a.y;
+        let dx = b.x - x;
+        let dy = b.y - y;
+        if (dx || dy) {
+          const t = Math.max(0, Math.min(1, ((p.x - x) * dx + (p.y - y) * dy) / (dx * dx + dy * dy)));
+          x += dx * t;
+          y += dy * t;
+        }
+        dx = p.x - x;
+        dy = p.y - y;
+        return dx * dx + dy * dy;
+      }
+      function simplifyStep(start, end, out) {
+        let maxDist = sqTolerance;
+        let index = -1;
+        for (let i = start + 1; i < end; i++) {
+          const dist = sqSegDist(points[i], points[start], points[end]);
+          if (dist > maxDist) {
+            index = i;
+            maxDist = dist;
+          }
+        }
+        if (index > 0) {
+          if (index - start > 1) simplifyStep(start, index, out);
+          out.push(points[index]);
+          if (end - index > 1) simplifyStep(index, end, out);
+        }
+      }
+      const sampled = points.filter((point, index) => index === 0 || sqDist(point, points[index - 1]) > sqTolerance);
+      if (sampled.length <= 24) return sampled;
+      const out = [sampled[0]];
+      simplifyStep(0, sampled.length - 1, out);
+      out.push(sampled[sampled.length - 1]);
+      return out.slice(0, 96);
+    }
+
+    function autoContourFromClick(seed) {
+      if (!image.naturalWidth) return null;
+      const work = document.createElement("canvas");
+      work.width = image.naturalWidth;
+      work.height = image.naturalHeight;
+      const workCtx = work.getContext("2d", { willReadFrequently: true });
+      workCtx.drawImage(image, 0, 0);
+      const width = work.width;
+      const height = work.height;
+      const data = workCtx.getImageData(0, 0, width, height).data;
+      const sx = Math.round(seed.x);
+      const sy = Math.round(seed.y);
+      if (sx < 0 || sx >= width || sy < 0 || sy >= height) return null;
+      const seedIndex = (sy * width + sx) * 4;
+      const seedRgb = [data[seedIndex], data[seedIndex + 1], data[seedIndex + 2]];
+      const seedLuma = 0.299 * seedRgb[0] + 0.587 * seedRgb[1] + 0.114 * seedRgb[2];
+      const visited = new Uint8Array(width * height);
+      const mask = new Uint8Array(width * height);
+      const queue = [sy * width + sx];
+      visited[sy * width + sx] = 1;
+      const maxPixels = Math.floor(width * height * 0.18);
+      let head = 0;
+      let count = 0;
+      while (head < queue.length && count < maxPixels) {
+        const index = queue[head++];
+        const x = index % width;
+        const y = Math.floor(index / width);
+        const offset = index * 4;
+        const r = data[offset];
+        const g = data[offset + 1];
+        const b = data[offset + 2];
+        const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+        const colorDist = Math.hypot(r - seedRgb[0], g - seedRgb[1], b - seedRgb[2]);
+        const darkObject = seedLuma < 130 && luma < seedLuma + 75;
+        if (colorDist > 62 && !darkObject) continue;
+        mask[index] = 1;
+        count += 1;
+        const next = [index - 1, index + 1, index - width, index + width];
+        for (const n of next) {
+          if (n < 0 || n >= visited.length || visited[n]) continue;
+          const nx = n % width;
+          if ((nx === 0 && n === index + 1) || (nx === width - 1 && n === index - 1)) continue;
+          visited[n] = 1;
+          queue.push(n);
+        }
+      }
+      const boundary = [];
+      let minX = width, minY = height, maxX = 0, maxY = 0;
+      for (let y = 1; y < height - 1; y++) {
+        for (let x = 1; x < width - 1; x++) {
+          const i = y * width + x;
+          if (!mask[i]) continue;
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+          if (!mask[i - 1] || !mask[i + 1] || !mask[i - width] || !mask[i + width]) {
+            boundary.push({ x, y });
+          }
+        }
+      }
+      if (count < 20 || !boundary.length) return null;
+      const cx = boundary.reduce((sum, p) => sum + p.x, 0) / boundary.length;
+      const cy = boundary.reduce((sum, p) => sum + p.y, 0) / boundary.length;
+      const radial = new Map();
+      for (const p of boundary) {
+        const angle = Math.round((Math.atan2(p.y - cy, p.x - cx) + Math.PI) / (Math.PI * 2) * 95);
+        const old = radial.get(angle);
+        const dist = Math.hypot(p.x - cx, p.y - cy);
+        if (!old || dist > old.dist) radial.set(angle, { ...p, dist });
+      }
+      const polygon = [...radial.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([, p]) => ({ x: p.x, y: p.y }));
+      const simplified = simplifyPolygon(polygon, Math.max(2.5, Math.hypot(maxX - minX, maxY - minY) / 70));
+      return simplified.length >= 3 ? simplified.map(clampImagePoint) : null;
+    }
+
+    function selectedViewportCenterPoint() {
+      const container = canvas.parentElement.parentElement;
+      const rect = canvas.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      const clientX = containerRect.left + container.clientWidth / 2;
+      const clientY = containerRect.top + container.clientHeight / 2;
+      const z = Number(zoom.value) / 100;
+      return {
+        x: Math.max(0, Math.min(image.naturalWidth || SOURCE_SIZE.width, (clientX - rect.left) / z)),
+        y: Math.max(0, Math.min(image.naturalHeight || SOURCE_SIZE.height, (clientY - rect.top) / z))
+      };
+    }
+
+    function observations() {
+      return points.filter(p => typeof p.height === "number").map(p => ({
+        id: p.id,
+        x: p.x,
+        y: p.y,
+        height: p.height,
+        weight: p.weight || 1
+      }));
+    }
+
+    function solveLinear(A, b) {
+      const n = b.length;
+      const M = A.map((row, i) => row.concat([b[i]]));
+      for (let col = 0; col < n; col++) {
+        let pivot = col;
+        for (let r = col + 1; r < n; r++) {
+          if (Math.abs(M[r][col]) > Math.abs(M[pivot][col])) pivot = r;
+        }
+        if (Math.abs(M[pivot][col]) < 1e-10) throw new Error("singular fit");
+        [M[col], M[pivot]] = [M[pivot], M[col]];
+        const div = M[col][col];
+        for (let c = col; c <= n; c++) M[col][c] /= div;
+        for (let r = 0; r < n; r++) {
+          if (r === col) continue;
+          const factor = M[r][col];
+          for (let c = col; c <= n; c++) M[r][c] -= factor * M[col][c];
+        }
+      }
+      return M.map(row => row[n]);
+    }
+
+    function leastSquares(rows, values) {
+      const cols = rows[0].length;
+      const normal = Array.from({ length: cols }, () => Array(cols).fill(0));
+      const rhs = Array(cols).fill(0);
+      for (let i = 0; i < rows.length; i++) {
+        for (let r = 0; r < cols; r++) {
+          rhs[r] += rows[i][r] * values[i];
+          for (let c = 0; c < cols; c++) normal[r][c] += rows[i][r] * rows[i][c];
+        }
+      }
+      return solveLinear(normal, rhs);
+    }
+
+    function computeHeightOnlyFit() {
+      const rows = [];
+      const values = [];
+      for (const o of observations()) {
+        const w = Math.sqrt(o.weight);
+        rows.push([w * o.x, w * o.y, w, w * -o.height * o.x, w * -o.height * o.y]);
+        values.push(w * o.height);
+      }
+      const [a, b, c, g, h] = leastSquares(rows, values);
+      return { a, b, c, g, h };
+    }
+
+    function pointHeightValue(point) {
+      return typeof point?.height === "number" ? point.height : null;
+    }
+
+    function validDistanceConstraints() {
+      return distanceConstraints.map(d => ({
+        ...d,
+        aPoint: byId(d.a),
+        bPoint: byId(d.b),
+        distance: Number(d.distance)
+      })).filter(d => d.aPoint && d.bPoint && Number.isFinite(d.distance) && d.distance > 0);
+    }
+
+    function initialLateralTargets(distanceItems) {
+      const targets = new Map();
+      const sameHeight = distanceItems.filter(d => {
+        const ah = pointHeightValue(d.aPoint);
+        const bh = pointHeightValue(d.bPoint);
+        return ah !== null && bh !== null && Math.abs(ah - bh) <= 30;
+      });
+      for (const d of sameHeight) {
+        if (!targets.has(d.a)) targets.set(d.a, 0);
+        const sign = d.bPoint.x >= d.aPoint.x ? 1 : -1;
+        targets.set(d.b, targets.get(d.a) + sign * d.distance);
+      }
+      return targets;
+    }
+
+    function initialUParams(heightFit, distanceItems) {
+      const targetU = initialLateralTargets(distanceItems);
+      if (targetU.size >= 3) {
+        const rows = [];
+        const values = [];
+        for (const [id, u] of targetU.entries()) {
+          const p = byId(id);
+          if (!p) continue;
+          const den = heightFit.g * p.x + heightFit.h * p.y + 1;
+          rows.push([p.x, p.y, 1]);
+          values.push(u * den);
+        }
+        try {
+          const [a, b, c] = leastSquares(rows, values);
+          return { a, b, c };
+        } catch (_) {
+          // Fall through to camera-scale initialization.
+        }
+      }
+
+      const scales = distanceItems.map(d => {
+        const px = Math.hypot(d.aPoint.x - d.bPoint.x, d.aPoint.y - d.bPoint.y);
+        return px > 1 ? d.distance / px : null;
+      }).filter(Boolean).sort((a, b) => a - b);
+      const scale = scales.length ? scales[Math.floor(scales.length / 2)] : 3;
+      return { a: scale, b: 0, c: -scale * (image.naturalWidth || SOURCE_SIZE.width) / 2 };
+    }
+
+    function wallPointForParams(params, point) {
+      const [uA, uB, uC, vA, vB, vC, g, h] = params;
+      const den = g * point.x + h * point.y + 1;
+      return {
+        x: (uA * point.x + uB * point.y + uC) / den,
+        y: (vA * point.x + vB * point.y + vC) / den
+      };
+    }
+
+    function residualVector(params, heightObservations, distanceItems) {
+      const residuals = [];
+      for (const o of heightObservations) {
+        const wall = wallPointForParams(params, o);
+        residuals.push((wall.y - o.height) * Math.sqrt(o.weight));
+      }
+      for (const d of distanceItems) {
+        const a = wallPointForParams(params, d.aPoint);
+        const b = wallPointForParams(params, d.bPoint);
+        const fitted = Math.hypot(a.x - b.x, a.y - b.y);
+        residuals.push((fitted - d.distance) * Math.sqrt(d.weight || 1));
+      }
+      return residuals;
+    }
+
+    function sumSquares(values) {
+      return values.reduce((sum, value) => sum + value * value, 0);
+    }
+
+    function dampedLeastSquaresStep(params, heightObservations, distanceItems, lambda) {
+      const baseResiduals = residualVector(params, heightObservations, distanceItems);
+      const rows = [];
+      for (let row = 0; row < baseResiduals.length; row++) rows.push(Array(params.length).fill(0));
+
+      for (let col = 0; col < params.length; col++) {
+        const step = Math.max(1e-6, Math.abs(params[col]) * 1e-6);
+        const probe = params.slice();
+        probe[col] += step;
+        const probeResiduals = residualVector(probe, heightObservations, distanceItems);
+        for (let row = 0; row < baseResiduals.length; row++) {
+          rows[row][col] = (probeResiduals[row] - baseResiduals[row]) / step;
+        }
+      }
+
+      const cols = params.length;
+      const normal = Array.from({ length: cols }, () => Array(cols).fill(0));
+      const rhs = Array(cols).fill(0);
+      for (let i = 0; i < rows.length; i++) {
+        for (let r = 0; r < cols; r++) {
+          rhs[r] -= rows[i][r] * baseResiduals[i];
+          for (let c = 0; c < cols; c++) normal[r][c] += rows[i][r] * rows[i][c];
+        }
+      }
+      for (let i = 0; i < cols; i++) normal[i][i] += lambda;
+      return solveLinear(normal, rhs);
+    }
+
+    function optimizeWallPlaneFit(initialParams, heightObservations, distanceItems) {
+      let params = initialParams.slice();
+      let lambda = 1e-3;
+      let score = sumSquares(residualVector(params, heightObservations, distanceItems));
+      for (let iter = 0; iter < 45; iter++) {
+        let step;
+        try {
+          step = dampedLeastSquaresStep(params, heightObservations, distanceItems, lambda);
+        } catch (_) {
+          lambda *= 10;
+          continue;
+        }
+        const candidate = params.map((value, index) => value + step[index]);
+        if (!candidate.every(Number.isFinite)) {
+          lambda *= 10;
+          continue;
+        }
+        const candidateScore = sumSquares(residualVector(candidate, heightObservations, distanceItems));
+        if (candidateScore < score) {
+          params = candidate;
+          score = candidateScore;
+          lambda = Math.max(lambda / 3, 1e-9);
+          if (Math.max(...step.map(Math.abs)) < 1e-7) break;
+        } else {
+          lambda *= 8;
+        }
+      }
+      return params;
+    }
+
+    function computeFit() {
+      const heightFit = computeHeightOnlyFit();
+      const distanceItems = validDistanceConstraints();
+      const u = initialUParams(heightFit, distanceItems);
+      const initialParams = [u.a, u.b, u.c, heightFit.a, heightFit.b, heightFit.c, heightFit.g, heightFit.h];
+      const heightObservations = observations();
+      const params = distanceItems.length
+        ? optimizeWallPlaneFit(initialParams, heightObservations, distanceItems)
+        : initialParams;
+      const [uA, uB, uC, a, b, c, g, h] = params;
+      const model = {
+        uA, uB, uC, a, b, c, g, h,
+        wallPointAt(x, y) {
+          return wallPointForParams(params, { x, y });
+        },
+        lateralAt(x, y) {
+          return this.wallPointAt(x, y).x;
+        },
+        heightAt(x, y) {
+          return this.wallPointAt(x, y).y;
+        },
+        lineFor(height) {
+          return [a - height * g, b - height * h, c - height];
+        }
+      };
+      model.residuals = heightObservations.map(o => {
+        const fitted = model.heightAt(o.x, o.y);
+        return { ...o, fitted, residual: fitted - o.height };
+      });
+      model.distanceResiduals = distanceItems.map(d => {
+        const wallA = model.wallPointAt(d.aPoint.x, d.aPoint.y);
+        const wallB = model.wallPointAt(d.bPoint.x, d.bPoint.y);
+        const fitted = Math.hypot(wallA.x - wallB.x, wallA.y - wallB.y);
+        return {
+          id: d.id,
+          a: d.a,
+          b: d.b,
+          target: d.distance,
+          fitted,
+          residual: fitted - d.distance,
+          wallA,
+          wallB
+        };
+      });
+      const maxAbs = Math.max(...model.residuals.map(r => Math.abs(r.residual)));
+      const maxDistanceAbs = model.distanceResiduals.length
+        ? Math.max(...model.distanceResiduals.map(r => Math.abs(r.residual)))
+        : 0;
+      fitBadge.textContent = `height ${maxAbs.toFixed(1)}mm / dist ${maxDistanceAbs.toFixed(1)}mm`;
+      const worst = Math.max(maxAbs, maxDistanceAbs);
+      fitBadge.className = "pill " + (worst <= 30 ? "ok" : worst <= 80 ? "warn" : "bad");
+      return model;
+    }
+
+    function cross(a, b) {
+      return [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0]
+      ];
+    }
+
+    function lineFromPoints(p1, p2) {
+      return cross([p1.x, p1.y, 1], [p2.x, p2.y, 1]);
+    }
+
+    function lineIntersection(l1, l2) {
+      const p = cross(l1, l2);
+      if (Math.abs(p[2]) < 1e-9) return null;
+      return { x: p[0] / p[2], y: p[1] / p[2] };
+    }
+
+    function closestPointOnLine(line, point) {
+      const [a, b, c] = line;
+      const denom = a * a + b * b;
+      if (denom < 1e-12) return null;
+      const t = (a * point.x + b * point.y + c) / denom;
+      return {
+        x: point.x - a * t,
+        y: point.y - b * t
+      };
+    }
+
+    function inSegment(p, a, b, eps = 2) {
+      return p && p.x >= Math.min(a.x, b.x) - eps && p.x <= Math.max(a.x, b.x) + eps &&
+        p.y >= Math.min(a.y, b.y) - eps && p.y <= Math.max(a.y, b.y) + eps;
+    }
+
+    function heightSegment(height) {
+      if (!fit) return [];
+      const poly = projectionPolygon();
+      const hLine = fit.lineFor(height);
+      const hits = [];
+      for (let i = 0; i < poly.length; i++) {
+        const a = poly[i];
+        const b = poly[(i + 1) % poly.length];
+        const p = lineIntersection(hLine, lineFromPoints(a, b));
+        if (inSegment(p, a, b) && !hits.some(q => Math.hypot(q.x - p.x, q.y - p.y) < 1)) {
+          hits.push(p);
+        }
+      }
+      return hits.sort((a, b) => a.x - b.x).slice(0, 2);
+    }
+
+    function lerpPoint(a, b, t) {
+      return {
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t
+      };
+    }
+
+    function homography(src, dst) {
+      const A = [];
+      const b = [];
+      for (let i = 0; i < 4; i++) {
+        const x = src[i].x, y = src[i].y;
+        const u = dst[i].x, v = dst[i].y;
+        A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+        A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
+      }
+      const h = solveLinear(A, b);
+      return [[h[0], h[1], h[2]], [h[3], h[4], h[5]], [h[6], h[7], 1]];
+    }
+
+    function transform(H, p) {
+      const x = H[0][0] * p.x + H[0][1] * p.y + H[0][2];
+      const y = H[1][0] * p.x + H[1][1] * p.y + H[1][2];
+      const z = H[2][0] * p.x + H[2][1] * p.y + H[2][2];
+      return { x: x / z, y: y / z };
+    }
+
+    function sourcePoints() {
+      const poly = projectionPolygon();
+      const dst = [
+        { x: 0, y: 0 },
+        { x: SOURCE_SIZE.width - 1, y: 0 },
+        { x: SOURCE_SIZE.width - 1, y: SOURCE_SIZE.height - 1 },
+        { x: 0, y: SOURCE_SIZE.height - 1 }
+      ];
+      const H = homography(poly, dst);
+      const out = {};
+      for (const p of points) out[p.id] = transform(H, p);
+      return out;
+    }
+
+    function exportData() {
+      let src = {};
+      try { src = sourcePoints(); } catch (_) { src = {}; }
+      const smoke = projectorSmokeCheck();
+      const distanceResidualById = new Map((fit?.distanceResiduals || []).map(r => [r.id, r]));
+      const distanceOutput = distanceConstraints.map(d => {
+        const a = byId(d.a);
+        const b = byId(d.b);
+        const sourceA = src[d.a];
+        const sourceB = src[d.b];
+        const distanceFit = distanceResidualById.get(d.id);
+        const cameraDistance = a && b ? Math.hypot(a.x - b.x, a.y - b.y) : null;
+        const sourceDistance = sourceA && sourceB ? Math.hypot(sourceA.x - sourceB.x, sourceA.y - sourceB.y) : null;
+        return {
+          id: d.id,
+          a: d.a,
+          b: d.b,
+          distance_mm: Number(d.distance),
+          camera_distance_px: cameraDistance === null ? null : Number(cameraDistance.toFixed(2)),
+          source_distance_px: sourceDistance === null ? null : Number(sourceDistance.toFixed(2)),
+          wall_distance_mm: distanceFit ? Number(distanceFit.fitted.toFixed(2)) : null,
+          wall_distance_residual_mm: distanceFit ? Number(distanceFit.residual.toFixed(2)) : null
+        };
+      });
+      return {
+        kind: CALIBRATION_CASE_KIND,
+        image: imagePath,
+        source_size_px: SOURCE_SIZE,
+        points: Object.fromEntries(points.map(p => [p.id, {
+          camera_px: [Number(p.x.toFixed(2)), Number(p.y.toFixed(2))],
+          source_px: src[p.id] ? [Number(src[p.id].x.toFixed(2)), Number(src[p.id].y.toFixed(2))] : null,
+          label: p.label,
+          color: p.color,
+          height_mm: typeof p.height === "number" ? p.height : null,
+          weight: p.weight || null,
+          role: p.role || "constraint"
+        }])),
+        cat_annotations: catAnnotations.map(item => ({
+          id: item.id,
+          label: item.label,
+          kind: item.kind || "cat",
+          source: item.source || "manual_polygon",
+          positive_points: (item.positive_points || []).map(p => [Number(p.x.toFixed(2)), Number(p.y.toFixed(2))]),
+          negative_points: (item.negative_points || []).map(p => [Number(p.x.toFixed(2)), Number(p.y.toFixed(2))]),
+          polygon: (item.polygon || []).map(p => [Number(p.x.toFixed(2)), Number(p.y.toFixed(2))]),
+          bbox_xywh: item.bbox_xywh || catBBox(item),
+          score: item.score ?? null,
+          updated_at: item.updated_at || null
+        })),
+        height_model: fit ? {
+          formula: "wall_y_mm=(a*x+b*y+c)/(g*x+h*y+1)",
+          coefficients: {
+            a: fit.a, b: fit.b, c: fit.c, g: fit.g, h: fit.h
+          },
+          residuals_mm: fit.residuals.map(r => ({
+            id: r.id,
+            target: r.height,
+            fitted: Number(r.fitted.toFixed(2)),
+            residual: Number(r.residual.toFixed(2))
+          }))
+        } : null,
+        wall_plane_model: fit ? {
+          formula: "wall_x_mm=(uA*x+uB*y+uC)/(g*x+h*y+1); wall_y_mm=(a*x+b*y+c)/(g*x+h*y+1)",
+          coefficients: {
+            uA: fit.uA, uB: fit.uB, uC: fit.uC,
+            a: fit.a, b: fit.b, c: fit.c, g: fit.g, h: fit.h
+          },
+          height_residuals_mm: fit.residuals.map(r => ({
+            id: r.id,
+            target: r.height,
+            fitted: Number(r.fitted.toFixed(2)),
+            residual: Number(r.residual.toFixed(2))
+          })),
+          distance_residuals_mm: fit.distanceResiduals.map(r => ({
+            id: r.id,
+            a: r.a,
+            b: r.b,
+            target: r.target,
+            fitted: Number(r.fitted.toFixed(2)),
+            residual: Number(r.residual.toFixed(2))
+          }))
+        } : null,
+        distance_constraints: distanceOutput,
+        projector_reference: activeCase()?.projector_reference || projectionReferenceFromPoints(defaultPoints),
+        projector_smoke_check: smoke
+      };
+    }
+
+    function captureActiveCase() {
+      const current = activeCase();
+      if (!current) return;
+      const exported = exportData();
+      const portableImageSrc = image.src.startsWith("data:") ? image.src : imagePath;
+      current.name = caseName.value || current.name;
+      current.image = imagePath;
+      current.image_src = portableImageSrc;
+      current.source_size_px = SOURCE_SIZE;
+      current.points = points.map(p => ({
+        id: p.id,
+        label: p.label,
+        x: p.x,
+        y: p.y,
+        color: p.color,
+        height_mm: typeof p.height === "number" ? p.height : null,
+        weight: p.weight || null,
+        role: p.role || "constraint"
+      }));
+      current.distance_constraints = exported.distance_constraints.map(d => ({
+        id: d.id,
+        a: d.a,
+        b: d.b,
+        distance: d.distance_mm
+      }));
+      current.cat_annotations = storedCatAnnotationsFrom(catAnnotations);
+      current.projector_reference = current.projector_reference || projectionReferenceFromPoints(points);
+    }
+
+    function serializeCalibrationSet() {
+      captureActiveCase();
+      return {
+        kind: CALIBRATION_SET_KIND,
+        active_case_id: activeCaseId,
+        cases: calibrationCases
+      };
+    }
+
+    function saveLocalCalibration() {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(serializeCalibrationSet(), null, 2));
+    }
+
+    function applyCalibrationData(data) {
+      if (!data?.points) return false;
+
+      const imported = [];
+      for (const [id, item] of Object.entries(data.points)) {
+        if (!item || !item.camera_px) continue;
+        const base = defaultPoints.find(p => p.id === id) || {};
+        imported.push({
+          ...base,
+          id,
+          label: item.label || base.label || id,
+          x: Number(item.camera_px[0]),
+          y: Number(item.camera_px[1]),
+          color: item.color || base.color || "#ffffff",
+          height: item.height_mm === null ? undefined : typeof item.height_mm === "number" ? item.height_mm : base.height,
+          weight: typeof item.weight === "number" ? item.weight : base.weight,
+          role: item.role || base.role || "constraint"
+        });
+      }
+
+      for (const required of defaultPoints.filter(isRequiredProjectionPoint)) {
+        if (!imported.some(p => p.id === required.id)) imported.unshift(structuredClone(required));
+      }
+
+      if (!imported.length) return false;
+      points = imported;
+      if (Array.isArray(data.distance_constraints)) {
+        distanceConstraints = data.distance_constraints
+          .filter(d => d && d.a && d.b && typeof d.distance_mm === "number")
+          .map((d, index) => ({
+            id: d.id || `distance.imported${index + 1}`,
+            a: d.a,
+            b: d.b,
+            distance: d.distance_mm
+          }));
+      } else {
+        distanceConstraints = structuredClone(defaultDistanceConstraints);
+      }
+      catAnnotations = storedCatAnnotationsFrom(data.cat_annotations || []);
+      activeCatId = catAnnotations[0]?.id || null;
+      activeCatVertex = null;
+      selectedId = points.some(p => p.id === selectedId) ? selectedId : null;
+      return true;
+    }
+
+    function calibrationCaseFromData(data, fallbackName = "calibration case") {
+      const previousPoints = points;
+      const previousDistances = distanceConstraints;
+      const previousSelected = selectedId;
+
+      try {
+        if (!applyCalibrationData(data)) return null;
+        return {
+          id: makeCaseId(),
+          name: data.name || fallbackName,
+          image: data.image || DEFAULT_IMAGE,
+          image_src: data.image || DEFAULT_IMAGE,
+          source_size_px: data.source_size_px || SOURCE_SIZE,
+          points: points.map(p => ({
+            id: p.id,
+            label: p.label,
+            x: p.x,
+            y: p.y,
+            color: p.color,
+            height_mm: typeof p.height === "number" ? p.height : null,
+            weight: p.weight || null,
+            role: p.role || "constraint"
+          })),
+          distance_constraints: structuredClone(distanceConstraints),
+          cat_annotations: storedCatAnnotationsFrom(data.cat_annotations || []),
+          projector_reference: data.projector_reference || projectionReferenceFromPoints(points)
+        };
+      } finally {
+        points = previousPoints;
+        distanceConstraints = previousDistances;
+        selectedId = previousSelected;
+      }
+    }
+
+    function applyCase(item) {
+      if (!item) return false;
+      points = item.points.map(p => {
+        const base = defaultPoints.find(defaultPoint => defaultPoint.id === p.id) || {};
+        return {
+          ...base,
+          id: p.id,
+          label: p.label || base.label || p.id,
+          x: Number(p.x),
+          y: Number(p.y),
+          color: p.color || base.color || "#ffffff",
+          height: p.height_mm === null ? undefined : typeof p.height_mm === "number" ? p.height_mm : base.height,
+          weight: typeof p.weight === "number" ? p.weight : base.weight,
+          role: p.role || base.role || "constraint"
+        };
+      });
+      for (const required of defaultPoints.filter(isRequiredProjectionPoint)) {
+        if (!points.some(p => p.id === required.id)) points.unshift(structuredClone(required));
+      }
+      distanceConstraints = (item.distance_constraints || defaultDistanceConstraints).map((d, index) => ({
+        id: d.id || `distance.case${index + 1}`,
+        a: d.a,
+        b: d.b,
+        distance: typeof d.distance === "number" ? d.distance : d.distance_mm
+      })).filter(d => d.a && d.b && typeof d.distance === "number");
+      catAnnotations = storedCatAnnotationsFrom(item.cat_annotations || []);
+      imagePath = item.image || DEFAULT_IMAGE;
+      caseName.value = item.name || item.id;
+      selectedId = points.some(p => p.id === selectedId) ? selectedId : null;
+      activeCatId = catAnnotations.some(item => item.id === activeCatId) ? activeCatId : catAnnotations[0]?.id || null;
+      activeCatVertex = null;
+      image.src = item.image_src || item.image || DEFAULT_IMAGE;
+      return true;
+    }
+
+    function loadLocalCalibration() {
+      const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (!saved) return false;
+      const data = JSON.parse(saved);
+      if (data.kind === CALIBRATION_SET_KIND && Array.isArray(data.cases)) {
+        calibrationCases = data.cases;
+        activeCaseId = data.active_case_id || calibrationCases[0]?.id || null;
+      } else {
+        const migrated = calibrationCaseFromData(data, "migrated single image");
+        calibrationCases = migrated ? [migrated] : [makeCalibrationCase("default image")];
+        activeCaseId = calibrationCases[0].id;
+      }
+      if (!calibrationCases.length) calibrationCases.push(makeCalibrationCase("default image"));
+      mergeBundledCaptureCases();
+      activeCaseId = activeCaseId || calibrationCases[0].id;
+      return applyCase(activeCase());
+    }
+
+    function polygonArea(poly) {
+      let area = 0;
+      for (let i = 0; i < poly.length; i++) {
+        const a = poly[i];
+        const b = poly[(i + 1) % poly.length];
+        area += a.x * b.y - b.x * a.y;
+      }
+      return Math.abs(area) / 2;
+    }
+
+    function polygonCenter(poly) {
+      return {
+        x: poly.reduce((sum, p) => sum + p.x, 0) / poly.length,
+        y: poly.reduce((sum, p) => sum + p.y, 0) / poly.length
+      };
+    }
+
+    function projectorSmokeCheckFor(sourcePoints, reference) {
+      const current = projectionReferenceFromPoints(sourcePoints);
+      if (reference.length !== 4 || current.length !== 4) {
+        return { ok: false, reason: "missing projection corners" };
+      }
+
+      const byRef = new Map(reference.map(p => [p.id, p]));
+      const cornerErrors = current.map(p => {
+        const r = byRef.get(p.id);
+        return { id: p.id, px: r ? Math.hypot(p.x - r.x, p.y - r.y) : Infinity };
+      });
+      const maxCornerPx = Math.max(...cornerErrors.map(e => e.px));
+      const refCenter = polygonCenter(reference);
+      const curCenter = polygonCenter(current);
+      const centerPx = Math.hypot(curCenter.x - refCenter.x, curCenter.y - refCenter.y);
+      const refArea = polygonArea(reference);
+      const curArea = polygonArea(current);
+      const areaRatio = refArea ? Math.abs(curArea / refArea - 1) : Infinity;
+      const ok = maxCornerPx <= SMOKE_LIMITS.cornerPx &&
+        centerPx <= SMOKE_LIMITS.centerPx &&
+        areaRatio <= SMOKE_LIMITS.areaRatio;
+      return {
+        ok,
+        max_corner_px: Number(maxCornerPx.toFixed(2)),
+        center_px: Number(centerPx.toFixed(2)),
+        area_ratio: Number(areaRatio.toFixed(4)),
+        corner_errors: cornerErrors.map(e => ({ id: e.id, px: Number(e.px.toFixed(2)) })),
+        limits: SMOKE_LIMITS
+      };
+    }
+
+    function projectorSmokeCheck() {
+      const reference = activeCase()?.projector_reference || projectionReferenceFromPoints(defaultPoints);
+      return projectorSmokeCheckFor(points, reference);
+    }
+
+    function allCaseSmokeChecks() {
+      captureActiveCase();
+      return calibrationCases.map(item => ({
+        case_id: item.id,
+        name: item.name,
+        smoke: projectorSmokeCheckFor(item.points, item.projector_reference || projectionReferenceFromPoints(defaultPoints))
+      }));
+    }
+
+    function renderCaseControls() {
+      caseSelect.innerHTML = "";
+      for (const item of calibrationCases) {
+        const option = document.createElement("option");
+        option.value = item.id;
+        option.textContent = item.name || item.id;
+        caseSelect.appendChild(option);
+      }
+      caseSelect.value = activeCaseId || "";
+      const smoke = projectorSmokeCheck();
+      const statusClass = smoke.ok ? "ok" : "bad";
+      smokeCheck.innerHTML = `
+        <div class="smoke-row"><span>projector smoke</span><span class="${statusClass}">${smoke.ok ? "PASS" : "FAIL"}</span></div>
+        <div class="smoke-row"><span>max corner drift</span><span class="${statusClass}">${smoke.max_corner_px ?? "-"}px</span></div>
+        <div class="smoke-row"><span>center drift</span><span class="${smoke.center_px <= SMOKE_LIMITS.centerPx ? "ok" : "bad"}">${smoke.center_px ?? "-"}px</span></div>
+        <div class="smoke-row"><span>area change</span><span class="${smoke.area_ratio <= SMOKE_LIMITS.areaRatio ? "ok" : "bad"}">${smoke.area_ratio ?? "-"}</span></div>
+      `;
+    }
+
+    function assertProjectorSmokeBeforeApply() {
+      const failures = allCaseSmokeChecks().filter(item => !item.smoke.ok);
+      if (!failures.length) return true;
+      const first = failures[0];
+      return confirm(`Projector smoke check FAILS in ${failures.length} case(s). First: ${first.name}, max corner ${first.smoke.max_corner_px}px, center ${first.smoke.center_px}px. Continue anyway?`);
+    }
+
+    function ensureDefaultCase() {
+      if (calibrationCases.length) {
+        mergeBundledCaptureCases();
+        return;
+      }
+      const item = makeCalibrationCase("default image");
+      calibrationCases = [item];
+      activeCaseId = item.id;
+      mergeBundledCaptureCases();
+      applyCase(activeCase());
+    }
+
+    function switchCase(id) {
+      captureActiveCase();
+      activeCaseId = id;
+      applyCase(activeCase());
+      update();
+    }
+
+    function activeReviewCase() {
+      return reviewCases.find(item => item.id === activeReviewCaseId) || null;
+    }
+
+    function normaliseReviewLabel(value) {
+      if (value === "yes") return "cat";
+      if (value === "no") return "not_cat";
+      if (value === "cat" || value === "not_cat" || value === "unsure") return value;
+      return "unsure";
+    }
+
+    function reviewCasePassesFilter(item) {
+      const filter = reviewFilter.value;
+      const label = normaliseReviewLabel(item.human_label);
+      if (filter === "all") return true;
+      if (filter === "unreviewed") return item.review_status !== "saved" && item.review_status !== "reviewed";
+      if (filter === "saved") return item.review_status === "saved" || item.review_status === "reviewed";
+      return label === filter;
+    }
+
+    function renderReviewQueue() {
+      reviewQueue.innerHTML = "";
+      const filtered = reviewCases.filter(reviewCasePassesFilter);
+      reviewStatus.textContent = `${filtered.length}/${reviewCases.length} frames · borderline first`;
+      if (!filtered.length) {
+        const empty = document.createElement("div");
+        empty.className = "muted";
+        empty.textContent = "no frames for this filter";
+        reviewQueue.appendChild(empty);
+        return;
+      }
+      for (const item of filtered) {
+        const row = document.createElement("div");
+        row.className = "review-item" + (item.id === activeReviewCaseId ? " active" : "");
+        const probability = typeof item.detector_probability === "number" ? `p=${item.detector_probability.toFixed(2)}` : "p=?";
+        const status = item.review_status || "unreviewed";
+        const label = normaliseReviewLabel(item.human_label);
+        row.innerHTML = `
+          <div class="review-item-title" title="${item.image_path}">${item.label || item.id}</div>
+          <div class="review-item-meta">${probability} · u=${Number(item.uncertainty_score || 0).toFixed(2)} · ${status} · ${label}</div>
+        `;
+        row.addEventListener("click", () => openReviewCase(item.id).catch(error => {
+          reviewStatus.textContent = error.message;
+        }));
+        reviewQueue.appendChild(row);
+      }
+    }
+
+    async function refreshReviewQueue() {
+      reviewStatus.textContent = "loading corpus...";
+      const response = await fetch(`${LABEL_REVIEW_API}/cases?limit=500`);
+      if (!response.ok) throw new Error(`review backend ${response.status}`);
+      const payload = await response.json();
+      reviewCases = payload.cases || [];
+      renderReviewQueue();
+      if (!activeReviewCaseId && reviewCases.length) {
+        await openReviewCase(reviewCases[0].id);
+      }
+    }
+
+    async function loadReviewLabel(caseId) {
+      const response = await fetch(`${LABEL_REVIEW_API}/label?case_id=${encodeURIComponent(caseId)}`);
+      if (!response.ok) return null;
+      return response.json();
+    }
+
+    async function openReviewCase(caseId) {
+      captureActiveCase();
+      const item = reviewCases.find(row => row.id === caseId);
+      if (!item) return;
+      activeReviewCaseId = item.id;
+      activeReviewLabel = normaliseReviewLabel(item.human_label);
+
+      const existing = calibrationCases.find(row => row.id === `review.${item.id}`);
+      const base = activeCase() || calibrationCases[0] || makeCalibrationCase("review base");
+      const reviewCase = existing || {
+        id: `review.${item.id}`,
+        name: `review ${item.label || item.id}`,
+        image: item.image_path,
+        image_src: item.image_url,
+        source_size_px: item.source_size_px || SOURCE_SIZE,
+        points: storedPointsFrom(points.length ? points : base.points || defaultPoints),
+        distance_constraints: storedDistancesFrom(distanceConstraints.length ? distanceConstraints : base.distance_constraints || defaultDistanceConstraints),
+        cat_annotations: [],
+        projector_reference: structuredClone(base.projector_reference || projectionReferenceFromPoints(defaultPoints)),
+        review_case_id: item.id,
+        source_video_path: item.source_video_path,
+        source_recording_dir: item.source_recording_dir
+      };
+      if (!existing) calibrationCases.push(reviewCase);
+      activeCaseId = reviewCase.id;
+      applyCase(reviewCase);
+      activeMode = "review";
+      modeSelect.value = "review";
+      canvas.style.cursor = "copy";
+
+      const saved = await loadReviewLabel(item.id);
+      reviewNotes.value = saved?.notes || item.notes || "";
+      activeReviewLabel = normaliseReviewLabel(saved?.label || item.human_label);
+      if (Array.isArray(saved?.masks)) {
+        catAnnotations = storedCatAnnotationsFrom(saved.masks);
+        activeCatId = catAnnotations[0]?.id || null;
+      }
+      renderReviewDetail();
+      update();
+      renderReviewQueue();
+    }
+
+    function renderReviewDetail() {
+      const item = activeReviewCase();
+      if (!item) {
+        reviewDetail.textContent = "open a frame from the review queue";
+        return;
+      }
+      const probability = typeof item.detector_probability === "number" ? item.detector_probability.toFixed(3) : "?";
+      const video = item.source_video_path ? `<br>video: ${item.source_video_path}` : "";
+      reviewDetail.innerHTML = `
+        frame: ${item.image_path}<br>
+        label: ${activeReviewLabel} · detector p=${probability} · status ${item.review_status || "unreviewed"}${video}
+      `;
+    }
+
+    function setReviewLabel(label) {
+      activeReviewLabel = label;
+      if (label === "cat" && !catAnnotations.length) {
+        const annotation = makeCatAnnotation();
+        annotation.kind = "cat";
+        catAnnotations.push(annotation);
+        activeCatId = annotation.id;
+      }
+      if (label === "not_cat") {
+        for (const annotation of catAnnotations) annotation.kind = "not_cat";
+      }
+      renderReviewDetail();
+      update();
+    }
+
+    async function saveReviewLabel() {
+      const item = activeReviewCase();
+      if (!item) return;
+      captureActiveCase();
+      const response = await fetch(`${LABEL_REVIEW_API}/labels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          case_id: item.id,
+          image_path: item.image_path,
+          image_url: item.image_url,
+          source_video_path: item.source_video_path,
+          source_recording_dir: item.source_recording_dir,
+          label: activeReviewLabel,
+          review_status: "saved",
+          detector_probability: item.detector_probability,
+          candidate_bbox_xywh: item.candidate_bbox_xywh,
+          notes: reviewNotes.value,
+          masks: storedCatAnnotationsFrom(catAnnotations)
+        })
+      });
+      if (!response.ok) throw new Error(`save ${response.status}`);
+      const saved = await response.json();
+      item.review_status = saved.review_status || "saved";
+      item.human_label = saved.label || activeReviewLabel;
+      item.notes = saved.notes || "";
+      reviewActionLog.textContent = `saved ${saved.label} · ${saved.mask_refs?.length || 0} mask(s)`;
+      renderReviewDetail();
+      renderReviewQueue();
+    }
+
+    async function queueReviewAction(action) {
+      const item = activeReviewCase();
+      const response = await fetch(`${LABEL_REVIEW_API}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          case_id: item?.id || null,
+          image_path: item?.image_path || imagePath,
+          source_recording_dir: item?.source_recording_dir || null,
+          source_video_path: item?.source_video_path || null,
+          created_from: "projector-wall-calibrator-review-mode"
+        })
+      });
+      if (!response.ok) throw new Error(`action ${response.status}`);
+      const payload = await response.json();
+      reviewActionLog.textContent = `${payload.action} queued · ${payload.id}`;
+    }
+
+    function renderPointsList() {
+      pointsEl.innerHTML = "";
+      const residualById = new Map((fit?.residuals || []).map(r => [r.id, r]));
+      const header = document.createElement("div");
+      header.className = "point-row header";
+      header.innerHTML = `
+        <span></span>
+        <span>point</span>
+        <span class="point-fit-cell">x</span>
+        <span class="point-fit-cell">y</span>
+        <span class="point-fit-cell">target</span>
+        <span class="point-fit-cell">fit</span>
+        <span class="point-fit-cell">err</span>
+      `;
+      pointsEl.appendChild(header);
+      for (const p of points) {
+        const residual = residualById.get(p.id);
+        const cls = residual
+          ? Math.abs(residual.residual) <= 30 ? "ok" : Math.abs(residual.residual) <= 80 ? "warn" : "bad"
+          : "muted";
+        const row = document.createElement("div");
+        row.className = "point-row" + (p.id === selectedId ? " active" : "");
+        row.innerHTML = `
+          <span class="swatch" style="background:${p.color}"></span>
+          <span class="point-name" title="${p.id}">${p.label}</span>
+          <input class="point-coordinate-input" type="number" step="0.1" value="${p.x.toFixed(1)}" data-id="${p.id}" data-axis="x">
+          <input class="point-coordinate-input" type="number" step="0.1" value="${p.y.toFixed(1)}" data-id="${p.id}" data-axis="y">
+          <input class="point-height-input" type="number" step="1" placeholder="-" value="${typeof p.height === "number" ? p.height.toFixed(0) : ""}" data-id="${p.id}">
+          <span class="point-fit-cell muted">${residual ? residual.fitted.toFixed(1) : "-"}</span>
+          <span class="point-fit-cell ${cls}">${residual ? residual.residual.toFixed(1) : "-"}</span>
+        `;
+        row.addEventListener("click", () => selectPoint(p.id));
+        pointsEl.appendChild(row);
+      }
+      pointsEl.querySelectorAll(".point-coordinate-input").forEach(input => {
+        input.addEventListener("change", event => {
+          const p = byId(event.target.dataset.id);
+          p[event.target.dataset.axis] = Number(event.target.value);
+          selectPoint(p.id);
+          update();
+        });
+      });
+      pointsEl.querySelectorAll(".point-height-input").forEach(input => {
+        input.addEventListener("change", event => {
+          const p = byId(event.target.dataset.id);
+          if (!p) return;
+          if (event.target.value === "") delete p.height;
+          else p.height = Number(event.target.value);
+          selectPoint(p.id);
+          update();
+        });
+      });
+      renderDistanceControls();
+    }
+
+    function pointOption(point) {
+      const option = document.createElement("option");
+      option.value = point.id;
+      option.textContent = point.label;
+      return option;
+    }
+
+    function renderPointSelect(select, value) {
+      select.innerHTML = "";
+      for (const p of points) select.appendChild(pointOption(p));
+      if (value && points.some(p => p.id === value)) select.value = value;
+    }
+
+    function renderDistanceControls() {
+      renderPointSelect(distancePointA, distancePointA.value || points[0]?.id);
+      renderPointSelect(distancePointB, distancePointB.value || points[1]?.id);
+
+      distancesEl.innerHTML = "";
+      const header = document.createElement("div");
+      header.className = "distance-row header";
+      header.innerHTML = `
+        <span>a</span>
+        <span>b</span>
+        <span>target</span>
+        <span>fit</span>
+        <span>err</span>
+        <span></span>
+      `;
+      distancesEl.appendChild(header);
+      const residualById = new Map((fit?.distanceResiduals || []).map(r => [r.id, r]));
+      for (const d of distanceConstraints) {
+        const residual = residualById.get(d.id);
+        const cls = residual
+          ? Math.abs(residual.residual) <= 30 ? "ok" : Math.abs(residual.residual) <= 80 ? "warn" : "bad"
+          : "muted";
+        const row = document.createElement("div");
+        row.className = "distance-row";
+        row.innerHTML = `
+          <select data-id="${d.id}" data-axis="a"></select>
+          <select data-id="${d.id}" data-axis="b"></select>
+          <input type="number" step="1" value="${Number(d.distance).toFixed(0)}" data-id="${d.id}" data-axis="distance">
+          <span class="point-fit-cell muted">${residual ? residual.fitted.toFixed(1) : "-"}</span>
+          <span class="point-fit-cell ${cls}">${residual ? residual.residual.toFixed(1) : "-"}</span>
+          <button data-id="${d.id}" data-action="delete-distance">x</button>
+        `;
+        distancesEl.appendChild(row);
+        const selects = row.querySelectorAll("select");
+        renderPointSelect(selects[0], d.a);
+        renderPointSelect(selects[1], d.b);
+      }
+
+      distancesEl.querySelectorAll("select, input").forEach(input => {
+        input.addEventListener("change", event => {
+          const d = distanceConstraints.find(item => item.id === event.target.dataset.id);
+          if (!d) return;
+          if (event.target.dataset.axis === "distance") d.distance = Number(event.target.value);
+          else d[event.target.dataset.axis] = event.target.value;
+          update();
+        });
+      });
+      distancesEl.querySelectorAll("[data-action='delete-distance']").forEach(button => {
+        button.addEventListener("click", event => {
+          distanceConstraints = distanceConstraints.filter(d => d.id !== event.target.dataset.id);
+          update();
+        });
+      });
+    }
+
+    function renderCatControls() {
+      const active = activeCatAnnotation();
+      catLabel.value = active ? active.label : "";
+      catKind.value = active ? active.kind || "cat" : "cat";
+      duplicateCatBtn.disabled = !active;
+      deleteCatBtn.disabled = !active;
+      autoCatBtn.disabled = !active;
+      addCatVertexBtn.disabled = !active;
+      deleteCatVertexBtn.disabled = !active || activeCatVertex === null;
+      clearCatHintsBtn.disabled = !active;
+      catMaskStatus.textContent = active
+        ? `${active.source || "manual"} · ${(active.polygon || []).length} vertices · ${activeBBoxLabel(active)}`
+        : "click image in cat mode";
+
+      catMasksEl.innerHTML = "";
+      if (!catAnnotations.length) {
+        const empty = document.createElement("div");
+        empty.className = "muted";
+        empty.textContent = "no masks yet";
+        catMasksEl.appendChild(empty);
+        return;
+      }
+      for (const item of catAnnotations) {
+        const bbox = item.bbox_xywh || catBBox(item);
+        const row = document.createElement("div");
+        row.className = "cat-row" + (item.id === activeCatId ? " active" : "");
+        row.innerHTML = `
+          <span class="swatch" style="background:${item.kind === "not_cat" ? "#ff7b72" : "#ff7bc4"}"></span>
+          <span class="cat-name" title="${item.id}">${item.label || item.id}</span>
+          <span class="point-fit-cell muted">${bbox ? `${bbox.width.toFixed(0)}x${bbox.height.toFixed(0)}` : "-"}</span>
+          <button class="mini-button" data-id="${item.id}">go</button>
+        `;
+        row.addEventListener("click", () => selectCatAnnotation(item.id));
+        catMasksEl.appendChild(row);
+      }
+    }
+
+    function activeBBoxLabel(annotation) {
+      const bbox = annotation?.bbox_xywh || catBBox(annotation);
+      return bbox ? `${bbox.width.toFixed(0)}x${bbox.height.toFixed(0)}px` : "no bbox";
+    }
+
+    function selectCatAnnotation(id) {
+      activeCatId = id;
+      activeCatVertex = null;
+      renderCatControls();
+      draw();
+    }
+
+    function setCatPolygon(annotation, polygon, source) {
+      annotation.polygon = polygon.map(clampImagePoint);
+      annotation.bbox_xywh = catBBox(annotation);
+      annotation.source = source;
+      annotation.updated_at = new Date().toISOString();
+    }
+
+    function nearestCatVertex(pt) {
+      const annotation = activeCatAnnotation();
+      if (!annotation?.polygon?.length) return null;
+      let best = null;
+      let dist = Infinity;
+      const hitRadius = 16 / (Number(zoom.value) / 100);
+      annotation.polygon.forEach((vertex, index) => {
+        const d = Math.hypot(vertex.x - pt.x, vertex.y - pt.y);
+        if (d < dist) {
+          dist = d;
+          best = index;
+        }
+      });
+      return dist <= hitRadius ? best : null;
+    }
+
+    function addCatAt(pt) {
+      const annotation = makeCatAnnotation(pt);
+      const polygon = autoContourFromClick(pt);
+      if (polygon) setCatPolygon(annotation, polygon, "local_click_contour");
+      catAnnotations.push(annotation);
+      activeCatId = annotation.id;
+      activeCatVertex = null;
+      update();
+    }
+
+    async function samContour(annotation) {
+      const endpoint = samEndpoint.value.trim();
+      if (!endpoint) return null;
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          case_id: activeCaseId,
+          image: imagePath,
+          image_src: image.src.startsWith("data:") ? image.src : imagePath,
+          positive_points: annotation.positive_points || [],
+          negative_points: annotation.negative_points || [],
+          existing_polygon: annotation.polygon || []
+        })
+      });
+      if (!response.ok) throw new Error(`SAM ${response.status}`);
+      const payload = await response.json();
+      const polygon = payload.polygon || payload.contour;
+      if (!Array.isArray(polygon) || polygon.length < 3) throw new Error("SAM returned no polygon");
+      annotation.score = typeof payload.score === "number" ? payload.score : annotation.score ?? null;
+      return polygon.map(clampImagePoint);
+    }
+
+    async function refineActiveCatFromHints() {
+      const annotation = activeCatAnnotation();
+      const seed = annotation?.positive_points?.[annotation.positive_points.length - 1];
+      if (!annotation || !seed) return;
+      let polygon = null;
+      if (samEndpoint.value.trim()) {
+        try {
+          catMaskStatus.textContent = "SAM...";
+          polygon = await samContour(annotation);
+        } catch (error) {
+          catMaskStatus.textContent = `${error.message}; local contour`;
+        }
+      }
+      if (!polygon) polygon = autoContourFromClick(seed);
+      if (polygon) {
+        setCatPolygon(annotation, polygon, samEndpoint.value.trim() ? "sam_or_local_contour" : "local_click_contour");
+        catMaskStatus.textContent = `contour ok · ${polygon.length} vertices`;
+      } else {
+        catMaskStatus.textContent = "contour failed; adjust polygon";
+      }
+      update();
+    }
+
+    function draw() {
+      const z = Number(zoom.value) / 100;
+      const ui = 1 / z;
+      canvas.width = Math.round(image.naturalWidth * z);
+      canvas.height = Math.round(image.naturalHeight * z);
+      canvas.style.width = `${canvas.width}px`;
+      canvas.style.height = `${canvas.height}px`;
+      ctx.setTransform(z, 0, 0, z, 0, 0);
+      ctx.clearRect(0, 0, image.naturalWidth, image.naturalHeight);
+      ctx.drawImage(image, 0, 0);
+
+      const poly = projectionPolygon();
+      if (poly.length !== 4) return;
+      ctx.lineWidth = 2 * ui;
+      ctx.strokeStyle = "#67d7ff";
+      ctx.beginPath();
+      poly.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+      ctx.closePath();
+      ctx.stroke();
+
+      if (fit && showLines.checked) {
+        for (let i = 1; i < 10; i++) {
+          const t = i / 10;
+          const top = lerpPoint(poly[0], poly[1], t);
+          const bottom = lerpPoint(poly[3], poly[2], t);
+          const major = i === 5;
+          ctx.strokeStyle = major ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.28)";
+          ctx.lineWidth = (major ? 2 : 1) * ui;
+          ctx.beginPath();
+          ctx.moveTo(top.x, top.y);
+          ctx.lineTo(bottom.x, bottom.y);
+          ctx.stroke();
+        }
+
+        for (let cm = 30; cm <= 250; cm += 10) {
+          const seg = heightSegment(cm * 10);
+          if (seg.length !== 2) continue;
+          ctx.strokeStyle = cm % 50 === 0 ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.35)";
+          ctx.lineWidth = (cm % 50 === 0 ? 2.5 : 1) * ui;
+          ctx.beginPath();
+          ctx.moveTo(seg[0].x, seg[0].y);
+          ctx.lineTo(seg[1].x, seg[1].y);
+          ctx.stroke();
+          if (cm % 50 === 0) {
+            const x = (seg[0].x + seg[1].x) / 2;
+            const y = (seg[0].y + seg[1].y) / 2;
+            ctx.fillStyle = "rgba(0,0,0,0.75)";
+            ctx.fillRect(x - 33 * ui, y - 12 * ui, 66 * ui, 20 * ui);
+            ctx.fillStyle = "#fff";
+            ctx.font = `${16 * ui}px system-ui`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(cm >= 100 ? `${(cm / 100).toFixed(1)}m` : `${cm}cm`, x, y - 1 * ui);
+          }
+        }
+      }
+
+      const outletIds = ["outlet.top_left", "outlet.top_right", "outlet.bottom_right", "outlet.bottom_left"];
+      const outletPoints = outletIds.map(byId).filter(Boolean);
+      if (outletPoints.length === outletIds.length) {
+        ctx.strokeStyle = "#ffa657";
+        ctx.lineWidth = 3 * ui;
+        ctx.beginPath();
+        outletPoints.forEach((p, i) => {
+          if (i) ctx.lineTo(p.x, p.y); else ctx.moveTo(p.x, p.y);
+        });
+        ctx.closePath();
+        ctx.stroke();
+      }
+
+      for (const d of distanceConstraints) {
+        const a = byId(d.a);
+        const b = byId(d.b);
+        if (!a || !b) continue;
+        ctx.save();
+        ctx.strokeStyle = "rgba(255, 211, 61, 0.9)";
+        ctx.lineWidth = 2 * ui;
+        ctx.setLineDash([8 * ui, 6 * ui]);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+        ctx.restore();
+
+        const x = (a.x + b.x) / 2;
+        const y = (a.y + b.y) / 2;
+        const label = `${Number(d.distance).toFixed(0)}mm`;
+        ctx.fillStyle = "rgba(0,0,0,0.75)";
+        ctx.fillRect(x - 28 * ui, y - 10 * ui, 56 * ui, 18 * ui);
+        ctx.fillStyle = "#ffd33d";
+        ctx.font = `${12 * ui}px system-ui`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, x, y - 1 * ui);
+      }
+
+      if (fit && showResiduals.checked) {
+        for (const r of fit.residuals) {
+          const point = byId(r.id);
+          if (!point) continue;
+          const targetLine = fit.lineFor(r.height);
+          const targetPoint = closestPointOnLine(targetLine, point);
+          if (!targetPoint) continue;
+          const severity = Math.abs(r.residual) <= 30
+            ? "rgba(126, 231, 135, 0.95)"
+            : Math.abs(r.residual) <= 80
+              ? "rgba(255, 166, 87, 0.95)"
+              : "rgba(255, 123, 114, 0.95)";
+
+          ctx.strokeStyle = severity;
+          ctx.fillStyle = severity;
+          ctx.lineWidth = 2 * ui;
+          ctx.beginPath();
+          ctx.moveTo(point.x, point.y);
+          ctx.lineTo(targetPoint.x, targetPoint.y);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(targetPoint.x, targetPoint.y, 3.5 * ui, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      for (const annotation of catAnnotations) {
+        const polygon = annotation.polygon || [];
+        if (!polygon.length) continue;
+        const active = annotation.id === activeCatId;
+        const color = annotation.kind === "not_cat" ? "#ff7b72" : "#ff7bc4";
+        ctx.save();
+        ctx.fillStyle = annotation.kind === "not_cat" ? "rgba(255, 123, 114, 0.16)" : "rgba(255, 123, 196, 0.18)";
+        ctx.strokeStyle = active ? "#fff" : color;
+        ctx.lineWidth = (active ? 3 : 2) * ui;
+        ctx.beginPath();
+        polygon.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        const bbox = annotation.bbox_xywh || catBBox(annotation);
+        if (bbox) {
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1.5 * ui;
+          ctx.setLineDash([7 * ui, 5 * ui]);
+          ctx.strokeRect(bbox.x, bbox.y, bbox.width, bbox.height);
+        }
+        ctx.setLineDash([]);
+        if (active) {
+          polygon.forEach((p, index) => {
+            ctx.fillStyle = index === activeCatVertex ? "#fff" : color;
+            ctx.strokeStyle = "#000";
+            ctx.lineWidth = 1.5 * ui;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, (index === activeCatVertex ? 6 : 4.5) * ui, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          });
+        }
+        for (const p of annotation.positive_points || []) {
+          ctx.strokeStyle = "#7ee787";
+          ctx.lineWidth = 2 * ui;
+          ctx.beginPath();
+          ctx.moveTo(p.x - 6 * ui, p.y);
+          ctx.lineTo(p.x + 6 * ui, p.y);
+          ctx.moveTo(p.x, p.y - 6 * ui);
+          ctx.lineTo(p.x, p.y + 6 * ui);
+          ctx.stroke();
+        }
+        for (const p of annotation.negative_points || []) {
+          ctx.strokeStyle = "#ff7b72";
+          ctx.lineWidth = 2 * ui;
+          ctx.beginPath();
+          ctx.moveTo(p.x - 5 * ui, p.y - 5 * ui);
+          ctx.lineTo(p.x + 5 * ui, p.y + 5 * ui);
+          ctx.moveTo(p.x + 5 * ui, p.y - 5 * ui);
+          ctx.lineTo(p.x - 5 * ui, p.y + 5 * ui);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      for (const p of points) {
+        ctx.fillStyle = p.color;
+        ctx.strokeStyle = p.id === selectedId ? "#fff" : "#000";
+        ctx.lineWidth = (p.id === selectedId ? 3 : 1.5) * ui;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, (p.id === selectedId ? 7 : 5) * ui, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        if (showResiduals.checked && typeof p.height === "number") {
+          ctx.fillStyle = "rgba(0,0,0,0.75)";
+          ctx.fillRect(p.x + 7 * ui, p.y - 12 * ui, 68 * ui, 18 * ui);
+          ctx.fillStyle = "#fff";
+          ctx.font = `${12 * ui}px system-ui`;
+          ctx.textAlign = "left";
+          ctx.textBaseline = "middle";
+          ctx.fillText(`${(p.height / 10).toFixed(0)}cm`, p.x + 10 * ui, p.y - 3 * ui);
+        }
+      }
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+
+    function setZoomPercent(value, anchorEvent = null) {
+      const oldZoom = Number(zoom.value);
+      const nextZoom = Math.max(Number(zoom.min), Math.min(Number(zoom.max), Math.round(value)));
+      if (nextZoom === oldZoom) return;
+
+      const container = canvas.parentElement.parentElement;
+      const oldRect = canvas.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      const anchorViewportX = anchorEvent ? anchorEvent.clientX - containerRect.left : container.clientWidth / 2;
+      const anchorViewportY = anchorEvent ? anchorEvent.clientY - containerRect.top : container.clientHeight / 2;
+      const imageX = anchorEvent ? (anchorEvent.clientX - oldRect.left) / (oldZoom / 100) : image.naturalWidth / 2;
+      const imageY = anchorEvent ? (anchorEvent.clientY - oldRect.top) / (oldZoom / 100) : image.naturalHeight / 2;
+
+      zoom.value = String(nextZoom);
+      draw();
+
+      const newRect = canvas.getBoundingClientRect();
+      const canvasContentLeft = container.scrollLeft + newRect.left - containerRect.left;
+      const canvasContentTop = container.scrollTop + newRect.top - containerRect.top;
+      container.scrollLeft = canvasContentLeft + imageX * (nextZoom / 100) - anchorViewportX;
+      container.scrollTop = canvasContentTop + imageY * (nextZoom / 100) - anchorViewportY;
+    }
+
+    function fitImageToView() {
+      if (!image.naturalWidth) return;
+      const container = canvas.parentElement.parentElement;
+      const fitZoom = Math.floor((container.clientWidth - 18) / image.naturalWidth * 100);
+      setZoomPercent(Math.max(Number(zoom.min), Math.min(100, fitZoom)));
+    }
+
+    function renderSelectedDetails() {
+      const p = byId(selectedId);
+      selectedName.textContent = p ? `${p.label} (${p.id})` : "none";
+      selLabel.value = p ? p.label : "";
+      selHeight.value = p && typeof p.height === "number" ? p.height.toFixed(0) : "";
+      selX.value = p ? p.x.toFixed(1) : "";
+      selY.value = p ? p.y.toFixed(1) : "";
+      duplicatePointBtn.disabled = !p;
+      deletePointBtn.disabled = !p || isRequiredProjectionPoint(p);
+    }
+
+    function selectPoint(id) {
+      selectedId = id;
+      renderSelectedDetails();
+      renderPointsList();
+      draw();
+    }
+
+    function update() {
+      try {
+        fit = computeFit();
+      } catch (err) {
+        fit = null;
+        fitBadge.textContent = err.message;
+        fitBadge.className = "pill bad";
+      }
+      renderSelectedDetails();
+      jsonOut.value = JSON.stringify(serializeCalibrationSet(), null, 2);
+      renderCaseControls();
+      renderPointsList();
+      renderCatControls();
+      draw();
+      if (!loadingSavedState) saveLocalCalibration();
+    }
+
+    function eventToImagePoint(event) {
+      const rect = canvas.getBoundingClientRect();
+      const z = canvas.width / image.naturalWidth;
+      return {
+        x: (event.clientX - rect.left) / z,
+        y: (event.clientY - rect.top) / z
+      };
+    }
+
+    function nearestPoint(pt) {
+      let best = null;
+      let dist = Infinity;
+      const hitRadius = 16 / (Number(zoom.value) / 100);
+      for (const p of points) {
+        const d = Math.hypot(p.x - pt.x, p.y - pt.y);
+        if (d < dist) { dist = d; best = p; }
+      }
+      return dist <= hitRadius ? best : null;
+    }
+
+    canvas.addEventListener("pointerdown", event => {
+      const pt = eventToImagePoint(event);
+      if (activeMode === "cat" || activeMode === "review") {
+        const annotation = activeCatAnnotation();
+        if (annotation) {
+          const vertex = nearestCatVertex(pt);
+          if (vertex !== null) {
+            activeCatVertex = vertex;
+            draggingCatVertex = true;
+            canvas.setPointerCapture(event.pointerId);
+            renderCatControls();
+            draw();
+            return;
+          }
+        }
+        if (event.shiftKey || event.altKey) {
+          const active = activeCatAnnotation();
+          if (active) {
+            active.negative_points = active.negative_points || [];
+            active.negative_points.push(clampImagePoint(pt));
+            active.updated_at = new Date().toISOString();
+            update();
+          }
+          return;
+        }
+        if (annotation) {
+          annotation.positive_points = annotation.positive_points || [];
+          annotation.positive_points.push(clampImagePoint(pt));
+          activeCatVertex = null;
+          refineActiveCatFromHints();
+          return;
+        }
+        addCatAt(pt);
+        return;
+      }
+      const p = nearestPoint(pt);
+      if (!p) return;
+      selectPoint(p.id);
+      dragging = true;
+      canvas.setPointerCapture(event.pointerId);
+    });
+
+    canvas.addEventListener("pointermove", event => {
+      if (draggingCatVertex) {
+        const annotation = activeCatAnnotation();
+        if (!annotation || activeCatVertex === null) return;
+        annotation.polygon[activeCatVertex] = clampImagePoint(eventToImagePoint(event));
+        annotation.bbox_xywh = catBBox(annotation);
+        annotation.source = "manual_polygon";
+        annotation.updated_at = new Date().toISOString();
+        update();
+        return;
+      }
+      if (!dragging || !selectedId) return;
+      const p = byId(selectedId);
+      const pt = eventToImagePoint(event);
+      p.x = Math.max(0, Math.min(image.naturalWidth, pt.x));
+      p.y = Math.max(0, Math.min(image.naturalHeight, pt.y));
+      selX.value = p.x.toFixed(1);
+      selY.value = p.y.toFixed(1);
+      update();
+    });
+
+    canvas.addEventListener("pointerup", () => { dragging = false; draggingCatVertex = false; });
+    canvas.addEventListener("pointercancel", () => { dragging = false; draggingCatVertex = false; });
+
+    caseSelect.addEventListener("change", () => {
+      if (caseSelect.value) switchCase(caseSelect.value);
+    });
+
+    caseName.addEventListener("change", () => {
+      const item = activeCase();
+      if (!item) return;
+      item.name = caseName.value || item.name;
+      update();
+    });
+
+    newCaseBtn.addEventListener("click", () => {
+      captureActiveCase();
+      const item = makeCalibrationCase(`image ${calibrationCases.length + 1}`);
+      calibrationCases.push(item);
+      activeCaseId = item.id;
+      applyCase(item);
+      update();
+    });
+
+    duplicateCaseBtn.addEventListener("click", () => {
+      const current = activeCase();
+      if (!current) return;
+      captureActiveCase();
+      const copy = structuredClone(current);
+      copy.id = makeCaseId();
+      copy.name = `${current.name || "case"} copy`;
+      calibrationCases.push(copy);
+      activeCaseId = copy.id;
+      applyCase(copy);
+      update();
+    });
+
+    deleteCaseBtn.addEventListener("click", () => {
+      if (calibrationCases.length <= 1) return;
+      const current = activeCase();
+      if (!current || !confirm(`Delete calibration case "${current.name}"?`)) return;
+      calibrationCases = calibrationCases.filter(item => item.id !== current.id);
+      activeCaseId = calibrationCases[0].id;
+      applyCase(activeCase());
+      update();
+    });
+
+    setProjectorReferenceBtn.addEventListener("click", () => {
+      const item = activeCase();
+      if (!item) return;
+      item.projector_reference = projectionReferenceFromPoints(points);
+      update();
+    });
+
+    selLabel.addEventListener("change", () => {
+      const p = byId(selectedId);
+      if (!p) return;
+      p.label = selLabel.value || p.id;
+      update();
+    });
+
+    selHeight.addEventListener("change", () => {
+      const p = byId(selectedId);
+      if (!p) return;
+      if (selHeight.value === "") delete p.height;
+      else p.height = Number(selHeight.value);
+      update();
+    });
+
+    selX.addEventListener("change", () => {
+      const p = byId(selectedId);
+      if (!p) return;
+      p.x = Number(selX.value);
+      update();
+    });
+
+    selY.addEventListener("change", () => {
+      const p = byId(selectedId);
+      if (!p) return;
+      p.y = Number(selY.value);
+      update();
+    });
+
+    addPointBtn.addEventListener("click", () => {
+      const id = makeUniqueCustomPointId();
+      const pt = selectedViewportCenterPoint();
+      const point = {
+        id,
+        label: id.replace("custom.", ""),
+        x: pt.x,
+        y: pt.y,
+        color: "#f0f6fc"
+      };
+      points.push(point);
+      selectedId = id;
+      update();
+    });
+
+    duplicatePointBtn.addEventListener("click", () => {
+      const p = byId(selectedId);
+      if (!p) return;
+      const copy = {
+        ...p,
+        id: makeUniquePointId(p.id),
+        label: `${p.label} copy`,
+        x: Math.min(image.naturalWidth || SOURCE_SIZE.width, p.x + 14),
+        y: Math.min(image.naturalHeight || SOURCE_SIZE.height, p.y + 14)
+      };
+      points.splice(points.indexOf(p) + 1, 0, copy);
+      selectedId = copy.id;
+      update();
+    });
+
+    deletePointBtn.addEventListener("click", () => {
+      const p = byId(selectedId);
+      if (!p || isRequiredProjectionPoint(p)) return;
+      const index = points.indexOf(p);
+      points.splice(index, 1);
+      selectedId = points[Math.min(index, points.length - 1)]?.id || null;
+      distanceConstraints = distanceConstraints.filter(d => d.a !== p.id && d.b !== p.id);
+      update();
+    });
+
+    addDistanceBtn.addEventListener("click", () => {
+      if (!distancePointA.value || !distancePointB.value || distancePointA.value === distancePointB.value) return;
+      distanceConstraints.push({
+        id: makeUniqueDistanceId(),
+        a: distancePointA.value,
+        b: distancePointB.value,
+        distance: Number(distanceMm.value || 0)
+      });
+      distanceMm.value = "";
+      update();
+    });
+
+    modeSelect.addEventListener("change", () => {
+      activeMode = modeSelect.value;
+      canvas.style.cursor = activeMode === "cat" || activeMode === "review" ? "copy" : "crosshair";
+      draw();
+    });
+
+    refreshReviewBtn.addEventListener("click", () => {
+      refreshReviewQueue().catch(error => {
+        reviewStatus.textContent = error.message;
+      });
+    });
+    reviewFilter.addEventListener("change", renderReviewQueue);
+    labelCatBtn.addEventListener("click", () => setReviewLabel("cat"));
+    labelNotCatBtn.addEventListener("click", () => setReviewLabel("not_cat"));
+    labelUnsureBtn.addEventListener("click", () => setReviewLabel("unsure"));
+    saveReviewBtn.addEventListener("click", () => {
+      saveReviewLabel().catch(error => {
+        reviewActionLog.textContent = error.message;
+      });
+    });
+    retrainModelBtn.addEventListener("click", () => {
+      queueReviewAction("retrain_model").catch(error => {
+        reviewActionLog.textContent = error.message;
+      });
+    });
+    rescoreRecordingBtn.addEventListener("click", () => {
+      queueReviewAction("rescore_recording").catch(error => {
+        reviewActionLog.textContent = error.message;
+      });
+    });
+
+    addCatBtn.addEventListener("click", () => {
+      const annotation = makeCatAnnotation();
+      catAnnotations.push(annotation);
+      activeCatId = annotation.id;
+      activeCatVertex = null;
+      activeMode = "cat";
+      modeSelect.value = "cat";
+      update();
+    });
+
+    autoCatBtn.addEventListener("click", () => {
+      refineActiveCatFromHints().catch(error => {
+        catMaskStatus.textContent = error.message;
+      });
+    });
+
+    duplicateCatBtn.addEventListener("click", () => {
+      const annotation = activeCatAnnotation();
+      if (!annotation) return;
+      const copy = structuredClone(annotation);
+      copy.id = makeUniqueCatId();
+      copy.label = `${annotation.label || "Sher"} copy`;
+      copy.polygon = (copy.polygon || []).map(p => clampImagePoint({ x: p.x + 12, y: p.y + 12 }));
+      copy.positive_points = (copy.positive_points || []).map(p => clampImagePoint({ x: p.x + 12, y: p.y + 12 }));
+      copy.negative_points = (copy.negative_points || []).map(p => clampImagePoint({ x: p.x + 12, y: p.y + 12 }));
+      copy.bbox_xywh = catBBox(copy);
+      copy.updated_at = new Date().toISOString();
+      catAnnotations.push(copy);
+      activeCatId = copy.id;
+      activeCatVertex = null;
+      update();
+    });
+
+    deleteCatBtn.addEventListener("click", () => {
+      const annotation = activeCatAnnotation();
+      if (!annotation) return;
+      const index = catAnnotations.indexOf(annotation);
+      catAnnotations.splice(index, 1);
+      activeCatId = catAnnotations[Math.min(index, catAnnotations.length - 1)]?.id || null;
+      activeCatVertex = null;
+      update();
+    });
+
+    catLabel.addEventListener("change", () => {
+      const annotation = activeCatAnnotation();
+      if (!annotation) return;
+      annotation.label = catLabel.value || annotation.id;
+      annotation.updated_at = new Date().toISOString();
+      update();
+    });
+
+    catKind.addEventListener("change", () => {
+      const annotation = activeCatAnnotation();
+      if (!annotation) return;
+      annotation.kind = catKind.value;
+      annotation.updated_at = new Date().toISOString();
+      update();
+    });
+
+    addCatVertexBtn.addEventListener("click", () => {
+      const annotation = activeCatAnnotation();
+      if (!annotation?.polygon?.length) return;
+      const insertAfter = activeCatVertex === null ? annotation.polygon.length - 1 : activeCatVertex;
+      const a = annotation.polygon[insertAfter];
+      const b = annotation.polygon[(insertAfter + 1) % annotation.polygon.length];
+      annotation.polygon.splice(insertAfter + 1, 0, { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+      activeCatVertex = insertAfter + 1;
+      setCatPolygon(annotation, annotation.polygon, "manual_polygon");
+      update();
+    });
+
+    deleteCatVertexBtn.addEventListener("click", () => {
+      const annotation = activeCatAnnotation();
+      if (!annotation?.polygon || activeCatVertex === null || annotation.polygon.length <= 3) return;
+      annotation.polygon.splice(activeCatVertex, 1);
+      activeCatVertex = Math.min(activeCatVertex, annotation.polygon.length - 1);
+      setCatPolygon(annotation, annotation.polygon, "manual_polygon");
+      update();
+    });
+
+    clearCatHintsBtn.addEventListener("click", () => {
+      const annotation = activeCatAnnotation();
+      if (!annotation) return;
+      annotation.positive_points = [];
+      annotation.negative_points = [];
+      annotation.updated_at = new Date().toISOString();
+      update();
+    });
+
+    zoom.addEventListener("input", draw);
+    zoomOutBtn.addEventListener("click", () => setZoomPercent(Number(zoom.value) - 25));
+    zoomInBtn.addEventListener("click", () => setZoomPercent(Number(zoom.value) + 25));
+    zoomFitBtn.addEventListener("click", fitImageToView);
+    zoom100Btn.addEventListener("click", () => setZoomPercent(100));
+    zoom200Btn.addEventListener("click", () => setZoomPercent(200));
+    canvas.addEventListener("wheel", event => {
+      event.preventDefault();
+      const direction = event.deltaY < 0 ? 1 : -1;
+      setZoomPercent(Number(zoom.value) + direction * 25, event);
+    }, { passive: false });
+    showLines.addEventListener("change", draw);
+    showResiduals.addEventListener("change", draw);
+
+    document.getElementById("resetViewBtn").addEventListener("click", () => {
+      fitImageToView();
+    });
+
+    document.getElementById("resetPointsBtn").addEventListener("click", () => {
+      if (!confirm("Reset all calibration points to defaults? This throws away current point edits.")) return;
+      points = structuredClone(defaultPoints);
+      distanceConstraints = structuredClone(defaultDistanceConstraints);
+      selectedId = null;
+      update();
+    });
+
+    document.getElementById("copyBtn").addEventListener("click", async () => {
+      if (!assertProjectorSmokeBeforeApply()) return;
+      jsonOut.select();
+      try { await navigator.clipboard.writeText(jsonOut.value); } catch (_) { document.execCommand("copy"); }
+    });
+
+    document.getElementById("downloadBtn").addEventListener("click", () => {
+      if (!assertProjectorSmokeBeforeApply()) return;
+      const blob = new Blob([jsonOut.value], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "cat-projector-wall-calibration.json";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+
+    document.getElementById("importBtn").addEventListener("click", () => {
+      const data = JSON.parse(jsonOut.value);
+      if (data.kind === CALIBRATION_SET_KIND && Array.isArray(data.cases)) {
+        calibrationCases = data.cases;
+        activeCaseId = data.active_case_id || calibrationCases[0]?.id || null;
+        applyCase(activeCase());
+        update();
+      } else if (applyCalibrationData(data)) {
+        captureActiveCase();
+        update();
+      }
+    });
+
+    document.getElementById("saveLocalBtn").addEventListener("click", () => {
+      saveLocalCalibration();
+    });
+
+    document.getElementById("loadLocalBtn").addEventListener("click", () => {
+      if (loadLocalCalibration()) update();
+    });
+
+    document.getElementById("imageInput").addEventListener("change", event => {
+      const file = event.target.files[0];
+      if (!file) return;
+      imagePath = file.name;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const item = activeCase();
+        if (item) {
+          item.image = file.name;
+          item.image_src = reader.result;
+          item.projector_reference = projectionReferenceFromPoints(points);
+        }
+        image.src = reader.result;
+        update();
+      };
+      reader.readAsDataURL(file);
+    });
+
+    image.onload = () => {
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      if (!didInitialFit) {
+        didInitialFit = true;
+        const container = canvas.parentElement.parentElement;
+        const fitZoom = Math.floor((container.clientWidth - 18) / image.naturalWidth * 100);
+        zoom.value = String(Math.max(Number(zoom.min), Math.min(100, fitZoom)));
+        loadingSavedState = true;
+        try {
+          if (!loadLocalCalibration()) ensureDefaultCase();
+        } finally { loadingSavedState = false; }
+      }
+      update();
+      refreshReviewQueue().catch(error => {
+        reviewStatus.textContent = error.message;
+      });
+    };
+
+    image.onerror = () => {
+      fitBadge.textContent = "image load failed";
+      fitBadge.className = "pill bad";
+    };
+
+    image.src = DEFAULT_IMAGE;
+  </script>
+</body>
+</html>
