@@ -20,8 +20,8 @@ the local API namespace `cat_projector_label_review`:
   `~/.openclaw/state/cat-tv-learning` recordings/reviews/datasets;
 - `GET /api/cat-projector-label-review/file/<token>` serves only allowlisted
   local files from those corpus roots;
-- `POST /api/cat-projector-label-review/segment` proposes a frame mask from
-  positive/negative prompts;
+- `POST /api/cat-projector-label-review/segment` proxies positive/negative
+  prompts to a configured local SAM service;
 - `POST /api/cat-projector-label-review/labels` saves human labels, notes,
   bbox/mask metadata, source frame paths, and source video/recording paths;
 - `POST /api/cat-projector-label-review/actions` queues explicit
@@ -62,8 +62,18 @@ installed.
 
 ## SAM / SAM2
 
-Frame-level promptable segmentation is supported through a local service hook.
-Set:
+Frame-level promptable segmentation uses the official local Segment Anything
+service shipped in this repo. Install the optional dependencies in an isolated
+environment and provide a local Meta SAM checkpoint:
+
+```bash
+python3 -m pip install '.[sam]'
+
+CAT_PROJECTOR_SAM_CHECKPOINT=/path/to/sam_vit_b_01ec64.pth \
+  python3 scripts/cat_projector_sam_service.py --host 127.0.0.1 --port 8766 --warmup
+```
+
+Then point the review backend at it:
 
 ```bash
 CAT_PROJECTOR_SAM_ENDPOINT=http://127.0.0.1:8766/segment
@@ -71,15 +81,16 @@ CAT_PROJECTOR_SAM_ENDPOINT=http://127.0.0.1:8766/segment
 
 The endpoint must be on localhost or a private LAN host. It should accept JSON
 with `image_path`, `positive_points`, `negative_points`, and
-`existing_polygon`, and return `polygon` or `contour` plus optional `bbox_xywh`
-and `score`.
+`existing_polygon`, and returns `polygon`, `bbox_xywh`, `score`, and model
+metadata.
 
-If the endpoint is not configured, or if it fails, the backend uses a local CPU
-click-to-contour fallback. This is intentionally a degraded local mode, not a
-replacement for official SAM 2/SAM 2.1. Video mask propagation is the next hook:
-persist the accepted frame mask, pass it to an offline SAM2 video propagator,
-and store propagated per-frame mask refs under the same label-review state
-root.
+If the endpoint is not configured, or if it fails, automatic segmentation fails
+visibly and the UI keeps the manual box/polygon. The backend still has a CPU
+click-to-contour helper for fake smoke tests and explicit degraded calls, but it
+is not presented as SAM in the review UI. Video mask propagation is the next
+hook: persist the accepted frame mask, pass it to an offline SAM2 video
+propagator, and store propagated per-frame mask refs under the same
+label-review state root.
 
 ## Explicit Actions
 

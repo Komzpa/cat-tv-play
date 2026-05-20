@@ -14,6 +14,11 @@ dependencies = [
 review = [
   "opencv-python-headless",
 ]
+sam = [
+  "opencv-python-headless",
+  "segment-anything",
+  "torch",
+]
 test = [
   "opencv-python-headless",
   "pytest",

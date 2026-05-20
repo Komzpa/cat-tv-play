@@ -358,6 +358,8 @@ def _segment_with_optional_sam(
     positive_points: list[Any],
     negative_points: list[Any],
     existing_polygon: list[Any] | None = None,
+    *,
+    allow_fallback: bool = False,
 ) -> dict[str, Any]:
     if SAM_ENDPOINT:
         if not _is_local_sam_endpoint(SAM_ENDPOINT):
@@ -384,10 +386,14 @@ def _segment_with_optional_sam(
                 payload["source"] = payload.get("source") or "local_sam_service"
                 return payload
         except Exception as exc:
+            if not allow_fallback:
+                raise ValueError(f"SAM endpoint failed: {exc}") from exc
             fallback = _click_to_contour(image_path, positive_points, negative_points)
             fallback["sam_error"] = str(exc)
-            fallback["source"] = "server_click_contour_after_sam_error"
+            fallback["source"] = "degraded_click_contour_after_sam_error"
             return fallback
+    if not allow_fallback:
+        raise ValueError("CAT_PROJECTOR_SAM_ENDPOINT is not configured; start the local SAM service")
     return _click_to_contour(image_path, positive_points, negative_points)
 
 
@@ -667,6 +673,7 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
                     list(payload.get("positive_points") or []),
                     list(payload.get("negative_points") or []),
                     list(payload.get("existing_polygon") or []),
+                    allow_fallback=bool(payload.get("allow_fallback")),
                 )
                 self._send_json(result)
                 return
@@ -839,6 +846,7 @@ def run_fake_smoke(tmp_root: Path) -> int:
                     "image_path": cat_case["image_path"],
                     "positive_points": [{"x": 210, "y": 130}],
                     "negative_points": [],
+                    "allow_fallback": True,
                 },
             )
             saved_cat = post(

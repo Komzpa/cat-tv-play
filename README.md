@@ -218,19 +218,31 @@ calibration surface with a `review` mode for browsing local
 `cat` / `not_cat` / `unsure` labels, editing bbox/mask annotations, and queuing
 explicit retrain or rescore actions.
 
-Run the backend locally:
+Run the review backend locally:
 
 ```bash
 python3 scripts/cat_projector_label_review_server.py --host 0.0.0.0 --port 8790
+```
+
+Run the local Segment Anything service separately, with official Meta
+`segment-anything` dependencies and a local checkpoint:
+
+```bash
+CAT_PROJECTOR_SAM_CHECKPOINT=/path/to/sam_vit_b_01ec64.pth \
+  python3 scripts/cat_projector_sam_service.py --host 127.0.0.1 --port 8766 --warmup
+
+CAT_PROJECTOR_SAM_ENDPOINT=http://127.0.0.1:8766/segment \
+  python3 scripts/cat_projector_label_review_server.py --host 0.0.0.0 --port 8790
 ```
 
 By default it reads `CAT_TV_LEARNING_ROOT`, a repo-local
 `datasets/cat-tv-learning`, or the house `tasks-loop` dataset if present, and
 writes labels/masks/actions under
 `~/.openclaw/state/cat-tv-learning/label-review/`. Household frames stay on the
-local machine. Set `CAT_PROJECTOR_SAM_ENDPOINT` to a localhost or private-LAN
-SAM/SAM2 service for promptable masks; without that, the backend falls back to
-a CPU click-to-contour mask so manual labeling still works.
+local machine. Set `CAT_PROJECTOR_SAM_ENDPOINT` to the local SAM service for
+promptable masks. Without it, automatic segmentation is deliberately disabled:
+manual boxes/polygons still work, but the UI will not pretend a local fallback
+is SAM.
 
 See [docs/label-review.md](docs/label-review.md).
 

@@ -2298,12 +2298,11 @@
 
     function addCatAt(pt) {
       const annotation = makeCatAnnotation(pt);
-      const polygon = autoContourFromClick(pt);
-      if (polygon) setCatPolygon(annotation, polygon, "local_click_contour");
       catAnnotations.push(annotation);
       activeCatId = annotation.id;
       activeCatVertex = null;
       update();
+      refineActiveCatFromHints();
     }
 
     async function samContour(annotation) {
@@ -2334,17 +2333,21 @@
       const seed = annotation?.positive_points?.[annotation.positive_points.length - 1];
       if (!annotation || !seed) return;
       let polygon = null;
-      if (samEndpoint.value.trim()) {
-        try {
-          catMaskStatus.textContent = "SAM...";
-          polygon = await samContour(annotation);
-        } catch (error) {
-          catMaskStatus.textContent = `${error.message}; local contour`;
-        }
+      if (!samEndpoint.value.trim()) {
+        catMaskStatus.textContent = "SAM service is not configured; adjust the manual box or start SAM";
+        renderCatControls();
+        return;
       }
-      if (!polygon) polygon = autoContourFromClick(seed);
+      try {
+        catMaskStatus.textContent = "SAM...";
+        polygon = await samContour(annotation);
+      } catch (error) {
+        catMaskStatus.textContent = `${error.message}; keeping manual mask`;
+        renderCatControls();
+        return;
+      }
       if (polygon) {
-        setCatPolygon(annotation, polygon, samEndpoint.value.trim() ? "sam_or_local_contour" : "local_click_contour");
+        setCatPolygon(annotation, polygon, "sam_prompt_contour");
         catMaskStatus.textContent = `contour ok · ${polygon.length} vertices`;
       } else {
         catMaskStatus.textContent = "contour failed; adjust polygon";

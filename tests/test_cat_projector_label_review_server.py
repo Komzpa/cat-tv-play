@@ -21,3 +21,24 @@ def test_fake_smoke_builds_review_queue_and_action_records(tmp_path: Path) -> No
     assert len(label_files) == 2
     assert len(action_files) == 2
     assert len(mask_files) == 1
+
+
+def test_segment_endpoint_requires_configured_sam_without_explicit_degraded_fallback(tmp_path: Path) -> None:
+    image_path = tmp_path / "frame.jpg"
+    image_path.write_bytes(b"not-an-image")
+    old_endpoint = server.SAM_ENDPOINT
+    try:
+        server.SAM_ENDPOINT = ""
+        try:
+            server._segment_with_optional_sam(
+                image_path,
+                [{"x": 1, "y": 1}],
+                [],
+                [],
+            )
+        except ValueError as exc:
+            assert "CAT_PROJECTOR_SAM_ENDPOINT is not configured" in str(exc)
+        else:
+            raise AssertionError("segment unexpectedly fell back without allow_fallback")
+    finally:
+        server.SAM_ENDPOINT = old_endpoint
