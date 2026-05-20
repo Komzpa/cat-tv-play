@@ -1731,6 +1731,7 @@
 
     function applyCase(item) {
       if (!item) return false;
+      const displayImage = item.image_url || item.image_src || item.image || DEFAULT_IMAGE;
       points = item.points.map(p => {
         const base = defaultPoints.find(defaultPoint => defaultPoint.id === p.id) || {};
         return {
@@ -1755,12 +1756,12 @@
         distance: typeof d.distance === "number" ? d.distance : d.distance_mm
       })).filter(d => d.a && d.b && typeof d.distance === "number");
       catAnnotations = storedCatAnnotationsFrom(item.cat_annotations || []);
-      imagePath = item.image || DEFAULT_IMAGE;
+      imagePath = item.image || item.image_path || DEFAULT_IMAGE;
       caseName.value = item.name || item.id;
       selectedId = points.some(p => p.id === selectedId) ? selectedId : null;
       activeCatId = catAnnotations.some(item => item.id === activeCatId) ? activeCatId : catAnnotations[0]?.id || null;
       activeCatVertex = null;
-      image.src = item.image_src || item.image || DEFAULT_IMAGE;
+      image.src = displayImage;
       return true;
     }
 
@@ -1980,6 +1981,18 @@
         source_video_path: item.source_video_path,
         source_recording_dir: item.source_recording_dir
       };
+      if (existing) {
+        Object.assign(existing, {
+          name: `review ${item.label || item.id}`,
+          image: item.image_path,
+          image_url: item.image_url,
+          image_src: item.image_url,
+          source_size_px: item.source_size_px || existing.source_size_px || SOURCE_SIZE,
+          review_case_id: item.id,
+          source_video_path: item.source_video_path,
+          source_recording_dir: item.source_recording_dir
+        });
+      }
       if (!existing) calibrationCases.push(reviewCase);
       activeCaseId = reviewCase.id;
       applyCase(reviewCase);
