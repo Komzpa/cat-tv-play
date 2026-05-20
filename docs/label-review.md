@@ -15,8 +15,17 @@ python3 scripts/cat_projector_label_review_server.py --host 0.0.0.0 --port 8790
 The server serves `web/calibration-tools/projector-wall-calibrator.html` and
 the local API namespace `cat_projector_label_review`:
 
-- `GET /api/cat-projector-label-review/cases` lists local review frames from
-  `CAT_TV_LEARNING_ROOT`, repo-local `datasets/cat-tv-learning`, and
+- `GET /api/cat-projector-label-review/videos` lists whole reviewable
+  recordings/frame groups, with corpus browser metadata and saved video review
+  status;
+- `GET /api/cat-projector-label-review/videos/<video_id>/frames` lists the
+  original input frames for that video plus the previous-model output frame
+  beside each one when such an output exists;
+- `POST /api/cat-projector-label-review/videos/<video_id>/status` marks a
+  whole video as `relabeled_ok`, `needs_more_work`, or another explicit review
+  status without modifying frame labels;
+- `GET /api/cat-projector-label-review/cases` lists loose local review frames
+  from `CAT_TV_LEARNING_ROOT`, repo-local `datasets/cat-tv-learning`, and
   `~/.openclaw/state/cat-tv-learning` recordings/reviews/datasets;
 - `GET /api/cat-projector-label-review/file/<token>` serves only allowlisted
   local files from those corpus roots;
@@ -53,12 +62,25 @@ Durable state is written under:
   labels/<case_id>.json
   masks/<case_id>/<mask_id>.json
   actions/<action_id>.json
+  videos/<video_id>.json
 ```
 
 Mask JSON stores a polygon, bbox, positive prompts, negative prompts, source,
 and updated timestamp. The browser can refine polygons manually by dragging
 vertices, so the review flow remains usable even when no segmentation model is
 installed.
+
+Frame labels preserve existing `labels.csv`-compatible fields and add video
+context rather than replacing the old schema:
+
+- `video_id`
+- `frame_index`
+- `model_output_path`
+- `source_video_path`
+- `source_recording_dir`
+
+This lets a relabel pass move through a whole clip while still producing
+portable per-frame labels for model training.
 
 ## SAM / SAM2
 
@@ -99,6 +121,14 @@ records with a visible log line so an operator or offline job can run the heavy
 work later. This prevents the Home Assistant runtime from silently starting
 model training or old-video rescoring.
 
+The video review UI queues the same explicit actions from the active video:
+
+- `retrain_model` means “train from the reviewed labels/masks later”;
+- `rescore_recording` means “rerun the detector/renderer for this old video
+  later”.
+
+Both are status/log records, not hidden runtime jobs.
+
 ## Home Assistant Exposure
 
 For Home Assistant, copy the UI asset:
@@ -127,9 +157,10 @@ python3 scripts/cat_projector_label_review_server.py --fake-smoke
 ```
 
 The smoke builds a tiny local fake corpus with `cat`, `not-cat`, and
-`borderline` frames, calls the HTTP API, verifies the borderline case is first,
-saves one cat mask label and one not-cat label, and confirms retrain/rescore
-actions are queued records.
+`borderline` frames plus previous-model output frames, calls the HTTP API,
+verifies the borderline case is first, opens the fake video frame list, saves
+one cat mask label and one not-cat label, marks the whole fake video
+`relabeled_ok`, and confirms retrain/rescore actions are queued records.
 
 ## Rollback
 

@@ -61,13 +61,55 @@ REVIEW_ROOT = STATE_ROOT / "label-review"
 LABELS_ROOT = REVIEW_ROOT / "labels"
 MASKS_ROOT = REVIEW_ROOT / "masks"
 QUEUE_ROOT = REVIEW_ROOT / "actions"
+VIDEO_STATUS_ROOT = REVIEW_ROOT / "videos"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov"}
 LABEL_NAMESPACE = "cat_projector_label_review"
 SAM_ENDPOINT = os.environ.get("CAT_PROJECTOR_SAM_ENDPOINT", "").strip()
+OUTPUT_FRAME_DIR_NAMES = {
+    "model-output",
+    "model_output",
+    "output",
+    "outputs",
+    "annotated",
+    "annotated_frames",
+    "previous-model",
+    "previous_model",
+}
+INPUT_FRAME_DIR_NAMES = {
+    "frames",
+    "input",
+    "inputs",
+    "original",
+    "original_frames",
+    "raw",
+    "source2",
+    "source",
+}
+PREFERRED_INPUT_FRAME_DIR_NAMES = (
+    "raw",
+    "frames",
+    "input",
+    "inputs",
+    "original",
+    "original_frames",
+    "source2",
+    "source",
+)
+PREFERRED_OUTPUT_FRAME_DIR_NAMES = (
+    "model-output",
+    "model_output",
+    "annotated_frames",
+    "annotated",
+    "previous-model",
+    "previous_model",
+    "output",
+    "outputs",
+)
 
 SCAN_ROOTS = (
     DATASET_ROOT / "calibration-captures",
+    DATASET_ROOT / "datasets",
     DATASET_ROOT / "detector-training",
     STATE_ROOT / "jump-review",
     STATE_ROOT / "batch_reviews",
@@ -113,6 +155,24 @@ class ReviewCase:
         return (self.uncertainty_score(), self.mtime)
 
 
+@dataclass(frozen=True)
+class ReviewVideo:
+    id: str
+    label: str
+    source: str
+    mtime: float
+    source_recording_dir: Path | None = None
+    source_video_path: Path | None = None
+    frame_count: int = 0
+    output_frame_count: int = 0
+    review_status: str = "unreviewed"
+    notes: str = ""
+
+    def priority_tuple(self) -> tuple[float, float]:
+        status_penalty = -1000.0 if self.review_status in {"relabeled_ok", "reviewed", "ok"} else 0.0
+        return (status_penalty + min(1.0, self.frame_count / 250.0), self.mtime)
+
+
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -153,6 +213,11 @@ def _case_id_for_path(path: Path) -> str:
     return f"case.{digest}"
 
 
+def _video_id_for_path(path: Path) -> str:
+    digest = hashlib.sha256(str(_safe_local_path(path)).encode("utf-8")).hexdigest()[:18]
+    return f"video.{digest}"
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -174,8 +239,16 @@ def _mask_path(case_id: str, mask_id: str) -> Path:
     return MASKS_ROOT / _safe_slug(case_id) / f"{_safe_slug(mask_id)}.json"
 
 
+def _video_status_path(video_id: str) -> Path:
+    return VIDEO_STATUS_ROOT / f"{_safe_slug(video_id)}.json"
+
+
 def _load_label_for_case(case_id: str) -> dict[str, Any]:
     return _read_json(_label_path(case_id))
+
+
+def _load_status_for_video(video_id: str) -> dict[str, Any]:
+    return _read_json(_video_status_path(video_id))
 
 
 def _parse_bbox(raw: str | None) -> tuple[float, float, float, float] | None:
@@ -210,6 +283,22 @@ def _label_rows_by_image(root: Path) -> dict[Path, dict[str, str]]:
             image_path = (csv_path.parent / image_relpath).resolve()
             rows[image_path] = row
     return rows
+
+
+def _is_output_frame_dir_name(name: str) -> bool:
+    return (
+        name in OUTPUT_FRAME_DIR_NAMES
+        or name.startswith("annotated_")
+        or name.endswith("_annotated_frames")
+        or "candidate_thumb" in name
+        or "review_sheet" in name
+        or name == "sheets"
+        or name == "thumbs"
+    )
+
+
+def _is_input_frame_dir_name(name: str) -> bool:
+    return name in INPUT_FRAME_DIR_NAMES
 
 
 def _manifest_for_recording_dir(recording_dir: Path) -> dict[str, Any]:
@@ -256,6 +345,8 @@ def _discover_cases(limit: int) -> list[ReviewCase]:
             continue
         for image_path in root.rglob("*"):
             if image_path.suffix.lower() not in IMAGE_EXTENSIONS:
+                continue
+            if _is_output_frame_dir_name(image_path.parent.name):
                 continue
             try:
                 image_path = _safe_local_path(image_path)
@@ -331,6 +422,258 @@ def _case_to_payload(case: ReviewCase, include_size: bool = False) -> dict[str, 
     if include_size:
         payload["source_size_px"] = _image_size(case.image_path)
     return payload
+
+
+def _image_paths_under(root: Path) -> list[Path]:
+    if not root.exists():
+        return []
+    paths: list[Path] = []
+    for image_path in root.rglob("*"):
+        if image_path.suffix.lower() not in IMAGE_EXTENSIONS:
+            continue
+        try:
+            image_path = _safe_local_path(image_path)
+            if image_path.stat().st_size >= 512:
+                paths.append(image_path)
+        except (OSError, ValueError):
+            continue
+    return sorted(paths, key=lambda path: (path.parent.name, path.name))
+
+
+def _candidate_output_path(input_path: Path) -> Path | None:
+    candidates: list[Path] = []
+    for parent in [input_path.parent, *input_path.parents]:
+        if parent == parent.parent:
+            break
+        for directory_name in PREFERRED_OUTPUT_FRAME_DIR_NAMES:
+            candidates.append(parent / directory_name / input_path.name)
+            candidates.append(parent / directory_name / input_path.with_suffix(".jpg").name)
+            candidates.append(parent / directory_name / input_path.with_suffix(".png").name)
+        if _is_input_frame_dir_name(parent.name):
+            for directory_name in PREFERRED_OUTPUT_FRAME_DIR_NAMES:
+                candidates.append(parent.parent / directory_name / input_path.name)
+                candidates.append(parent.parent / directory_name / input_path.with_suffix(".jpg").name)
+                candidates.append(parent.parent / directory_name / input_path.with_suffix(".png").name)
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                return _safe_local_path(candidate)
+        except ValueError:
+            continue
+    if _is_input_frame_dir_name(input_path.parent.name):
+        input_peers = _image_paths_under(input_path.parent)
+        try:
+            input_index = input_peers.index(input_path)
+        except ValueError:
+            input_index = -1
+        if input_index >= 0:
+            for directory_name in PREFERRED_OUTPUT_FRAME_DIR_NAMES:
+                output_dir = input_path.parent.parent / directory_name
+                output_peers = _image_paths_under(output_dir)
+                if input_index < len(output_peers):
+                    return output_peers[input_index]
+    return None
+
+
+def _video_group_key(case: ReviewCase) -> Path:
+    if case.source_recording_dir:
+        return case.source_recording_dir
+    for parent in case.image_path.parents:
+        if _is_input_frame_dir_name(parent.name) or _is_output_frame_dir_name(parent.name):
+            return parent.parent
+    return case.image_path.parent
+
+
+def _input_frame_paths_for_group(group_key: Path) -> list[Path]:
+    for directory_name in PREFERRED_INPUT_FRAME_DIR_NAMES:
+        frame_paths = _image_paths_under(group_key / directory_name)
+        if frame_paths:
+            return frame_paths
+    return [
+        image_path
+        for image_path in _image_paths_under(group_key)
+        if not _is_output_frame_dir_name(image_path.parent.name)
+    ]
+
+
+def _video_payload(video: ReviewVideo) -> dict[str, Any]:
+    status = _load_status_for_video(video.id)
+    video_token = _encode_path(video.source_video_path) if video.source_video_path else None
+    return {
+        "id": video.id,
+        "kind": LABEL_NAMESPACE + "_video_v1",
+        "label": video.label,
+        "source": video.source,
+        "source_recording_dir": str(video.source_recording_dir) if video.source_recording_dir else None,
+        "source_video_path": str(video.source_video_path) if video.source_video_path else None,
+        "source_video_url": f"/api/cat-projector-label-review/file/{video_token}" if video_token else None,
+        "frame_count": video.frame_count,
+        "output_frame_count": video.output_frame_count,
+        "review_status": status.get("review_status") or video.review_status,
+        "notes": status.get("notes") or video.notes,
+        "mtime": video.mtime,
+    }
+
+
+def _discover_videos(limit: int) -> list[ReviewVideo]:
+    cases = _discover_cases(10000)
+    grouped: dict[Path, list[ReviewCase]] = {}
+    for case in cases:
+        grouped.setdefault(_video_group_key(case), []).append(case)
+
+    videos: dict[str, ReviewVideo] = {}
+    for key, group in grouped.items():
+        group = sorted(group, key=lambda item: item.image_path.name)
+        source_video = next((item.source_video_path for item in group if item.source_video_path), None)
+        recording_dir = next((item.source_recording_dir for item in group if item.source_recording_dir), None)
+        input_paths = _input_frame_paths_for_group(key)
+        output_count = sum(1 for path in input_paths if _candidate_output_path(path))
+        video_id = _video_id_for_path(recording_dir or key)
+        status = _load_status_for_video(video_id)
+        videos[video_id] = ReviewVideo(
+            id=video_id,
+            label=status.get("title") or (recording_dir.name if recording_dir else key.name),
+            source=_source_name(recording_dir or key),
+            mtime=max(item.mtime for item in group),
+            source_recording_dir=recording_dir,
+            source_video_path=source_video,
+            frame_count=len(input_paths) or len(group),
+            output_frame_count=output_count,
+            review_status=status.get("review_status") or "unreviewed",
+            notes=status.get("notes") or "",
+        )
+
+    recordings_root = STATE_ROOT / "recordings"
+    if recordings_root.exists():
+        for recording_dir in recordings_root.iterdir():
+            if not recording_dir.is_dir():
+                continue
+            try:
+                recording_dir = _safe_local_path(recording_dir)
+            except ValueError:
+                continue
+            video_id = _video_id_for_path(recording_dir)
+            if video_id in videos:
+                continue
+            chunks = sorted(
+                candidate
+                for candidate in recording_dir.iterdir()
+                if candidate.suffix.lower() in VIDEO_EXTENSIONS and ".part." not in candidate.name
+            )
+            frame_paths = _recording_frame_paths(recording_dir)
+            if not chunks and not frame_paths:
+                continue
+            status = _load_status_for_video(video_id)
+            newest = max([recording_dir.stat().st_mtime, *[path.stat().st_mtime for path in frame_paths[:200]]])
+            videos[video_id] = ReviewVideo(
+                id=video_id,
+                label=status.get("title") or recording_dir.name,
+                source="recordings",
+                mtime=newest,
+                source_recording_dir=recording_dir,
+                source_video_path=chunks[0] if chunks else None,
+                frame_count=len(frame_paths),
+                output_frame_count=sum(1 for path in frame_paths if _candidate_output_path(path)),
+                review_status=status.get("review_status") or "unreviewed",
+                notes=status.get("notes") or "",
+            )
+
+    rows = sorted(videos.values(), key=lambda item: item.priority_tuple(), reverse=True)
+    return rows[:limit]
+
+
+def _recording_frame_paths(recording_dir: Path) -> list[Path]:
+    frame_dirs = [
+        recording_dir / "frames",
+        recording_dir / "review_frames",
+        recording_dir / "label_frames",
+        recording_dir / "raw",
+        recording_dir / "input",
+        recording_dir / "inputs",
+        recording_dir / "original",
+        recording_dir / "original_frames",
+        recording_dir / "source2",
+        recording_dir / "source",
+    ]
+    paths: list[Path] = []
+    for frame_dir in frame_dirs:
+        paths.extend(_image_paths_under(frame_dir))
+    if not paths:
+        for image_path in _image_paths_under(recording_dir):
+            if image_path.parent.name not in OUTPUT_FRAME_DIR_NAMES:
+                paths.append(image_path)
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for path in paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        unique.append(path)
+    return unique
+
+
+def _frames_for_video(video_id: str, *, offset: int = 0, limit: int = 50) -> tuple[ReviewVideo, list[dict[str, Any]]]:
+    video = next((item for item in _discover_videos(10000) if item.id == video_id), None)
+    if video is None:
+        raise ValueError(f"unknown review video: {video_id}")
+    cases_by_path = {case.image_path: case for case in _discover_cases(10000)}
+    if video.source_recording_dir:
+        input_paths = _recording_frame_paths(video.source_recording_dir)
+        if not input_paths:
+            input_paths = sorted(
+                case.image_path for case in cases_by_path.values() if case.source_recording_dir == video.source_recording_dir
+            )
+    else:
+        group_key = next((_video_group_key(case) for case in cases_by_path.values() if _video_id_for_path(_video_group_key(case)) == video_id), None)
+        input_paths = _input_frame_paths_for_group(group_key) if group_key else []
+    selected = input_paths[max(0, offset) : max(0, offset) + max(1, min(limit, 500))]
+    frames: list[dict[str, Any]] = []
+    for frame_index, input_path in enumerate(selected, start=max(0, offset)):
+        case = cases_by_path.get(input_path)
+        case_id = case.id if case else _case_id_for_path(input_path)
+        saved = _load_label_for_case(case_id)
+        output_path = _candidate_output_path(input_path)
+        input_token = _encode_path(input_path)
+        output_token = _encode_path(output_path) if output_path else None
+        frames.append(
+            {
+                "id": case_id,
+                "kind": LABEL_NAMESPACE + "_video_frame_v1",
+                "video_id": video.id,
+                "frame_index": frame_index,
+                "label": input_path.name,
+                "image_path": str(input_path),
+                "image_url": f"/api/cat-projector-label-review/file/{input_token}",
+                "model_output_path": str(output_path) if output_path else None,
+                "model_output_url": f"/api/cat-projector-label-review/file/{output_token}" if output_token else None,
+                "source_video_path": str(video.source_video_path) if video.source_video_path else None,
+                "source_recording_dir": str(video.source_recording_dir) if video.source_recording_dir else None,
+                "candidate_bbox_xywh": case.candidate_bbox_xywh if case else saved.get("candidate_bbox_xywh"),
+                "detector_probability": case.detector_probability if case else saved.get("detector_probability"),
+                "review_status": saved.get("review_status") or (case.review_status if case else "unreviewed"),
+                "human_label": saved.get("label") or (case.human_label if case else None),
+                "notes": saved.get("notes") or (case.notes if case else ""),
+                "source_size_px": _image_size(input_path),
+            }
+        )
+    return video, frames
+
+
+def _save_video_status(video_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    video = next((item for item in _discover_videos(10000) if item.id == video_id), None)
+    if video is None:
+        raise ValueError(f"unknown review video: {video_id}")
+    row = {
+        "kind": LABEL_NAMESPACE + "_video_status_v1",
+        "video_id": video_id,
+        "review_status": str(payload.get("review_status") or "relabeled_ok"),
+        "notes": str(payload.get("notes") or ""),
+        "source_recording_dir": str(video.source_recording_dir) if video.source_recording_dir else None,
+        "source_video_path": str(video.source_video_path) if video.source_video_path else None,
+        "updated_at": _utc_now(),
+    }
+    _write_json(_video_status_path(video_id), row)
+    return row
 
 
 def _normalise_point(point: Any) -> tuple[float, float] | None:
@@ -546,7 +889,10 @@ def _save_label(payload: dict[str, Any]) -> dict[str, Any]:
     row = {
         "kind": LABEL_NAMESPACE + "_label_v1",
         "case_id": case_id,
+        "video_id": payload.get("video_id"),
+        "frame_index": payload.get("frame_index"),
         "image_path": str(image_path),
+        "model_output_path": payload.get("model_output_path"),
         "source_video_path": payload.get("source_video_path"),
         "source_recording_dir": payload.get("source_recording_dir"),
         "label": label,
@@ -637,6 +983,33 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
             cases = [_case_to_payload(case, include_size=True) for case in _discover_cases(limit)]
             self._send_json({"kind": LABEL_NAMESPACE + "_queue_v1", "cases": cases})
             return
+        if parsed.path == "/api/cat-projector-label-review/videos":
+            query = parse_qs(parsed.query)
+            limit = int(query.get("limit", ["100"])[0])
+            videos = [_video_payload(video) for video in _discover_videos(limit)]
+            self._send_json({"kind": LABEL_NAMESPACE + "_videos_v1", "videos": videos})
+            return
+        if parsed.path.startswith("/api/cat-projector-label-review/videos/"):
+            parts = parsed.path.split("/")
+            if len(parts) >= 6 and parts[5] == "frames":
+                query = parse_qs(parsed.query)
+                offset = int(query.get("offset", ["0"])[0])
+                limit = int(query.get("limit", ["80"])[0])
+                video, frames = _frames_for_video(unquote(parts[4]), offset=offset, limit=limit)
+                self._send_json(
+                    {
+                        "kind": LABEL_NAMESPACE + "_video_frames_v1",
+                        "video": _video_payload(video),
+                        "offset": offset,
+                        "limit": limit,
+                        "frames": frames,
+                    }
+                )
+                return
+            if len(parts) >= 6 and parts[5] == "status":
+                video_id = unquote(parts[4])
+                self._send_json(_load_status_for_video(video_id) or {"video_id": video_id, "review_status": "unreviewed"})
+                return
         if parsed.path.startswith("/api/cat-projector-label-review/file/"):
             self._send_api_file(parsed.path)
             return
@@ -686,6 +1059,11 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/cat-projector-label-review/labels":
                 self._send_json(_save_label(payload))
                 return
+            if parsed.path.startswith("/api/cat-projector-label-review/videos/"):
+                parts = parsed.path.split("/")
+                if len(parts) >= 6 and parts[5] == "status":
+                    self._send_json(_save_video_status(unquote(parts[4]), payload))
+                    return
             if parsed.path == "/api/cat-projector-label-review/actions":
                 action = str(payload.get("action") or "")
                 if action not in {"retrain_model", "rescore_recording"}:
@@ -740,7 +1118,9 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
 def build_fake_corpus(root: Path) -> Path:
     corpus = root / "cat-tv-learning"
     frames = corpus / "datasets" / "fake-review" / "frames"
+    output_frames = corpus / "datasets" / "fake-review" / "model-output"
     frames.mkdir(parents=True, exist_ok=True)
+    output_frames.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, str]] = []
     examples = [
         ("borderline.jpg", "0.52", "unclear", "180,90,90,160"),
@@ -761,6 +1141,13 @@ def build_fake_corpus(root: Path) -> Path:
             draw.ellipse((180, 90, 270, 220), fill=(70, 70, 70))
             draw.rectangle((235, 40, 270, 120), fill=(75, 75, 75))
         image.save(frames / name, quality=92)
+        output = Image.new("RGB", (420, 260), (205, 207, 210))
+        output_draw = ImageDraw.Draw(output)
+        output_draw.rectangle((20, 20, 400, 230), outline=(120, 160, 220), width=2)
+        output_draw.text((28, 30), f"previous model: {frame_label}", fill=(20, 20, 20))
+        bx, by, bw, bh = (float(value) for value in bbox.split(","))
+        output_draw.rectangle((bx, by, bx + bw, by + bh), outline=(255, 210, 40), width=4)
+        output.save(output_frames / name, quality=92)
         rows.append(
             {
                 "image_relpath": f"frames/{name}",
@@ -781,7 +1168,7 @@ def build_fake_corpus(root: Path) -> Path:
 
 
 def run_server(host: str, port: int) -> None:
-    for directory in (REVIEW_ROOT, LABELS_ROOT, MASKS_ROOT, QUEUE_ROOT):
+    for directory in (REVIEW_ROOT, LABELS_ROOT, MASKS_ROOT, QUEUE_ROOT, VIDEO_STATUS_ROOT):
         directory.mkdir(parents=True, exist_ok=True)
     server = ThreadingHTTPServer((host, port), CatProjectorLabelReviewHandler)
     url = f"http://{host}:{port}/calibration-tools/projector-wall-calibrator.html"
@@ -796,6 +1183,7 @@ def run_fake_smoke(tmp_root: Path) -> int:
     original_labels = globals()["LABELS_ROOT"]
     original_masks = globals()["MASKS_ROOT"]
     original_queue = globals()["QUEUE_ROOT"]
+    original_video_status = globals()["VIDEO_STATUS_ROOT"]
     original_scan_roots = globals()["SCAN_ROOTS"]
     original_allowed = globals()["ALLOWED_ROOTS"]
     try:
@@ -810,9 +1198,10 @@ def run_fake_smoke(tmp_root: Path) -> int:
         globals()["LABELS_ROOT"] = fake_review / "labels"
         globals()["MASKS_ROOT"] = fake_review / "masks"
         globals()["QUEUE_ROOT"] = fake_review / "actions"
+        globals()["VIDEO_STATUS_ROOT"] = fake_review / "videos"
         globals()["SCAN_ROOTS"] = (fake_dataset / "datasets",)
         globals()["ALLOWED_ROOTS"] = (fake_dataset, fake_state, fake_review)
-        for directory in (LABELS_ROOT, MASKS_ROOT, QUEUE_ROOT):
+        for directory in (LABELS_ROOT, MASKS_ROOT, QUEUE_ROOT, VIDEO_STATUS_ROOT):
             directory.mkdir(parents=True, exist_ok=True)
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), CatProjectorLabelReviewHandler)
@@ -822,6 +1211,13 @@ def run_fake_smoke(tmp_root: Path) -> int:
         try:
             with urlopen(f"{base_url}/api/cat-projector-label-review/cases?limit=10", timeout=10) as response:
                 cases = json.loads(response.read().decode("utf-8"))["cases"]
+            with urlopen(f"{base_url}/api/cat-projector-label-review/videos?limit=10", timeout=10) as response:
+                videos = json.loads(response.read().decode("utf-8"))["videos"]
+            with urlopen(
+                f"{base_url}/api/cat-projector-label-review/videos/{videos[0]['id']}/frames?limit=10",
+                timeout=10,
+            ) as response:
+                video_frames = json.loads(response.read().decode("utf-8"))["frames"]
             with urlopen(f"{base_url}/datasets/fake-review/frames/borderline.jpg", timeout=10) as response:
                 static_asset_status = response.status
         finally:
@@ -834,6 +1230,10 @@ def run_fake_smoke(tmp_root: Path) -> int:
             raise AssertionError(f"dataset static fallback returned {static_asset_status}")
         if "borderline" not in cases[0]["image_path"]:
             raise AssertionError(f"borderline case was not first: {cases[0]['image_path']}")
+        if not videos or videos[0]["frame_count"] != 3:
+            raise AssertionError(f"expected fake review video with 3 frames, got {videos}")
+        if not video_frames or not video_frames[0]["model_output_url"]:
+            raise AssertionError("video frames did not expose previous-model output")
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), CatProjectorLabelReviewHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -866,7 +1266,10 @@ def run_fake_smoke(tmp_root: Path) -> int:
                 "/api/cat-projector-label-review/labels",
                 {
                     "case_id": cat_case["id"],
+                    "video_id": videos[0]["id"],
+                    "frame_index": 1,
                     "image_path": cat_case["image_path"],
+                    "model_output_path": video_frames[1]["model_output_path"],
                     "label": "cat",
                     "review_status": "saved",
                     "masks": [{"id": "sher", "label": "Sher", "kind": "cat", **contour}],
@@ -877,6 +1280,8 @@ def run_fake_smoke(tmp_root: Path) -> int:
                 "/api/cat-projector-label-review/labels",
                 {
                     "case_id": not_cat_case["id"],
+                    "video_id": videos[0]["id"],
+                    "frame_index": 2,
                     "image_path": not_cat_case["image_path"],
                     "label": "not_cat",
                     "review_status": "saved",
@@ -890,7 +1295,11 @@ def run_fake_smoke(tmp_root: Path) -> int:
             )
             rescore = post(
                 "/api/cat-projector-label-review/actions",
-                {"action": "rescore_recording", "recording_dir": "/tmp/fake-recording"},
+                {"action": "rescore_recording", "video_id": videos[0]["id"], "recording_dir": "/tmp/fake-recording"},
+            )
+            video_status = post(
+                f"/api/cat-projector-label-review/videos/{videos[0]['id']}/status",
+                {"review_status": "relabeled_ok", "notes": "fake video ok"},
             )
         finally:
             server.shutdown()
@@ -901,12 +1310,17 @@ def run_fake_smoke(tmp_root: Path) -> int:
             raise AssertionError("not-cat label did not save frame-level no")
         if retrain["status"] != "queued" or rescore["status"] != "queued":
             raise AssertionError("actions were not queued")
+        if video_status["review_status"] != "relabeled_ok":
+            raise AssertionError("video status was not saved")
         print(
             json.dumps(
                 {
                     "cases": cases,
+                    "videos": videos,
+                    "video_frames": video_frames,
                     "cat_label": saved_cat,
                     "not_cat_label": saved_not_cat,
+                    "video_status": video_status,
                     "actions": [retrain, rescore],
                 },
                 ensure_ascii=False,
@@ -921,6 +1335,7 @@ def run_fake_smoke(tmp_root: Path) -> int:
         globals()["LABELS_ROOT"] = original_labels
         globals()["MASKS_ROOT"] = original_masks
         globals()["QUEUE_ROOT"] = original_queue
+        globals()["VIDEO_STATUS_ROOT"] = original_video_status
         globals()["SCAN_ROOTS"] = original_scan_roots
         globals()["ALLOWED_ROOTS"] = original_allowed
 
