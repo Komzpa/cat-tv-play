@@ -641,6 +641,8 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/cat-projector-label-review/actions":
             self._send_json({"kind": LABEL_NAMESPACE + "_actions_v1", "actions": _list_actions()})
             return
+        if self._send_dataset_static_if_exists(parsed.path):
+            return
         super().do_GET()
 
     def do_POST(self) -> None:  # noqa: N802
@@ -687,6 +689,16 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
                 if not chunk:
                     break
                 self.wfile.write(chunk)
+
+    def _send_dataset_static_if_exists(self, request_path: str) -> bool:
+        relative = Path(unquote(request_path).lstrip("/"))
+        if any(part in {"", ".", ".."} for part in relative.parts):
+            return False
+        path = DATASET_ROOT / relative
+        if not path.is_file():
+            return False
+        self._send_file(path)
+        return True
 
 
 def build_fake_corpus(root: Path) -> Path:
@@ -774,12 +786,16 @@ def run_fake_smoke(tmp_root: Path) -> int:
         try:
             with urlopen(f"{base_url}/api/cat-projector-label-review/cases?limit=10", timeout=10) as response:
                 cases = json.loads(response.read().decode("utf-8"))["cases"]
+            with urlopen(f"{base_url}/datasets/fake-review/frames/borderline.jpg", timeout=10) as response:
+                static_asset_status = response.status
         finally:
             server.shutdown()
             thread.join(timeout=5)
 
         if len(cases) != 3:
             raise AssertionError(f"expected 3 fake cases, got {len(cases)}")
+        if static_asset_status != HTTPStatus.OK:
+            raise AssertionError(f"dataset static fallback returned {static_asset_status}")
         if "borderline" not in cases[0]["image_path"]:
             raise AssertionError(f"borderline case was not first: {cases[0]['image_path']}")
 
