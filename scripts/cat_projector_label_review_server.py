@@ -77,6 +77,7 @@ SCAN_ROOTS = (
 )
 
 ALLOWED_ROOTS = (
+    WEB_ROOT,
     DATASET_ROOT,
     STATE_ROOT,
     REVIEW_ROOT,
@@ -641,12 +642,16 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/cat-projector-label-review/actions":
             self._send_json({"kind": LABEL_NAMESPACE + "_actions_v1", "actions": _list_actions()})
             return
+        if self._send_static_if_exists(WEB_ROOT, parsed.path):
+            return
         if self._send_dataset_static_if_exists(parsed.path):
             return
         super().do_GET()
 
     def do_HEAD(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
+        if self._send_static_if_exists(WEB_ROOT, parsed.path, include_body=False):
+            return
         if self._send_dataset_static_if_exists(parsed.path, include_body=False):
             return
         super().do_HEAD()
@@ -699,10 +704,13 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(chunk)
 
     def _send_dataset_static_if_exists(self, request_path: str, *, include_body: bool = True) -> bool:
+        return self._send_static_if_exists(DATASET_ROOT, request_path, include_body=include_body)
+
+    def _send_static_if_exists(self, root: Path, request_path: str, *, include_body: bool = True) -> bool:
         relative = Path(unquote(request_path).lstrip("/"))
         if any(part in {"", ".", ".."} for part in relative.parts):
             return False
-        path = DATASET_ROOT / relative
+        path = root / relative
         if not path.is_file():
             return False
         self._send_file(path, include_body=include_body)

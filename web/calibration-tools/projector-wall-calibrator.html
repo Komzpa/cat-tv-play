@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cat Projector Wall Calibrator</title>
+  <title>Cat Projector Review</title>
+  <link rel="icon" href="data:,">
   <style>
     :root {
       color-scheme: dark;
@@ -111,10 +112,14 @@
       background: rgba(0,0,0,0.12);
     }
 
+    body.review-mode #reviewQueue {
+      max-height: calc(100vh - 245px);
+    }
+
     .review-item {
       border: 1px solid rgba(255,255,255,0.10);
       border-radius: 6px;
-      padding: 7px;
+      padding: 9px;
       cursor: pointer;
       background: #151a1f;
     }
@@ -122,6 +127,11 @@
     .review-item.active {
       border-color: var(--accent);
       background: rgba(103,215,255,0.12);
+    }
+
+    .review-item:hover {
+      border-color: rgba(103,215,255,0.55);
+      background: #1d252b;
     }
 
     .review-item-title {
@@ -137,6 +147,31 @@
       line-height: 1.35;
     }
 
+    #reviewDetail {
+      display: grid;
+      gap: 7px;
+      overflow-wrap: anywhere;
+    }
+
+    .review-detail-title {
+      color: var(--text);
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    .review-detail-path {
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .review-actions {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 7px;
+    }
+
     #reviewNotes {
       width: 100%;
       min-height: 76px;
@@ -144,7 +179,20 @@
     }
 
     .review-actions button {
-      min-width: 72px;
+      min-width: 0;
+      padding: 10px 8px;
+      font-weight: 700;
+    }
+
+    .review-actions button.active {
+      border-color: var(--accent);
+      background: rgba(103, 215, 255, 0.22);
+      color: #fff;
+    }
+
+    #saveReviewBtn {
+      border-color: rgba(126, 231, 135, 0.8);
+      background: rgba(46, 160, 67, 0.35);
     }
 
     input[type="range"] { width: 120px; }
@@ -158,6 +206,24 @@
       flex: 1 1 auto;
       min-height: 0;
       overflow: hidden;
+    }
+
+    body.review-mode .layout {
+      grid-template-columns: 360px minmax(0, 1fr) 390px;
+    }
+
+    body.review-mode .calibration-only,
+    body.review-mode .wall-only {
+      display: none;
+    }
+
+    body.review-mode #fitBadge {
+      display: none;
+    }
+
+    body.wall-mode .review-only,
+    body.cat-mode .review-only {
+      display: none;
     }
 
     aside {
@@ -315,6 +381,10 @@
       min-height: 0;
     }
 
+    body.review-mode main {
+      padding: 10px;
+    }
+
     .canvas-wrap {
       position: relative;
       background: #000;
@@ -413,34 +483,34 @@
     }
   </style>
 </head>
-<body>
+<body class="review-mode">
   <header>
-    <h1>Cat Projector Wall Calibrator</h1>
-    <span class="pill" id="fitBadge">model not fitted</span>
+    <h1>Cat Projector Review</h1>
+    <span class="pill wall-only" id="fitBadge">model not fitted</span>
     <label class="mode-switch">Mode
       <select id="modeSelect">
         <option value="wall">wall</option>
         <option value="cat">cat mask</option>
-        <option value="review">review</option>
+        <option value="review" selected>review</option>
       </select>
     </label>
     <button id="resetViewBtn">Reset view</button>
-    <button id="resetPointsBtn">Reset points...</button>
-    <button id="copyBtn">Copy JSON</button>
-    <button id="downloadBtn">Download JSON</button>
+    <button class="calibration-only" id="resetPointsBtn">Reset points...</button>
+    <button class="calibration-only" id="copyBtn">Copy JSON</button>
+    <button class="calibration-only" id="downloadBtn">Download JSON</button>
     <button id="zoomOutBtn">-</button>
     <label class="pill">Zoom <input id="zoom" type="range" min="25" max="500" value="100"></label>
     <button id="zoomInBtn">+</button>
     <button id="zoomFitBtn">Fit</button>
     <button id="zoom100Btn">100%</button>
     <button id="zoom200Btn">200%</button>
-    <span class="pill">live captures auto-added</span>
+    <span class="pill calibration-only">live captures auto-added</span>
     <input id="imageInput" type="file" accept="image/*" hidden>
   </header>
 
   <div class="layout">
     <aside>
-      <div class="section">
+      <div class="section calibration-only">
         <h2>Cases</h2>
         <div class="row">
           <select id="caseSelect"></select>
@@ -455,7 +525,7 @@
         <div id="smokeCheck"></div>
       </div>
 
-      <div class="section">
+      <div class="section calibration-only">
         <h2>Points</h2>
         <div class="row">
           <label><input id="showLines" type="checkbox" checked> grid lines</label>
@@ -473,7 +543,7 @@
         <div id="distances"></div>
       </div>
 
-      <div class="section">
+      <div class="section mask-tools">
         <h2>Cat masks</h2>
         <div class="row">
           <button id="addCatBtn">New cat</button>
@@ -502,7 +572,7 @@
         <div id="catMasks"></div>
       </div>
 
-      <div class="section">
+      <div class="section review-only">
         <h2>Review queue</h2>
         <div class="row">
           <select id="reviewFilter">
@@ -527,7 +597,7 @@
     </main>
 
     <aside class="right">
-      <div class="section">
+      <div class="section wall-only">
         <h2>Selected</h2>
         <div class="row"><span id="selectedName" class="muted">none</span></div>
         <div class="row">
@@ -544,7 +614,7 @@
         </div>
       </div>
 
-      <div class="section">
+      <div class="section wall-only">
         <h2>JSON</h2>
         <div class="row">
           <button id="importBtn">Import JSON</button>
@@ -554,7 +624,7 @@
         <textarea id="jsonOut" spellcheck="false"></textarea>
       </div>
 
-      <div class="section">
+      <div class="section review-only">
         <h2>Review item</h2>
         <div id="reviewDetail">open a frame from the review queue</div>
         <div class="row review-actions">
@@ -737,7 +807,7 @@
     let calibrationCases = [];
     let activeCaseId = null;
     let selectedId = null;
-    let activeMode = "wall";
+    let activeMode = "review";
     let activeCatId = null;
     let activeCatVertex = null;
     let dragging = false;
@@ -1856,9 +1926,11 @@
         const probability = typeof item.detector_probability === "number" ? `p=${item.detector_probability.toFixed(2)}` : "p=?";
         const status = item.review_status || "unreviewed";
         const label = normaliseReviewLabel(item.human_label);
+        const title = item.label || item.image_path?.split("/").pop() || item.id;
         row.innerHTML = `
-          <div class="review-item-title" title="${item.image_path}">${item.label || item.id}</div>
-          <div class="review-item-meta">${probability} · u=${Number(item.uncertainty_score || 0).toFixed(2)} · ${status} · ${label}</div>
+          <div class="review-item-title" title="${item.image_path}">${title}</div>
+          <div class="review-item-meta">${probability} · uncertainty ${Number(item.uncertainty_score || 0).toFixed(2)}</div>
+          <div class="review-item-meta">${status} · ${label} · ${item.source || "corpus"}</div>
         `;
         row.addEventListener("click", () => openReviewCase(item.id).catch(error => {
           reviewStatus.textContent = error.message;
@@ -1911,9 +1983,7 @@
       if (!existing) calibrationCases.push(reviewCase);
       activeCaseId = reviewCase.id;
       applyCase(reviewCase);
-      activeMode = "review";
-      modeSelect.value = "review";
-      canvas.style.cursor = "copy";
+      setMode("review");
 
       const saved = await loadReviewLabel(item.id);
       reviewNotes.value = saved?.notes || item.notes || "";
@@ -1934,11 +2004,13 @@
         return;
       }
       const probability = typeof item.detector_probability === "number" ? item.detector_probability.toFixed(3) : "?";
-      const video = item.source_video_path ? `<br>video: ${item.source_video_path}` : "";
+      const video = item.source_video_path ? `video: ${item.source_video_path}` : "";
       reviewDetail.innerHTML = `
-        frame: ${item.image_path}<br>
-        label: ${activeReviewLabel} · detector p=${probability} · status ${item.review_status || "unreviewed"}${video}
+        <div class="review-detail-title">${activeReviewLabel} · p=${probability} · ${item.review_status || "unreviewed"}</div>
+        <div class="review-detail-path">${item.image_path}</div>
+        ${video ? `<div class="review-detail-path">${video}</div>` : ""}
       `;
+      updateReviewLabelButtons();
     }
 
     function setReviewLabel(label) {
@@ -2004,6 +2076,29 @@
       if (!response.ok) throw new Error(`action ${response.status}`);
       const payload = await response.json();
       reviewActionLog.textContent = `${payload.action} queued · ${payload.id}`;
+    }
+
+    function setMode(mode) {
+      activeMode = mode;
+      document.body.classList.toggle("wall-mode", mode === "wall");
+      document.body.classList.toggle("cat-mode", mode === "cat");
+      document.body.classList.toggle("review-mode", mode === "review");
+      modeSelect.value = mode;
+      canvas.style.cursor = mode === "cat" || mode === "review" ? "copy" : "crosshair";
+      if (mode === "review") {
+        document.title = "Cat Projector Review";
+      } else if (mode === "cat") {
+        document.title = "Cat Projector Cat Mask";
+      } else {
+        document.title = "Cat Projector Wall Calibrator";
+      }
+      draw();
+    }
+
+    function updateReviewLabelButtons() {
+      labelCatBtn.classList.toggle("active", activeReviewLabel === "cat");
+      labelNotCatBtn.classList.toggle("active", activeReviewLabel === "not_cat");
+      labelUnsureBtn.classList.toggle("active", activeReviewLabel === "unsure");
     }
 
     function renderPointsList() {
@@ -2257,17 +2352,66 @@
       update();
     }
 
-    function draw() {
-      const z = Number(zoom.value) / 100;
-      const ui = 1 / z;
-      canvas.width = Math.round(image.naturalWidth * z);
-      canvas.height = Math.round(image.naturalHeight * z);
-      canvas.style.width = `${canvas.width}px`;
-      canvas.style.height = `${canvas.height}px`;
-      ctx.setTransform(z, 0, 0, z, 0, 0);
-      ctx.clearRect(0, 0, image.naturalWidth, image.naturalHeight);
-      ctx.drawImage(image, 0, 0);
+    function drawCatAnnotations(ui) {
+      for (const annotation of catAnnotations) {
+        const polygon = annotation.polygon || [];
+        if (!polygon.length) continue;
+        const active = annotation.id === activeCatId;
+        const color = annotation.kind === "not_cat" ? "#ff7b72" : "#ff7bc4";
+        ctx.save();
+        ctx.fillStyle = annotation.kind === "not_cat" ? "rgba(255, 123, 114, 0.16)" : "rgba(255, 123, 196, 0.18)";
+        ctx.strokeStyle = active ? "#fff" : color;
+        ctx.lineWidth = (active ? 3 : 2) * ui;
+        ctx.beginPath();
+        polygon.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
 
+        const bbox = annotation.bbox_xywh || catBBox(annotation);
+        if (bbox) {
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1.5 * ui;
+          ctx.setLineDash([7 * ui, 5 * ui]);
+          ctx.strokeRect(bbox.x, bbox.y, bbox.width, bbox.height);
+        }
+        ctx.setLineDash([]);
+        if (active) {
+          polygon.forEach((p, index) => {
+            ctx.fillStyle = index === activeCatVertex ? "#fff" : color;
+            ctx.strokeStyle = "#000";
+            ctx.lineWidth = 1.5 * ui;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, (index === activeCatVertex ? 6 : 4.5) * ui, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          });
+        }
+        for (const p of annotation.positive_points || []) {
+          ctx.strokeStyle = "#7ee787";
+          ctx.lineWidth = 2 * ui;
+          ctx.beginPath();
+          ctx.moveTo(p.x - 6 * ui, p.y);
+          ctx.lineTo(p.x + 6 * ui, p.y);
+          ctx.moveTo(p.x, p.y - 6 * ui);
+          ctx.lineTo(p.x, p.y + 6 * ui);
+          ctx.stroke();
+        }
+        for (const p of annotation.negative_points || []) {
+          ctx.strokeStyle = "#ff7b72";
+          ctx.lineWidth = 2 * ui;
+          ctx.beginPath();
+          ctx.moveTo(p.x - 5 * ui, p.y - 5 * ui);
+          ctx.lineTo(p.x + 5 * ui, p.y + 5 * ui);
+          ctx.moveTo(p.x + 5 * ui, p.y - 5 * ui);
+          ctx.lineTo(p.x - 5 * ui, p.y + 5 * ui);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+
+    function drawCalibrationOverlay(ui) {
       const poly = projectionPolygon();
       if (poly.length !== 4) return;
       ctx.lineWidth = 2 * ui;
@@ -2380,63 +2524,6 @@
         }
       }
 
-      for (const annotation of catAnnotations) {
-        const polygon = annotation.polygon || [];
-        if (!polygon.length) continue;
-        const active = annotation.id === activeCatId;
-        const color = annotation.kind === "not_cat" ? "#ff7b72" : "#ff7bc4";
-        ctx.save();
-        ctx.fillStyle = annotation.kind === "not_cat" ? "rgba(255, 123, 114, 0.16)" : "rgba(255, 123, 196, 0.18)";
-        ctx.strokeStyle = active ? "#fff" : color;
-        ctx.lineWidth = (active ? 3 : 2) * ui;
-        ctx.beginPath();
-        polygon.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        const bbox = annotation.bbox_xywh || catBBox(annotation);
-        if (bbox) {
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 1.5 * ui;
-          ctx.setLineDash([7 * ui, 5 * ui]);
-          ctx.strokeRect(bbox.x, bbox.y, bbox.width, bbox.height);
-        }
-        ctx.setLineDash([]);
-        if (active) {
-          polygon.forEach((p, index) => {
-            ctx.fillStyle = index === activeCatVertex ? "#fff" : color;
-            ctx.strokeStyle = "#000";
-            ctx.lineWidth = 1.5 * ui;
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, (index === activeCatVertex ? 6 : 4.5) * ui, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-          });
-        }
-        for (const p of annotation.positive_points || []) {
-          ctx.strokeStyle = "#7ee787";
-          ctx.lineWidth = 2 * ui;
-          ctx.beginPath();
-          ctx.moveTo(p.x - 6 * ui, p.y);
-          ctx.lineTo(p.x + 6 * ui, p.y);
-          ctx.moveTo(p.x, p.y - 6 * ui);
-          ctx.lineTo(p.x, p.y + 6 * ui);
-          ctx.stroke();
-        }
-        for (const p of annotation.negative_points || []) {
-          ctx.strokeStyle = "#ff7b72";
-          ctx.lineWidth = 2 * ui;
-          ctx.beginPath();
-          ctx.moveTo(p.x - 5 * ui, p.y - 5 * ui);
-          ctx.lineTo(p.x + 5 * ui, p.y + 5 * ui);
-          ctx.moveTo(p.x + 5 * ui, p.y - 5 * ui);
-          ctx.lineTo(p.x - 5 * ui, p.y + 5 * ui);
-          ctx.stroke();
-        }
-        ctx.restore();
-      }
-
       for (const p of points) {
         ctx.fillStyle = p.color;
         ctx.strokeStyle = p.id === selectedId ? "#fff" : "#000";
@@ -2455,6 +2542,20 @@
           ctx.fillText(`${(p.height / 10).toFixed(0)}cm`, p.x + 10 * ui, p.y - 3 * ui);
         }
       }
+    }
+
+    function draw() {
+      const z = Number(zoom.value) / 100;
+      const ui = 1 / z;
+      canvas.width = Math.round(image.naturalWidth * z);
+      canvas.height = Math.round(image.naturalHeight * z);
+      canvas.style.width = `${canvas.width}px`;
+      canvas.style.height = `${canvas.height}px`;
+      ctx.setTransform(z, 0, 0, z, 0, 0);
+      ctx.clearRect(0, 0, image.naturalWidth, image.naturalHeight);
+      ctx.drawImage(image, 0, 0);
+      if (activeMode === "wall") drawCalibrationOverlay(ui);
+      drawCatAnnotations(ui);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
 
@@ -2741,9 +2842,7 @@
     });
 
     modeSelect.addEventListener("change", () => {
-      activeMode = modeSelect.value;
-      canvas.style.cursor = activeMode === "cat" || activeMode === "review" ? "copy" : "crosshair";
-      draw();
+      setMode(modeSelect.value);
     });
 
     refreshReviewBtn.addEventListener("click", () => {
@@ -2776,8 +2875,7 @@
       catAnnotations.push(annotation);
       activeCatId = annotation.id;
       activeCatVertex = null;
-      activeMode = "cat";
-      modeSelect.value = "cat";
+      setMode("cat");
       update();
     });
 
@@ -2953,6 +3051,10 @@
         try {
           if (!loadLocalCalibration()) ensureDefaultCase();
         } finally { loadingSavedState = false; }
+      } else if (activeMode === "review") {
+        const container = canvas.parentElement.parentElement;
+        const fitZoom = Math.floor((container.clientWidth - 18) / image.naturalWidth * 100);
+        zoom.value = String(Math.max(Number(zoom.min), Math.min(140, fitZoom)));
       }
       update();
       refreshReviewQueue().catch(error => {
