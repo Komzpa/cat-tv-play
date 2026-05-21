@@ -2768,10 +2768,20 @@
           image_src: image.src.startsWith("data:") ? image.src : imagePath,
           positive_points: annotation.positive_points || [],
           negative_points: annotation.negative_points || [],
-          existing_polygon: annotation.polygon || []
+          existing_polygon: annotation.polygon || [],
+          allow_fallback: true
         })
       });
-      if (!response.ok) throw new Error(`SAM ${response.status}`);
+      if (!response.ok) {
+        let message = `SAM ${response.status}`;
+        try {
+          const errorPayload = await response.json();
+          message = errorPayload.error || errorPayload.message || message;
+        } catch (_error) {
+          // Keep the status-only message when the server did not return JSON.
+        }
+        throw new Error(message);
+      }
       const payload = await response.json();
       const polygon = payload.polygon || payload.contour;
       if (!Array.isArray(polygon) || polygon.length < 3) throw new Error("SAM returned no polygon");

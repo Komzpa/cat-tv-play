@@ -66,7 +66,7 @@ TRAINING_DATASETS_ROOT = STATE_ROOT / "datasets"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov"}
 LABEL_NAMESPACE = "cat_projector_label_review"
-SAM_ENDPOINT = os.environ.get("CAT_PROJECTOR_SAM_ENDPOINT", "").strip()
+SAM_ENDPOINT = os.environ.get("CAT_PROJECTOR_SAM_ENDPOINT", "http://127.0.0.1:8766/segment").strip()
 OUTPUT_FRAME_DIR_NAMES = {
     "model-output",
     "model_output",

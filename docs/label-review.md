@@ -95,7 +95,8 @@ CAT_PROJECTOR_SAM_CHECKPOINT=/path/to/sam_vit_b_01ec64.pth \
   python3 scripts/cat_projector_sam_service.py --host 127.0.0.1 --port 8766 --warmup
 ```
 
-Then point the review backend at it:
+The review backend uses `http://127.0.0.1:8766/segment` by default, matching
+that local service. Override it only when the service runs elsewhere:
 
 ```bash
 CAT_PROJECTOR_SAM_ENDPOINT=http://127.0.0.1:8766/segment
@@ -106,13 +107,12 @@ with `image_path`, `positive_points`, `negative_points`, and
 `existing_polygon`, and returns `polygon`, `bbox_xywh`, `score`, and model
 metadata.
 
-If the endpoint is not configured, or if it fails, automatic segmentation fails
-visibly and the UI keeps the manual box/polygon. The backend still has a CPU
-click-to-contour helper for fake smoke tests and explicit degraded calls, but it
-is not presented as SAM in the review UI. Video mask propagation is the next
-hook: persist the accepted frame mask, pass it to an offline SAM2 video
-propagator, and store propagated per-frame mask refs under the same
-label-review state root.
+If the endpoint is explicitly unset, or if the local SAM service is unavailable,
+the UI asks the backend for the CPU click-to-contour fallback and keeps the
+manual box/polygon when even that cannot produce a contour. Video mask
+propagation is the next hook: persist the accepted frame mask, pass it to an
+offline SAM2 video propagator, and store propagated per-frame mask refs under
+the same label-review state root.
 
 ## Explicit Actions
 

@@ -58,6 +58,31 @@ def test_segment_endpoint_requires_configured_sam_without_explicit_degraded_fall
         server.SAM_ENDPOINT = old_endpoint
 
 
+def test_segment_endpoint_uses_click_contour_when_fallback_is_explicit(tmp_path: Path) -> None:
+    image_path = tmp_path / "frame.jpg"
+    image = server.Image.new("RGB", (100, 80), (20, 20, 20))
+    for x in range(35, 65):
+        for y in range(25, 55):
+            image.putpixel((x, y), (180, 180, 180))
+    image.save(image_path)
+    old_endpoint = server.SAM_ENDPOINT
+    try:
+        server.SAM_ENDPOINT = ""
+        payload = server._segment_with_optional_sam(
+            image_path,
+            [{"x": 50, "y": 40}],
+            [],
+            [],
+            allow_fallback=True,
+        )
+        assert payload["source"] == "server_click_contour"
+        assert len(payload["polygon"]) >= 3
+        assert payload["bbox_xywh"]["width"] > 1
+        assert payload["bbox_xywh"]["height"] > 1
+    finally:
+        server.SAM_ENDPOINT = old_endpoint
+
+
 def test_file_api_supports_get_and_head_for_discovered_images(tmp_path: Path) -> None:
     fake_dataset = server.build_fake_corpus(tmp_path)
     fake_state = tmp_path / "state"

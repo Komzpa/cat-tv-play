@@ -231,18 +231,18 @@ Run the local Segment Anything service separately, with official Meta
 CAT_PROJECTOR_SAM_CHECKPOINT=/path/to/sam_vit_b_01ec64.pth \
   python3 scripts/cat_projector_sam_service.py --host 127.0.0.1 --port 8766 --warmup
 
-CAT_PROJECTOR_SAM_ENDPOINT=http://127.0.0.1:8766/segment \
-  python3 scripts/cat_projector_label_review_server.py --host 0.0.0.0 --port 8790
+python3 scripts/cat_projector_label_review_server.py --host 0.0.0.0 --port 8790
 ```
 
 By default it reads `CAT_TV_LEARNING_ROOT`, a repo-local
 `datasets/cat-tv-learning`, or the house `tasks-loop` dataset if present, and
 writes labels/masks/actions under
 `~/.openclaw/state/cat-tv-learning/label-review/`. Household frames stay on the
-local machine. Set `CAT_PROJECTOR_SAM_ENDPOINT` to the local SAM service for
-promptable masks. Without it, automatic segmentation is deliberately disabled:
-manual boxes/polygons still work, but the UI will not pretend a local fallback
-is SAM.
+local machine. The review backend uses
+`http://127.0.0.1:8766/segment` by default for promptable masks; set
+`CAT_PROJECTOR_SAM_ENDPOINT` only to override or explicitly clear that local
+endpoint. If SAM is unavailable, manual boxes/polygons still work and the UI can
+request the backend's degraded click-to-contour fallback.
 
 See [docs/label-review.md](docs/label-review.md).
 
