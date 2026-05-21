@@ -126,6 +126,9 @@ ALLOWED_ROOTS = (
     REVIEW_ROOT,
 )
 
+_REPROCESSED_OUTPUT_CACHE: tuple[Path, tuple[tuple[Path, frozenset[str], tuple[Path, ...]], ...]] | None = None
+_RECORDING_CHUNK_INDEX_CACHE: dict[tuple[Path, str], dict[int, tuple[Path, ...]]] = {}
+
 
 @dataclass(frozen=True)
 class ReviewCase:
@@ -287,6 +290,47 @@ def _label_rows_by_image(root: Path) -> dict[Path, dict[str, str]]:
     return rows
 
 
+def _probe_rows_by_image(root: Path) -> dict[Path, dict[str, str]]:
+    rows: dict[Path, dict[str, str]] = {}
+    if not root.exists():
+        return rows
+    for probe_path in root.rglob("probe_rows.json"):
+        try:
+            payload = json.loads(probe_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, list):
+            continue
+        for row in payload:
+            if not isinstance(row, dict):
+                continue
+            raw_path = row.get("raw_path")
+            if not raw_path:
+                continue
+            try:
+                image_path = _safe_local_path(Path(str(raw_path)))
+            except ValueError:
+                continue
+            rows[image_path] = {
+                "detector_cat_probability": str(row.get("best_probability") or ""),
+                "candidate_bbox_xywh": str(row.get("best_bbox") or ""),
+                "candidate_reason": str(row.get("best_source") or "probe_rows"),
+                "notes": f"probe_rows: {row.get('candidate_count', '?')} candidates",
+            }
+    return rows
+
+
+def _review_metadata_rows_by_image() -> dict[Path, dict[str, str]]:
+    rows_by_image: dict[Path, dict[str, str]] = {}
+    for root in (STATE_ROOT / "datasets", DATASET_ROOT / "datasets", DATASET_ROOT / "detector-training"):
+        if root.exists():
+            rows_by_image.update(_label_rows_by_image(root))
+    for root in (STATE_ROOT / "batch_reviews", STATE_ROOT / "jump-review", DATASET_ROOT / "detector-training"):
+        if root.exists():
+            rows_by_image.update(_probe_rows_by_image(root))
+    return rows_by_image
+
+
 def _is_output_frame_dir_name(name: str) -> bool:
     return (
         name in OUTPUT_FRAME_DIR_NAMES
@@ -301,6 +345,23 @@ def _is_output_frame_dir_name(name: str) -> bool:
 
 def _is_input_frame_dir_name(name: str) -> bool:
     return name in INPUT_FRAME_DIR_NAMES
+
+
+def _is_review_artifact_image(path: Path) -> bool:
+    if _is_output_frame_dir_name(path.parent.name):
+        return True
+    name = path.name.lower()
+    return any(
+        marker in name
+        for marker in (
+            "sheet",
+            "report",
+            "overlay",
+            "hold_aspect",
+            "candidate_thumb",
+            "annotated_",
+        )
+    )
 
 
 def _manifest_for_recording_dir(recording_dir: Path) -> dict[str, Any]:
@@ -318,6 +379,95 @@ def _recording_dir_for_timestamp(timestamp: str) -> Path | None:
     return None
 
 
+def _batch_review_date(path: Path) -> str | None:
+    for parent in path.parents:
+        match = re.match(r".*?(?P<date>\d{8})$", parent.name)
+        if match:
+            return match.group("date")
+    return None
+
+
+def _chunk_index_for_frame(path: Path) -> int | None:
+    match = re.match(r"(?:chunk|source)_(\d+)_\d+\.(?:jpe?g|png|webp)$", path.name, re.IGNORECASE)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def _reprocessed_outputs() -> tuple[tuple[Path, frozenset[str], tuple[Path, ...]], ...]:
+    global _REPROCESSED_OUTPUT_CACHE
+    reprocessed_root = STATE_ROOT / "reprocessed"
+    if _REPROCESSED_OUTPUT_CACHE is not None and _REPROCESSED_OUTPUT_CACHE[0] == reprocessed_root:
+        return _REPROCESSED_OUTPUT_CACHE[1]
+    outputs: list[tuple[Path, frozenset[str], tuple[Path, ...]]] = []
+    if reprocessed_root.exists():
+        output_dirs = sorted(
+            (path for path in reprocessed_root.iterdir() if path.is_dir()),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        for output_dir in output_dirs:
+            manifest = _read_json(output_dir / "manifest.json")
+            values = frozenset(_string_values(manifest))
+            artifacts: list[Path] = []
+            for artifact in sorted(output_dir.glob("*.mp4")):
+                try:
+                    artifacts.append(_safe_local_path(artifact))
+                except ValueError:
+                    continue
+            outputs.append((output_dir, values, tuple(artifacts)))
+    _REPROCESSED_OUTPUT_CACHE = (reprocessed_root, tuple(outputs))
+    return _REPROCESSED_OUTPUT_CACHE[1]
+
+
+def _recording_chunk_index_for_date(batch_date: str) -> dict[int, tuple[Path, ...]]:
+    cache_key = (STATE_ROOT, batch_date)
+    cached = _RECORDING_CHUNK_INDEX_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    recordings_root = STATE_ROOT / "recordings"
+    index: dict[int, list[Path]] = {}
+    if recordings_root.exists():
+        for recording_dir in recordings_root.glob(f"{batch_date}T*"):
+            if not recording_dir.is_dir():
+                continue
+            resolved = recording_dir.resolve()
+            for chunk_path in recording_dir.glob("chunk_*.mp4"):
+                match = re.match(r"chunk_(\d+)\.mp4$", chunk_path.name, re.IGNORECASE)
+                if not match:
+                    continue
+                index.setdefault(int(match.group(1)), []).append(resolved)
+    frozen = {
+        chunk_index: tuple(sorted(recording_dirs, key=lambda candidate: candidate.stat().st_mtime, reverse=True))
+        for chunk_index, recording_dirs in index.items()
+    }
+    _RECORDING_CHUNK_INDEX_CACHE[cache_key] = frozen
+    return frozen
+
+
+def _reprocessed_manifest_matches_recording(recording_dir: Path) -> bool:
+    recording_dir_raw = str(recording_dir)
+    recording_dir_resolved = str(recording_dir.resolve())
+    for _output_dir, values, _artifacts in _reprocessed_outputs():
+        if recording_dir_raw in values or recording_dir_resolved in values:
+            return True
+    return False
+
+
+def _recording_dir_for_batch_chunk(path: Path) -> Path | None:
+    chunk_index = _chunk_index_for_frame(path)
+    batch_date = _batch_review_date(path)
+    if chunk_index is None or batch_date is None:
+        return None
+    candidates = list(_recording_chunk_index_for_date(batch_date).get(chunk_index, ()))
+    if not candidates:
+        return None
+    artifact_matches = [candidate for candidate in candidates if _reprocessed_manifest_matches_recording(candidate)]
+    if artifact_matches:
+        return sorted(artifact_matches, key=lambda candidate: candidate.stat().st_mtime, reverse=True)[0]
+    return sorted(candidates, key=lambda candidate: candidate.stat().st_mtime, reverse=True)[0]
+
+
 def _batch_review_recording_context(path: Path) -> tuple[Path | None, Path | None]:
     if not any(parent.name == "batch_reviews" for parent in path.parents):
         return None, None
@@ -333,6 +483,18 @@ def _batch_review_recording_context(path: Path) -> tuple[Path | None, Path | Non
             chunk_path = recording_dir / f"chunk_{int(chunk_match.group(1)):04d}.mp4"
             if chunk_path.exists():
                 return chunk_path.resolve(), recording_dir
+        chunks = sorted(
+            candidate
+            for candidate in recording_dir.iterdir()
+            if candidate.suffix.lower() in VIDEO_EXTENSIONS and ".part." not in candidate.name
+        )
+        return (chunks[0] if chunks else None, recording_dir)
+    recording_dir = _recording_dir_for_batch_chunk(path)
+    if recording_dir is not None:
+        chunk_index = _chunk_index_for_frame(path)
+        chunk_path = recording_dir / f"chunk_{chunk_index:04d}.mp4" if chunk_index is not None else None
+        if chunk_path is not None and chunk_path.exists():
+            return chunk_path.resolve(), recording_dir
         chunks = sorted(
             candidate
             for candidate in recording_dir.iterdir()
@@ -374,6 +536,9 @@ def _discover_cases(limit: int) -> list[ReviewCase]:
     for root in (STATE_ROOT / "datasets", DATASET_ROOT / "datasets", DATASET_ROOT / "detector-training"):
         if root.exists():
             rows_by_image.update(_label_rows_by_image(root))
+    for root in (STATE_ROOT / "batch_reviews", STATE_ROOT / "jump-review", DATASET_ROOT / "detector-training"):
+        if root.exists():
+            rows_by_image.update(_probe_rows_by_image(root))
 
     seen: set[Path] = set()
     cases: list[ReviewCase] = []
@@ -383,7 +548,7 @@ def _discover_cases(limit: int) -> list[ReviewCase]:
         for image_path in root.rglob("*"):
             if image_path.suffix.lower() not in IMAGE_EXTENSIONS:
                 continue
-            if _is_output_frame_dir_name(image_path.parent.name):
+            if _is_review_artifact_image(image_path):
                 continue
             try:
                 image_path = _safe_local_path(image_path)
@@ -399,7 +564,7 @@ def _discover_cases(limit: int) -> list[ReviewCase]:
             row = rows_by_image.get(image_path, {})
             source_video, recording_dir = _recording_context(image_path)
             probability = None
-            for key in ("detector_cat_probability", "cat_probability", "probability"):
+            for key in ("detector_cat_probability", "cat_probability", "probability", "best_probability"):
                 try:
                     if row.get(key) not in {None, ""}:
                         probability = float(row[key])
@@ -424,7 +589,7 @@ def _discover_cases(limit: int) -> list[ReviewCase]:
                     source_video_path=source_video,
                     source_recording_dir=recording_dir,
                     detector_probability=probability,
-                    candidate_bbox_xywh=_parse_bbox(row.get("candidate_bbox_xywh") or saved.get("candidate_bbox_xywh")),
+                    candidate_bbox_xywh=_parse_bbox(row.get("candidate_bbox_xywh") or row.get("best_bbox") or saved.get("candidate_bbox_xywh")),
                     review_status=str(review_status),
                     human_label=str(human_label) if human_label else None,
                     notes=str(saved.get("notes") or row.get("notes") or ""),
@@ -475,6 +640,71 @@ def _image_paths_under(root: Path) -> list[Path]:
         except (OSError, ValueError):
             continue
     return sorted(paths, key=lambda path: (path.parent.name, path.name))
+
+
+def _image_count_under(root: Path) -> int:
+    if not root.exists():
+        return 0
+    count = 0
+    for image_path in root.rglob("*"):
+        if image_path.suffix.lower() not in IMAGE_EXTENSIONS:
+            continue
+        try:
+            if _safe_local_path(image_path).stat().st_size >= 512:
+                count += 1
+        except (OSError, ValueError):
+            continue
+    return count
+
+
+def _direct_image_count(root: Path) -> int:
+    if not root.exists():
+        return 0
+    count = 0
+    for image_path in root.iterdir():
+        if image_path.suffix.lower() not in IMAGE_EXTENSIONS:
+            continue
+        try:
+            if _safe_local_path(image_path).stat().st_size >= 512:
+                count += 1
+        except (OSError, ValueError):
+            continue
+    return count
+
+
+def _frame_count_for_group(group_key: Path) -> int:
+    for directory_name in PREFERRED_INPUT_FRAME_DIR_NAMES:
+        count = _image_count_under(group_key / directory_name)
+        if count:
+            return count
+    return sum(
+        1
+        for image_path in _image_paths_under(group_key)
+        if not _is_review_artifact_image(image_path)
+    )
+
+
+def _output_frame_count_for_group(group_key: Path) -> int:
+    counts = [_image_count_under(group_key / directory_name) for directory_name in PREFERRED_OUTPUT_FRAME_DIR_NAMES]
+    return max(counts, default=0)
+
+
+def _iter_frame_group_dirs(root: Path) -> list[Path]:
+    if not root.exists():
+        return []
+    groups: set[Path] = set()
+    for directory in root.rglob("*"):
+        if not directory.is_dir():
+            continue
+        name = directory.name
+        if _is_input_frame_dir_name(name) and _direct_image_count(directory):
+            groups.add(directory.parent)
+            continue
+        if _is_output_frame_dir_name(name):
+            continue
+        if (directory / "labels.csv").exists():
+            groups.add(directory)
+    return sorted(groups, key=lambda path: path.stat().st_mtime, reverse=True)
 
 
 def _candidate_output_path(input_path: Path) -> Path | None:
@@ -531,18 +761,17 @@ def _string_values(value: Any) -> list[str]:
 
 
 def _manifest_matches_video(
-    manifest: dict[str, Any],
+    manifest_values: set[str] | frozenset[str],
     *,
     video_id: str,
     recording_dir: Path | None,
     group_key: Path,
     source_video: Path | None,
 ) -> bool:
-    values = set(_string_values(manifest))
-    if video_id and video_id in values:
+    if video_id and video_id in manifest_values:
         return True
     for candidate in (recording_dir, group_key, source_video):
-        if candidate is not None and str(candidate) in values:
+        if candidate is not None and str(candidate) in manifest_values:
             return True
     return False
 
@@ -573,19 +802,10 @@ def _output_artifacts_for_video(
     group_key: Path,
     source_video: Path | None,
 ) -> tuple[Path, ...]:
-    reprocessed_root = STATE_ROOT / "reprocessed"
-    if not reprocessed_root.exists():
-        return ()
     artifacts: list[Path] = []
-    output_dirs = sorted(
-        (path for path in reprocessed_root.iterdir() if path.is_dir()),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    )
-    for output_dir in output_dirs:
-        manifest = _read_json(output_dir / "manifest.json")
+    for output_dir, manifest_values, output_artifacts in _reprocessed_outputs():
         matches = _manifest_matches_video(
-            manifest,
+            manifest_values,
             video_id=video_id,
             recording_dir=recording_dir,
             group_key=group_key,
@@ -600,11 +820,7 @@ def _output_artifacts_for_video(
             )
         if not matches:
             continue
-        for artifact in sorted(output_dir.glob("*.mp4")):
-            try:
-                artifacts.append(_safe_local_path(artifact))
-            except ValueError:
-                continue
+        artifacts.extend(output_artifacts)
     seen: set[Path] = set()
     unique: list[Path] = []
     for artifact in artifacts:
@@ -637,14 +853,25 @@ def _video_group_key(case: ReviewCase) -> Path:
 
 def _input_frame_paths_for_group(group_key: Path) -> list[Path]:
     for directory_name in PREFERRED_INPUT_FRAME_DIR_NAMES:
-        frame_paths = _image_paths_under(group_key / directory_name)
+        frame_paths = [path for path in _image_paths_under(group_key / directory_name) if not _is_review_artifact_image(path)]
         if frame_paths:
             return frame_paths
     return [
         image_path
         for image_path in _image_paths_under(group_key)
-        if not _is_output_frame_dir_name(image_path.parent.name)
+        if not _is_review_artifact_image(image_path)
     ]
+
+
+def _unique_case_image_paths(group: list[ReviewCase]) -> list[Path]:
+    seen: set[Path] = set()
+    paths: list[Path] = []
+    for case in sorted(group, key=lambda item: (item.image_path.parent.as_posix(), item.image_path.name)):
+        if case.image_path in seen:
+            continue
+        seen.add(case.image_path)
+        paths.append(case.image_path)
+    return paths
 
 
 def _video_payload(video: ReviewVideo) -> dict[str, Any]:
@@ -669,40 +896,66 @@ def _video_payload(video: ReviewVideo) -> dict[str, Any]:
     }
 
 
-def _discover_videos(limit: int) -> list[ReviewVideo]:
-    cases = _discover_cases(10000)
-    grouped: dict[Path, list[ReviewCase]] = {}
-    for case in cases:
-        grouped.setdefault(_video_group_key(case), []).append(case)
+def _merge_review_video(existing: ReviewVideo | None, update: ReviewVideo) -> ReviewVideo:
+    if existing is None:
+        return update
+    output_artifacts = tuple(dict.fromkeys([*existing.output_artifacts, *update.output_artifacts]))
+    return ReviewVideo(
+        id=existing.id,
+        label=existing.label if existing.mtime >= update.mtime else update.label,
+        source=existing.source if existing.mtime >= update.mtime else update.source,
+        mtime=max(existing.mtime, update.mtime),
+        source_recording_dir=existing.source_recording_dir or update.source_recording_dir,
+        source_video_path=existing.source_video_path or update.source_video_path,
+        frame_count=existing.frame_count + update.frame_count,
+        output_frame_count=existing.output_frame_count + update.output_frame_count,
+        output_artifacts=output_artifacts,
+        review_status=existing.review_status if existing.mtime >= update.mtime else update.review_status,
+        notes=existing.notes or update.notes,
+    )
 
+
+def _discover_videos(limit: int) -> list[ReviewVideo]:
     videos: dict[str, ReviewVideo] = {}
-    for key, group in grouped.items():
-        group = sorted(group, key=lambda item: item.image_path.name)
-        source_video = next((item.source_video_path for item in group if item.source_video_path), None)
-        recording_dir = next((item.source_recording_dir for item in group if item.source_recording_dir), None)
-        input_paths = _input_frame_paths_for_group(key)
-        output_count = sum(1 for path in input_paths if _candidate_output_path(path))
-        video_id = _video_id_for_path(recording_dir or key)
-        output_artifacts = _output_artifacts_for_video(
-            video_id=video_id,
-            recording_dir=recording_dir,
-            group_key=key,
-            source_video=source_video,
-        )
-        status = _load_status_for_video(video_id)
-        videos[video_id] = ReviewVideo(
-            id=video_id,
-            label=status.get("title") or (recording_dir.name if recording_dir else key.name),
-            source=_source_name(recording_dir or key),
-            mtime=max(item.mtime for item in group),
-            source_recording_dir=recording_dir,
-            source_video_path=source_video,
-            frame_count=len(input_paths) or len(group),
-            output_frame_count=output_count,
-            output_artifacts=output_artifacts,
-            review_status=status.get("review_status") or "unreviewed",
-            notes=status.get("notes") or "",
-        )
+
+    for root in SCAN_ROOTS:
+        if not root.exists() or root.name == "recordings":
+            continue
+        for key in _iter_frame_group_dirs(root):
+            try:
+                key = _safe_local_path(key)
+            except ValueError:
+                continue
+            sample_paths = _input_frame_paths_for_group(key)[:20]
+            if not sample_paths:
+                continue
+            contexts = [_recording_context(path) for path in sample_paths]
+            source_video = next((source for source, _recording in contexts if source), None)
+            recording_dir = next((recording for _source, recording in contexts if recording), None)
+            frame_count = _frame_count_for_group(key)
+            output_count = _output_frame_count_for_group(key)
+            video_id = _video_id_for_path(recording_dir or key)
+            output_artifacts = _output_artifacts_for_video(
+                video_id=video_id,
+                recording_dir=recording_dir,
+                group_key=key,
+                source_video=source_video,
+            )
+            status = _load_status_for_video(video_id)
+            update = ReviewVideo(
+                id=video_id,
+                label=status.get("title") or (recording_dir.name if recording_dir else key.name),
+                source=_source_name(recording_dir or key),
+                mtime=key.stat().st_mtime,
+                source_recording_dir=recording_dir,
+                source_video_path=source_video,
+                frame_count=frame_count,
+                output_frame_count=output_count,
+                output_artifacts=output_artifacts,
+                review_status=status.get("review_status") or "unreviewed",
+                notes=status.get("notes") or "",
+            )
+            videos[video_id] = _merge_review_video(videos.get(video_id), update)
 
     recordings_root = STATE_ROOT / "recordings"
     if recordings_root.exists():
@@ -721,11 +974,10 @@ def _discover_videos(limit: int) -> list[ReviewVideo]:
                 for candidate in recording_dir.iterdir()
                 if candidate.suffix.lower() in VIDEO_EXTENSIONS and ".part." not in candidate.name
             )
-            frame_paths = _recording_frame_paths(recording_dir)
-            if not chunks and not frame_paths:
+            frame_count = _frame_count_for_group(recording_dir)
+            if not chunks and not frame_count:
                 continue
             status = _load_status_for_video(video_id)
-            newest = max([recording_dir.stat().st_mtime, *[path.stat().st_mtime for path in frame_paths[:200]]])
             output_artifacts = _output_artifacts_for_video(
                 video_id=video_id,
                 recording_dir=recording_dir,
@@ -736,11 +988,11 @@ def _discover_videos(limit: int) -> list[ReviewVideo]:
                 id=video_id,
                 label=status.get("title") or recording_dir.name,
                 source="recordings",
-                mtime=newest,
+                mtime=recording_dir.stat().st_mtime,
                 source_recording_dir=recording_dir,
                 source_video_path=chunks[0] if chunks else None,
-                frame_count=len(frame_paths),
-                output_frame_count=sum(1 for path in frame_paths if _candidate_output_path(path)),
+                frame_count=frame_count,
+                output_frame_count=_output_frame_count_for_group(recording_dir),
                 output_artifacts=output_artifacts,
                 review_status=status.get("review_status") or "unreviewed",
                 notes=status.get("notes") or "",
@@ -780,26 +1032,71 @@ def _recording_frame_paths(recording_dir: Path) -> list[Path]:
     return unique
 
 
+def _sort_frame_path(path: Path) -> tuple[int, int, str]:
+    match = re.match(r"(?:chunk|source)_(\d+)_(\d+)\.(?:jpe?g|png|webp)$", path.name, re.IGNORECASE)
+    if match:
+        return (int(match.group(1)), int(match.group(2)), path.as_posix())
+    return (10**9, 10**9, path.as_posix())
+
+
+def _frame_paths_for_review_video(video: ReviewVideo) -> list[Path]:
+    paths: list[Path] = []
+    if video.source_recording_dir:
+        for root in SCAN_ROOTS:
+            if not root.exists() or root.name == "recordings":
+                continue
+            for group_key in _iter_frame_group_dirs(root):
+                input_paths = _input_frame_paths_for_group(group_key)
+                if not input_paths:
+                    continue
+                sample_paths = input_paths[:20]
+                if not any(_recording_context(path)[1] == video.source_recording_dir for path in sample_paths):
+                    continue
+                for path in input_paths:
+                    if _recording_context(path)[1] == video.source_recording_dir:
+                        paths.append(path)
+        if not paths:
+            paths = _recording_frame_paths(video.source_recording_dir)
+    else:
+        for root in SCAN_ROOTS:
+            if not root.exists():
+                continue
+            for group_key in _iter_frame_group_dirs(root):
+                if _video_id_for_path(group_key) == video.id:
+                    paths.extend(_input_frame_paths_for_group(group_key))
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for path in paths:
+        if _is_review_artifact_image(path) or path in seen:
+            continue
+        seen.add(path)
+        unique.append(path)
+    return sorted(unique, key=_sort_frame_path)
+
+
 def _frames_for_video(video_id: str, *, offset: int = 0, limit: int = 50) -> tuple[ReviewVideo, list[dict[str, Any]]]:
     video = next((item for item in _discover_videos(10000) if item.id == video_id), None)
     if video is None:
         raise ValueError(f"unknown review video: {video_id}")
-    cases_by_path = {case.image_path: case for case in _discover_cases(10000)}
-    if video.source_recording_dir:
-        input_paths = _recording_frame_paths(video.source_recording_dir)
-        if not input_paths:
-            input_paths = sorted(
-                case.image_path for case in cases_by_path.values() if case.source_recording_dir == video.source_recording_dir
-            )
-    else:
-        group_key = next((_video_group_key(case) for case in cases_by_path.values() if _video_id_for_path(_video_group_key(case)) == video_id), None)
-        input_paths = _input_frame_paths_for_group(group_key) if group_key else []
+    metadata_by_path = _review_metadata_rows_by_image()
+    input_paths = _frame_paths_for_review_video(video)
     selected = input_paths[max(0, offset) : max(0, offset) + max(1, min(limit, 500))]
     frames: list[dict[str, Any]] = []
     for frame_index, input_path in enumerate(selected, start=max(0, offset)):
-        case = cases_by_path.get(input_path)
-        case_id = case.id if case else _case_id_for_path(input_path)
+        case_id = _case_id_for_path(input_path)
         saved = _load_label_for_case(case_id)
+        row = metadata_by_path.get(input_path, {})
+        probability = saved.get("detector_probability")
+        for key in ("detector_cat_probability", "cat_probability", "probability", "best_probability"):
+            if probability not in {None, ""}:
+                break
+            try:
+                if row.get(key) not in {None, ""}:
+                    probability = float(row[key])
+                    break
+            except ValueError:
+                pass
+        bbox = saved.get("candidate_bbox_xywh") or _parse_bbox(row.get("candidate_bbox_xywh") or row.get("best_bbox"))
         output_path = _candidate_output_path(input_path)
         input_token = _encode_path(input_path)
         output_token = _encode_path(output_path) if output_path else None
@@ -816,11 +1113,11 @@ def _frames_for_video(video_id: str, *, offset: int = 0, limit: int = 50) -> tup
                 "model_output_url": f"/api/cat-projector-label-review/file/{output_token}" if output_token else None,
                 "source_video_path": str(video.source_video_path) if video.source_video_path else None,
                 "source_recording_dir": str(video.source_recording_dir) if video.source_recording_dir else None,
-                "candidate_bbox_xywh": case.candidate_bbox_xywh if case else saved.get("candidate_bbox_xywh"),
-                "detector_probability": case.detector_probability if case else saved.get("detector_probability"),
-                "review_status": saved.get("review_status") or (case.review_status if case else "unreviewed"),
-                "human_label": saved.get("label") or (case.human_label if case else None),
-                "notes": saved.get("notes") or (case.notes if case else ""),
+                "candidate_bbox_xywh": bbox,
+                "detector_probability": probability,
+                "review_status": saved.get("review_status") or row.get("review_status") or "unreviewed",
+                "human_label": saved.get("label") or row.get("label_cat_present") or row.get("label_candidate_is_cat") or None,
+                "notes": saved.get("notes") or row.get("notes") or "",
                 "source_size_px": _image_size(input_path),
             }
         )

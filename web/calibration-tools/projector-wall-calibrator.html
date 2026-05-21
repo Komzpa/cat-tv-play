@@ -2238,7 +2238,7 @@
 
     async function refreshReviewVideos() {
       reviewVideoStatus.textContent = "loading videos...";
-      const response = await fetch(`${LABEL_REVIEW_API}/videos?limit=200`);
+      const response = await fetch(`${LABEL_REVIEW_API}/videos?limit=1000`);
       if (!response.ok) throw new Error(`videos backend ${response.status}`);
       const payload = await response.json();
       reviewVideos = payload.videos || [];
@@ -2865,6 +2865,35 @@
       }
     }
 
+    function drawCandidateBBox(ui) {
+      const item = activeReviewCase();
+      const bbox = item?.candidate_bbox_xywh;
+      if (!bbox || catAnnotations.length) return;
+      const values = Array.isArray(bbox)
+        ? bbox
+        : typeof bbox === "string"
+          ? bbox.split(",").map(Number)
+          : [bbox.x, bbox.y, bbox.width, bbox.height];
+      if (values.length < 4 || values.some(value => !Number.isFinite(Number(value)))) return;
+      const [x, y, width, height] = values.map(Number);
+      ctx.save();
+      ctx.strokeStyle = "#ffd33d";
+      ctx.fillStyle = "rgba(255, 211, 61, 0.10)";
+      ctx.lineWidth = 3 * ui;
+      ctx.setLineDash([9 * ui, 5 * ui]);
+      ctx.fillRect(x, y, width, height);
+      ctx.strokeRect(x, y, width, height);
+      ctx.setLineDash([]);
+      const probability = typeof item.detector_probability === "number" ? `p=${item.detector_probability.toFixed(2)}` : "model candidate";
+      ctx.font = `${18 * ui}px system-ui`;
+      ctx.textBaseline = "bottom";
+      ctx.fillStyle = "rgba(0,0,0,0.72)";
+      ctx.fillRect(x, Math.max(0, y - 26 * ui), Math.max(130 * ui, ctx.measureText(probability).width + 14 * ui), 24 * ui);
+      ctx.fillStyle = "#ffd33d";
+      ctx.fillText(probability, x + 7 * ui, Math.max(20 * ui, y - 6 * ui));
+      ctx.restore();
+    }
+
     function drawCalibrationOverlay(ui) {
       const poly = projectionPolygon();
       if (poly.length !== 4) return;
@@ -3009,6 +3038,7 @@
       ctx.clearRect(0, 0, image.naturalWidth, image.naturalHeight);
       ctx.drawImage(image, 0, 0);
       if (activeMode === "wall") drawCalibrationOverlay(ui);
+      drawCandidateBBox(ui);
       drawCatAnnotations(ui);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }

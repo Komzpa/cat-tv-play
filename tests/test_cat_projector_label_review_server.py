@@ -276,3 +276,112 @@ def test_video_review_counts_reprocessed_session_artifacts(tmp_path: Path) -> No
         server.VIDEO_STATUS_ROOT = original_video_status
         server.SCAN_ROOTS = original_scan_roots
         server.ALLOWED_ROOTS = original_allowed
+
+
+def test_untimestamped_batch_review_infers_recording_from_chunk_and_output_manifest(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    first_recording = state / "recordings" / "20260518T010000_first"
+    target_recording = state / "recordings" / "20260518T184855_target"
+    for recording in (first_recording, target_recording):
+        recording.mkdir(parents=True)
+        (recording / "manifest.json").write_text("{}", encoding="utf-8")
+        (recording / "chunk_0154.mp4").write_bytes(b"fake chunk")
+    image = server.Image.new("RGB", (80, 60), (10, 10, 10))
+    image.save(target_recording / "startup_projector_camera.jpg")
+    reprocessed = state / "reprocessed" / "review-ui-target"
+    reprocessed.mkdir(parents=True)
+    (reprocessed / "annotated_full_session.mp4").write_bytes(b"fake output")
+    (reprocessed / "manifest.json").write_text(
+        json.dumps({"source_recording_dir": str(target_recording.resolve())}),
+        encoding="utf-8",
+    )
+    raw = state / "batch_reviews" / "final_review_20260518" / "no_cat_frame_candidate_probe" / "raw"
+    raw.mkdir(parents=True)
+    frame_path = raw / "chunk_0154_00019.jpg"
+    image = server.Image.new("RGB", (80, 60), (40, 40, 40))
+    image.save(frame_path)
+
+    original_state = server.STATE_ROOT
+    original_review = server.REVIEW_ROOT
+    original_labels = server.LABELS_ROOT
+    original_masks = server.MASKS_ROOT
+    original_queue = server.QUEUE_ROOT
+    original_video_status = server.VIDEO_STATUS_ROOT
+    original_scan_roots = server.SCAN_ROOTS
+    original_allowed = server.ALLOWED_ROOTS
+    try:
+        server.STATE_ROOT = state
+        server.REVIEW_ROOT = state / "label-review"
+        server.LABELS_ROOT = server.REVIEW_ROOT / "labels"
+        server.MASKS_ROOT = server.REVIEW_ROOT / "masks"
+        server.QUEUE_ROOT = server.REVIEW_ROOT / "actions"
+        server.VIDEO_STATUS_ROOT = server.REVIEW_ROOT / "videos"
+        server.SCAN_ROOTS = (state / "batch_reviews",)
+        server.ALLOWED_ROOTS = (tmp_path, state, server.REVIEW_ROOT)
+
+        source_video, source_recording = server._recording_context(frame_path)
+        assert source_recording == target_recording.resolve()
+        assert source_video == (target_recording / "chunk_0154.mp4").resolve()
+        video = server._discover_videos(1)[0]
+        payload = server._video_payload(video)
+        assert payload["source_recording_dir"] == str(target_recording.resolve())
+        assert payload["frame_count"] == 1
+        assert payload["output_artifact_count"] == 1
+        _video, frames = server._frames_for_video(video.id, limit=10)
+        assert [frame["image_path"] for frame in frames] == [str(frame_path.resolve())]
+    finally:
+        server.STATE_ROOT = original_state
+        server.REVIEW_ROOT = original_review
+        server.LABELS_ROOT = original_labels
+        server.MASKS_ROOT = original_masks
+        server.QUEUE_ROOT = original_queue
+        server.VIDEO_STATUS_ROOT = original_video_status
+        server.SCAN_ROOTS = original_scan_roots
+        server.ALLOWED_ROOTS = original_allowed
+
+
+def test_video_frames_skip_rendered_output_artifacts_for_labeling(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    recording = state / "recordings" / "20260518T184855_target"
+    recording.mkdir(parents=True)
+    (recording / "manifest.json").write_text("{}", encoding="utf-8")
+    (recording / "chunk_0154.mp4").write_bytes(b"fake chunk")
+    review = state / "batch_reviews" / "final_review_20260518" / "20260518T184855_probe"
+    raw = review / "raw"
+    raw.mkdir(parents=True)
+    image = server.Image.new("RGB", (80, 60), (40, 40, 40))
+    input_frame = raw / "chunk_0154_00019.jpg"
+    image.save(input_frame)
+    image.save(review / "frame_0145_hold_aspect_fix.jpg")
+    image.save(review / "annotated_120_145_sheet.jpg")
+
+    original_state = server.STATE_ROOT
+    original_review = server.REVIEW_ROOT
+    original_labels = server.LABELS_ROOT
+    original_masks = server.MASKS_ROOT
+    original_queue = server.QUEUE_ROOT
+    original_video_status = server.VIDEO_STATUS_ROOT
+    original_scan_roots = server.SCAN_ROOTS
+    original_allowed = server.ALLOWED_ROOTS
+    try:
+        server.STATE_ROOT = state
+        server.REVIEW_ROOT = state / "label-review"
+        server.LABELS_ROOT = server.REVIEW_ROOT / "labels"
+        server.MASKS_ROOT = server.REVIEW_ROOT / "masks"
+        server.QUEUE_ROOT = server.REVIEW_ROOT / "actions"
+        server.VIDEO_STATUS_ROOT = server.REVIEW_ROOT / "videos"
+        server.SCAN_ROOTS = (state / "batch_reviews",)
+        server.ALLOWED_ROOTS = (tmp_path, state, server.REVIEW_ROOT)
+
+        video = server._discover_videos(1)[0]
+        _video, frames = server._frames_for_video(video.id, limit=10)
+        assert [frame["image_path"] for frame in frames] == [str(input_frame.resolve())]
+    finally:
+        server.STATE_ROOT = original_state
+        server.REVIEW_ROOT = original_review
+        server.LABELS_ROOT = original_labels
+        server.MASKS_ROOT = original_masks
+        server.QUEUE_ROOT = original_queue
+        server.VIDEO_STATUS_ROOT = original_video_status
+        server.SCAN_ROOTS = original_scan_roots
+        server.ALLOWED_ROOTS = original_allowed
