@@ -320,14 +320,39 @@ def _probe_rows_by_image(root: Path) -> dict[Path, dict[str, str]]:
     return rows
 
 
+def _latest_rescore_root() -> Path | None:
+    rescores_root = STATE_ROOT / "label-review" / "rescores"
+    latest_path = rescores_root / "latest.json"
+    if latest_path.exists():
+        manifest = _read_json(latest_path)
+        probe_rows = manifest.get("probe_rows")
+        if probe_rows:
+            probe_path = Path(str(probe_rows)).expanduser()
+            if probe_path.exists():
+                return probe_path.parent
+    if not rescores_root.exists():
+        return None
+    runs = [path for path in rescores_root.iterdir() if path.is_dir() and (path / "probe_rows.json").exists()]
+    if not runs:
+        return None
+    return sorted(runs, key=lambda path: path.stat().st_mtime, reverse=True)[0]
+
+
 def _review_metadata_rows_by_image() -> dict[Path, dict[str, str]]:
     rows_by_image: dict[Path, dict[str, str]] = {}
     for root in (STATE_ROOT / "datasets", DATASET_ROOT / "datasets", DATASET_ROOT / "detector-training"):
         if root.exists():
             rows_by_image.update(_label_rows_by_image(root))
-    for root in (STATE_ROOT / "batch_reviews", STATE_ROOT / "jump-review", DATASET_ROOT / "detector-training"):
+    for root in (
+        STATE_ROOT / "batch_reviews",
+        STATE_ROOT / "jump-review",
+        DATASET_ROOT / "detector-training",
+    ):
         if root.exists():
             rows_by_image.update(_probe_rows_by_image(root))
+    latest_rescore_root = _latest_rescore_root()
+    if latest_rescore_root is not None:
+        rows_by_image.update(_probe_rows_by_image(latest_rescore_root))
     return rows_by_image
 
 
@@ -361,6 +386,13 @@ def _is_review_artifact_image(path: Path) -> bool:
             "candidate_thumb",
             "annotated_",
         )
+    )
+
+
+def _is_generated_review_training_path(path: Path) -> bool:
+    return any(
+        part.startswith("cat-projector-review-ui-") or part.startswith("cat-projector-ui-")
+        for part in path.parts
     )
 
 
@@ -536,9 +568,16 @@ def _discover_cases(limit: int) -> list[ReviewCase]:
     for root in (STATE_ROOT / "datasets", DATASET_ROOT / "datasets", DATASET_ROOT / "detector-training"):
         if root.exists():
             rows_by_image.update(_label_rows_by_image(root))
-    for root in (STATE_ROOT / "batch_reviews", STATE_ROOT / "jump-review", DATASET_ROOT / "detector-training"):
+    for root in (
+        STATE_ROOT / "batch_reviews",
+        STATE_ROOT / "jump-review",
+        DATASET_ROOT / "detector-training",
+    ):
         if root.exists():
             rows_by_image.update(_probe_rows_by_image(root))
+    latest_rescore_root = _latest_rescore_root()
+    if latest_rescore_root is not None:
+        rows_by_image.update(_probe_rows_by_image(latest_rescore_root))
 
     seen: set[Path] = set()
     cases: list[ReviewCase] = []
@@ -547,6 +586,8 @@ def _discover_cases(limit: int) -> list[ReviewCase]:
             continue
         for image_path in root.rglob("*"):
             if image_path.suffix.lower() not in IMAGE_EXTENSIONS:
+                continue
+            if _is_generated_review_training_path(image_path):
                 continue
             if _is_review_artifact_image(image_path):
                 continue
@@ -695,6 +736,8 @@ def _iter_frame_group_dirs(root: Path) -> list[Path]:
     groups: set[Path] = set()
     for directory in root.rglob("*"):
         if not directory.is_dir():
+            continue
+        if _is_generated_review_training_path(directory):
             continue
         name = directory.name
         if _is_input_frame_dir_name(name) and _direct_image_count(directory):

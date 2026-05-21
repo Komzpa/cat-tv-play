@@ -410,3 +410,88 @@ def test_video_frames_skip_rendered_output_artifacts_for_labeling(tmp_path: Path
         server.VIDEO_STATUS_ROOT = original_video_status
         server.SCAN_ROOTS = original_scan_roots
         server.ALLOWED_ROOTS = original_allowed
+
+
+def test_generated_review_training_packages_are_not_review_queue_inputs(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    real_frames = state / "datasets" / "real-corpus" / "frames"
+    generated_frames = state / "datasets" / "cat-projector-review-ui-all-review-labels-20260522" / "frames"
+    real_frames.mkdir(parents=True)
+    generated_frames.mkdir(parents=True)
+    image = server.Image.new("RGB", (80, 60), (40, 40, 40))
+    real_image = real_frames / "real.jpg"
+    generated_image = generated_frames / "copy.jpg"
+    image.save(real_image)
+    image.save(generated_image)
+
+    original_state = server.STATE_ROOT
+    original_review = server.REVIEW_ROOT
+    original_labels = server.LABELS_ROOT
+    original_masks = server.MASKS_ROOT
+    original_queue = server.QUEUE_ROOT
+    original_video_status = server.VIDEO_STATUS_ROOT
+    original_scan_roots = server.SCAN_ROOTS
+    original_allowed = server.ALLOWED_ROOTS
+    try:
+        server.STATE_ROOT = state
+        server.REVIEW_ROOT = state / "label-review"
+        server.LABELS_ROOT = server.REVIEW_ROOT / "labels"
+        server.MASKS_ROOT = server.REVIEW_ROOT / "masks"
+        server.QUEUE_ROOT = server.REVIEW_ROOT / "actions"
+        server.VIDEO_STATUS_ROOT = server.REVIEW_ROOT / "videos"
+        server.SCAN_ROOTS = (state / "datasets",)
+        server.ALLOWED_ROOTS = (tmp_path, state, server.REVIEW_ROOT)
+
+        cases = server._discover_cases(10)
+        assert [case.image_path for case in cases] == [real_image.resolve()]
+        videos = server._discover_videos(10)
+        assert all("cat-projector-review-ui-" not in str(video.source_recording_dir or video.label) for video in videos)
+    finally:
+        server.STATE_ROOT = original_state
+        server.REVIEW_ROOT = original_review
+        server.LABELS_ROOT = original_labels
+        server.MASKS_ROOT = original_masks
+        server.QUEUE_ROOT = original_queue
+        server.VIDEO_STATUS_ROOT = original_video_status
+        server.SCAN_ROOTS = original_scan_roots
+        server.ALLOWED_ROOTS = original_allowed
+
+
+def test_review_metadata_reads_latest_rescore_only(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    image_path = state / "datasets" / "real-corpus" / "frames" / "real.jpg"
+    image_path.parent.mkdir(parents=True)
+    image = server.Image.new("RGB", (80, 60), (40, 40, 40))
+    image.save(image_path)
+    old_run = state / "label-review" / "rescores" / "old"
+    new_run = state / "label-review" / "rescores" / "new"
+    old_run.mkdir(parents=True)
+    new_run.mkdir(parents=True)
+    old_probe = old_run / "probe_rows.json"
+    new_probe = new_run / "probe_rows.json"
+    old_probe.write_text(
+        json.dumps([{"raw_path": str(image_path), "best_probability": 0.1, "best_bbox": "1,1,10,10"}]),
+        encoding="utf-8",
+    )
+    new_probe.write_text(
+        json.dumps([{"raw_path": str(image_path), "best_probability": 0.5, "best_bbox": "2,2,20,20"}]),
+        encoding="utf-8",
+    )
+    latest = state / "label-review" / "rescores" / "latest.json"
+    latest.write_text(json.dumps({"probe_rows": str(new_probe)}), encoding="utf-8")
+
+    original_state = server.STATE_ROOT
+    original_dataset = server.DATASET_ROOT
+    original_allowed = server.ALLOWED_ROOTS
+    try:
+        server.STATE_ROOT = state
+        server.DATASET_ROOT = tmp_path / "missing-dataset-root"
+        server.ALLOWED_ROOTS = (tmp_path, state)
+
+        rows = server._review_metadata_rows_by_image()
+        assert rows[image_path.resolve()]["detector_cat_probability"] == "0.5"
+        assert rows[image_path.resolve()]["candidate_bbox_xywh"] == "2,2,20,20"
+    finally:
+        server.STATE_ROOT = original_state
+        server.DATASET_ROOT = original_dataset
+        server.ALLOWED_ROOTS = original_allowed

@@ -244,6 +244,16 @@ local machine. The review backend uses
 endpoint. If SAM is unavailable, manual boxes/polygons still work and the UI can
 request the backend's degraded click-to-contour fallback.
 
+After a review pass, run the repo-owned offline active-learning iteration:
+
+```bash
+python3 scripts/cat_projector_active_learning.py --jobs 16
+```
+
+It trains `~/.openclaw/state/cat-tv-learning/models/cat_projector_candidate_detector_v1.cbm`,
+rescores original corpus frames, and writes the next uncertainty queue under
+`~/.openclaw/state/cat-tv-learning/label-review/rescores/`.
+
 See [docs/label-review.md](docs/label-review.md).
 
 ## Example Automation

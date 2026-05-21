@@ -6,8 +6,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
+  "catboost",
   "numpy",
   "pillow",
+  "scipy",
 ]
 
 [project.optional-dependencies]

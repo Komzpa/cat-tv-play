@@ -121,6 +121,21 @@ records with a visible log line so an operator or offline job can run the heavy
 work later. This prevents the Home Assistant runtime from silently starting
 model training or old-video rescoring.
 
+Run the repo-owned active-learning iteration from this checkout when the saved
+review labels should become the next detector version:
+
+```bash
+python3 scripts/cat_projector_active_learning.py --jobs 16
+```
+
+That command materializes the current review labels into
+`~/.openclaw/state/cat-tv-learning/datasets/`, trains
+`~/.openclaw/state/cat-tv-learning/models/cat_projector_candidate_detector_v1.cbm`,
+rescores all reviewable input frames, and writes fresh uncertainty data under
+`~/.openclaw/state/cat-tv-learning/label-review/rescores/`. Generated review UI
+training-package copies are excluded from the next review queue, so the browser
+keeps sending the operator back to original corpus frames.
+
 The video review UI queues the same explicit actions from the active video:
 
 - `retrain_model` means “train from the reviewed labels/masks later”;
