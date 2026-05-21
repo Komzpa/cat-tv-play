@@ -107,23 +107,23 @@
       max-height: 260px;
       overflow: auto;
       border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 6px;
+      border-radius: 8px;
       padding: 6px;
       background: rgba(0,0,0,0.12);
     }
 
     body.review-mode #reviewQueue,
     body.review-mode #reviewVideos {
-      max-height: 28vh;
+      max-height: none;
     }
 
     body.review-mode #reviewFrames {
-      max-height: 18vh;
+      max-height: 24vh;
     }
 
     .review-item {
       border: 1px solid rgba(255,255,255,0.10);
-      border-radius: 6px;
+      border-radius: 7px;
       padding: 9px;
       cursor: pointer;
       background: #151a1f;
@@ -193,6 +193,113 @@
       border-color: var(--accent);
       background: rgba(103, 215, 255, 0.22);
       color: #fff;
+    }
+
+    .review-status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 999px;
+      padding: 3px 8px;
+      color: var(--muted);
+      background: rgba(0,0,0,0.18);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .review-status-chip.ok {
+      color: var(--ok);
+      border-color: rgba(126,231,135,0.36);
+      background: rgba(46,160,67,0.14);
+    }
+
+    .review-status-chip.warn {
+      color: var(--warn);
+      border-color: rgba(255,166,87,0.36);
+      background: rgba(187,128,9,0.14);
+    }
+
+    .review-player-toolbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      min-height: 48px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: #151a1f;
+    }
+
+    .review-player-title {
+      font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .review-player-meta {
+      color: var(--muted);
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      margin-top: 2px;
+    }
+
+    .review-player-chips {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    body.review-mode .playlist-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      border-bottom: 0;
+      min-height: 0;
+      height: 100%;
+    }
+
+    body.review-mode #reviewVideos {
+      flex: 1 1 220px;
+      min-height: 150px;
+    }
+
+    body.review-mode #reviewFrames {
+      flex: 0 1 190px;
+      min-height: 96px;
+    }
+
+    body.review-mode #reviewQueue {
+      flex: 0 1 170px;
+      min-height: 82px;
+    }
+
+    .playlist-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .playlist-header h2 {
+      margin: 0;
+    }
+
+    .advanced-mask-settings {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .advanced-mask-settings summary {
+      cursor: pointer;
+      user-select: none;
     }
 
     #saveReviewBtn {
@@ -389,9 +496,14 @@
     body.review-mode main {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(340px, 0.72fr);
-      grid-template-rows: minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
       gap: 10px;
       padding: 10px;
+    }
+
+    body.review-mode .review-player-toolbar {
+      grid-column: 1 / span 2;
+      grid-row: 1;
     }
 
     .review-output-pane {
@@ -406,6 +518,8 @@
 
     body.review-mode .review-output-pane {
       display: grid;
+      grid-column: 2;
+      grid-row: 2;
     }
 
     .review-pane-title {
@@ -448,6 +562,8 @@
       margin: 0;
       align-self: start;
       justify-self: start;
+      grid-column: 1;
+      grid-row: 2;
     }
 
     canvas {
@@ -599,57 +715,28 @@
         <div id="distances"></div>
       </div>
 
-      <div class="section mask-tools">
-        <h2>Cat masks</h2>
-        <div class="row">
-          <button id="addCatBtn">New cat</button>
-          <button id="autoCatBtn">Auto contour</button>
-          <button id="duplicateCatBtn">Duplicate</button>
-          <button id="deleteCatBtn">Delete</button>
-        </div>
-        <div class="row">
-          <label>label <input id="catLabel" type="text" placeholder="Sher"></label>
-          <label>kind
-            <select id="catKind">
-              <option value="cat">cat</option>
-              <option value="not_cat">not cat</option>
-            </select>
-          </label>
-        </div>
-        <div class="row">
-          <label>mask API <input id="samEndpoint" type="text" value="/api/cat-projector-label-review/segment"></label>
-        </div>
-        <div class="row">
-          <button id="addCatVertexBtn">Add vertex</button>
-          <button id="deleteCatVertexBtn">Delete vertex</button>
-          <button id="clearCatHintsBtn">Clear hints</button>
-        </div>
-        <div id="catMaskStatus" class="muted">click image in cat mode</div>
-        <div id="catMasks"></div>
-      </div>
-
-      <div class="section review-only">
-        <h2>Review videos</h2>
-        <div class="row">
+      <div class="section review-only playlist-panel">
+        <div class="playlist-header">
+          <h2>Playlist</h2>
           <button id="refreshReviewVideosBtn">Refresh videos</button>
-          <button id="markVideoOkBtn">Relabeled / OK</button>
         </div>
         <div id="reviewVideoStatus">video backend not loaded</div>
         <div id="reviewVideos"></div>
-      </div>
 
-      <div class="section review-only">
-        <h2>Frames</h2>
+        <div class="playlist-header">
+          <h2>Timeline</h2>
+          <span id="frameStatus" class="muted">open a video</span>
+        </div>
         <div class="row">
           <button id="prevFrameBtn">Prev</button>
           <button id="nextFrameBtn">Next</button>
-          <span id="frameStatus" class="muted">open a video</span>
         </div>
         <div id="reviewFrames"></div>
-      </div>
 
-      <div class="section review-only">
-        <h2>Loose frame queue</h2>
+        <div class="playlist-header">
+          <h2>Unsorted frames</h2>
+          <button id="refreshReviewBtn">Refresh</button>
+        </div>
         <div class="row">
           <select id="reviewFilter">
             <option value="unreviewed">unreviewed</option>
@@ -659,7 +746,6 @@
             <option value="not_cat">not cat</option>
             <option value="unsure">unsure</option>
           </select>
-          <button id="refreshReviewBtn">Refresh</button>
         </div>
         <div id="reviewStatus">backend not loaded</div>
         <div id="reviewQueue"></div>
@@ -667,6 +753,16 @@
     </aside>
 
     <main>
+      <div class="review-player-toolbar review-only">
+        <div>
+          <div id="reviewPlayerTitle" class="review-player-title">Open a review video</div>
+          <div id="reviewPlayerMeta" class="review-player-meta">Playlist, frame timeline, labels, and previous model output stay in one place.</div>
+        </div>
+        <div class="review-player-chips">
+          <span id="reviewPlayerLabelChip" class="review-status-chip">unreviewed</span>
+          <span id="reviewPlayerOutputChip" class="review-status-chip">no output</span>
+        </div>
+      </div>
       <div class="canvas-wrap">
         <canvas id="canvas" width="1280" height="720"></canvas>
       </div>
@@ -706,7 +802,7 @@
       </div>
 
       <div class="section review-only">
-        <h2>Review item</h2>
+        <h2>Frame inspector</h2>
         <div id="reviewDetail">open a frame from the review queue</div>
         <div class="row review-actions">
           <button id="labelCatBtn">Cat</button>
@@ -716,10 +812,43 @@
         </div>
         <textarea id="reviewNotes" spellcheck="false" placeholder="notes"></textarea>
         <div class="row">
+          <button id="markVideoOkBtn">Relabeled / OK</button>
           <button id="retrainModelBtn">Retrain model</button>
           <button id="rescoreRecordingBtn">Rescore video</button>
         </div>
         <div id="reviewActionLog">actions are explicit queue records; nothing retrains silently</div>
+      </div>
+
+      <div class="section mask-tools">
+        <h2>Mask editor</h2>
+        <div class="row">
+          <button id="addCatBtn">New mask</button>
+          <button id="autoCatBtn">Auto contour</button>
+          <button id="duplicateCatBtn">Duplicate</button>
+          <button id="deleteCatBtn">Delete</button>
+        </div>
+        <div class="row">
+          <label>label <input id="catLabel" type="text" placeholder="Sher"></label>
+          <label>kind
+            <select id="catKind">
+              <option value="cat">cat</option>
+              <option value="not_cat">not cat</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <button id="addCatVertexBtn">Add vertex</button>
+          <button id="deleteCatVertexBtn">Delete vertex</button>
+          <button id="clearCatHintsBtn">Clear hints</button>
+        </div>
+        <div id="catMaskStatus" class="muted">click the frame to add mask hints</div>
+        <div id="catMasks"></div>
+        <details class="advanced-mask-settings">
+          <summary>Advanced segmentation endpoint</summary>
+          <div class="row">
+            <label>mask API <input id="samEndpoint" type="text" value="/api/cat-projector-label-review/segment"></label>
+          </div>
+        </details>
       </div>
     </aside>
   </div>
@@ -887,6 +1016,10 @@
     const retrainModelBtn = document.getElementById("retrainModelBtn");
     const rescoreRecordingBtn = document.getElementById("rescoreRecordingBtn");
     const reviewActionLog = document.getElementById("reviewActionLog");
+    const reviewPlayerTitle = document.getElementById("reviewPlayerTitle");
+    const reviewPlayerMeta = document.getElementById("reviewPlayerMeta");
+    const reviewPlayerLabelChip = document.getElementById("reviewPlayerLabelChip");
+    const reviewPlayerOutputChip = document.getElementById("reviewPlayerOutputChip");
 
     let image = new Image();
     let imagePath = DEFAULT_IMAGE;
@@ -2025,9 +2158,27 @@
       return reviewFrames[activeReviewFrameIndex] || null;
     }
 
+    function updateReviewPlayerBar() {
+      const video = activeReviewVideo();
+      const frame = activeReviewFrame();
+      const label = normaliseReviewLabel(frame?.human_label || activeReviewLabel);
+      const status = frame?.review_status || video?.review_status || "unreviewed";
+      const output = frame?.model_output_url ? "model output" : "no output";
+      reviewPlayerTitle.textContent = frame
+        ? `${video?.label || "Review video"} · frame ${frame.frame_index}`
+        : (video?.label || "Open a review video");
+      reviewPlayerMeta.textContent = frame
+        ? `${frame.image_path || frame.label || frame.id}`
+        : (video ? `${Number(video.frame_count || 0)} frames · ${Number(video.output_frame_count || 0)} outputs` : "Playlist, frame timeline, labels, and previous model output stay in one place.");
+      reviewPlayerLabelChip.textContent = `${status} · ${label}`;
+      reviewPlayerLabelChip.className = "review-status-chip" + (label === "cat" ? " ok" : label === "unsure" ? " warn" : "");
+      reviewPlayerOutputChip.textContent = output;
+      reviewPlayerOutputChip.className = "review-status-chip" + (frame?.model_output_url ? " ok" : "");
+    }
+
     function renderReviewVideos() {
       reviewVideosEl.innerHTML = "";
-      reviewVideoStatus.textContent = `${reviewVideos.length} videos · open one, then walk frames`;
+      reviewVideoStatus.textContent = `${reviewVideos.length} videos`;
       if (!reviewVideos.length) {
         const empty = document.createElement("div");
         empty.className = "muted";
@@ -2040,8 +2191,8 @@
         row.className = "review-item" + (item.id === activeReviewVideoId ? " active" : "");
         row.innerHTML = `
           <div class="review-item-title" title="${escapeHtml(item.source_recording_dir || item.source_video_path || item.id)}">${escapeHtml(item.label || item.id)}</div>
-          <div class="review-item-meta">${escapeHtml(item.review_status || "unreviewed")} · ${Number(item.frame_count || 0)} frames · ${Number(item.output_frame_count || 0)} outputs</div>
-          <div class="review-item-meta">${escapeHtml(item.source || "corpus")}</div>
+          <div class="review-item-meta">${escapeHtml(item.review_status || "unreviewed")} · ${Number(item.frame_count || 0)} frames · ${Number(item.output_frame_count || 0)} model outputs</div>
+          <div class="review-item-meta">${escapeHtml(item.source_recording_dir ? "full recording" : item.source || "corpus")}</div>
         `;
         row.addEventListener("click", () => openReviewVideo(item.id).catch(error => {
           reviewVideoStatus.textContent = error.message;
@@ -2055,6 +2206,7 @@
       const video = activeReviewVideo();
       if (!video) {
         frameStatus.textContent = "open a video";
+        updateReviewPlayerBar();
         return;
       }
       frameStatus.textContent = `${activeReviewFrameIndex + 1}/${reviewFrames.length} loaded · ${video.frame_count || 0} total`;
@@ -2072,6 +2224,7 @@
         }));
         reviewFramesEl.appendChild(row);
       }
+      updateReviewPlayerBar();
     }
 
     async function refreshReviewVideos() {
@@ -2112,6 +2265,7 @@
       renderReviewFrames();
       setModelOutput(frame);
       await openReviewCase(frame.id);
+      updateReviewPlayerBar();
     }
 
     function setModelOutput(frame) {
@@ -2121,11 +2275,13 @@
         modelOutputImage.hidden = true;
         modelOutputImage.removeAttribute("src");
         modelOutputEmpty.hidden = false;
+        updateReviewPlayerBar();
         return;
       }
       modelOutputEmpty.hidden = true;
       modelOutputImage.hidden = false;
       modelOutputImage.src = url;
+      updateReviewPlayerBar();
     }
 
     async function markActiveVideoOk() {
@@ -2248,6 +2404,7 @@
       renderReviewDetail();
       update();
       renderReviewQueue();
+      updateReviewPlayerBar();
     }
 
     function renderReviewDetail() {
@@ -2323,6 +2480,7 @@
       renderReviewDetail();
       renderReviewQueue();
       renderReviewFrames();
+      updateReviewPlayerBar();
     }
 
     async function queueReviewAction(action) {
