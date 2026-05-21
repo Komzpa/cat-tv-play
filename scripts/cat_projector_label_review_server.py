@@ -62,6 +62,7 @@ LABELS_ROOT = REVIEW_ROOT / "labels"
 MASKS_ROOT = REVIEW_ROOT / "masks"
 QUEUE_ROOT = REVIEW_ROOT / "actions"
 VIDEO_STATUS_ROOT = REVIEW_ROOT / "videos"
+TRAINING_DATASETS_ROOT = STATE_ROOT / "datasets"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov"}
 LABEL_NAMESPACE = "cat_projector_label_review"
@@ -305,6 +306,41 @@ def _manifest_for_recording_dir(recording_dir: Path) -> dict[str, Any]:
     return _read_json(recording_dir / "manifest.json")
 
 
+def _recording_dir_for_timestamp(timestamp: str) -> Path | None:
+    recordings_root = STATE_ROOT / "recordings"
+    if not recordings_root.exists() or not timestamp:
+        return None
+    matches = sorted(recordings_root.glob(f"{timestamp}_*"))
+    for candidate in matches:
+        if candidate.is_dir() and (candidate / "manifest.json").exists():
+            return candidate.resolve()
+    return None
+
+
+def _batch_review_recording_context(path: Path) -> tuple[Path | None, Path | None]:
+    if not any(parent.name == "batch_reviews" for parent in path.parents):
+        return None, None
+    for parent in path.parents:
+        match = re.match(r"(?P<timestamp>\d{8}T\d{6})_", parent.name)
+        if not match:
+            continue
+        recording_dir = _recording_dir_for_timestamp(match.group("timestamp"))
+        if recording_dir is None:
+            continue
+        chunk_match = re.match(r"chunk_(\d+)_\d+\.(?:jpe?g|png|webp)$", path.name, re.IGNORECASE)
+        if chunk_match:
+            chunk_path = recording_dir / f"chunk_{int(chunk_match.group(1)):04d}.mp4"
+            if chunk_path.exists():
+                return chunk_path.resolve(), recording_dir
+        chunks = sorted(
+            candidate
+            for candidate in recording_dir.iterdir()
+            if candidate.suffix.lower() in VIDEO_EXTENSIONS and ".part." not in candidate.name
+        )
+        return (chunks[0] if chunks else None, recording_dir)
+    return None, None
+
+
 def _recording_context(path: Path) -> tuple[Path | None, Path | None]:
     for parent in path.parents:
         if (parent / "manifest.json").exists() and parent.parent.name == "recordings":
@@ -314,7 +350,7 @@ def _recording_context(path: Path) -> tuple[Path | None, Path | None]:
                 if candidate.suffix.lower() in VIDEO_EXTENSIONS and ".part." not in candidate.name
             )
             return (chunks[0] if chunks else None, parent)
-    return None, None
+    return _batch_review_recording_context(path)
 
 
 def _source_name(path: Path) -> str:
@@ -911,6 +947,184 @@ def _save_label(payload: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+TRAINING_LABEL_FIELDNAMES = [
+    "image_relpath",
+    "label_cat_present",
+    "label_cat_playing",
+    "review_status",
+    "candidate_bbox_xywh",
+    "label_candidate_is_cat",
+    "negative_reason",
+    "bbox_xywh",
+    "occlusion",
+    "confidence",
+    "notes",
+    "source_recording_dir",
+    "source_chunk",
+    "source_offset_seconds",
+    "ha_session_id",
+    "frigate_event_id",
+    "video_slug",
+    "candidate_reason",
+]
+
+
+def _bbox_dict_to_csv(raw: Any) -> str:
+    if isinstance(raw, dict):
+        try:
+            values = (raw["x"], raw["y"], raw["width"], raw["height"])
+        except KeyError:
+            return ""
+        return ",".join(str(int(round(float(value)))) for value in values)
+    if isinstance(raw, str):
+        parsed = _parse_bbox(raw)
+        if parsed is None:
+            return ""
+        return ",".join(str(int(round(value))) for value in parsed)
+    if isinstance(raw, (list, tuple)) and len(raw) == 4:
+        try:
+            return ",".join(str(int(round(float(value)))) for value in raw)
+        except (TypeError, ValueError):
+            return ""
+    return ""
+
+
+def _mask_bbox_for_label(label: dict[str, Any]) -> str:
+    for mask in label.get("masks") or []:
+        if not isinstance(mask, dict):
+            continue
+        bbox = _bbox_dict_to_csv(mask.get("bbox_xywh"))
+        if bbox:
+            return bbox
+    return _bbox_dict_to_csv(label.get("candidate_bbox_xywh"))
+
+
+def _source_chunk_for_label(label: dict[str, Any], image_path: Path, recording_dir: Path | None) -> tuple[str, str]:
+    if recording_dir is None:
+        return "", ""
+    chunk_match = re.match(r"chunk_(\d+)_(\d+)\.(?:jpe?g|png|webp)$", image_path.name, re.IGNORECASE)
+    if not chunk_match:
+        return "", ""
+    chunk_index = int(chunk_match.group(1))
+    frame_index = int(chunk_match.group(2))
+    chunk_path = recording_dir / f"chunk_{chunk_index:04d}.mp4"
+    offset = frame_index / 15.0
+    return (str(chunk_path) if chunk_path.exists() else "", f"{offset:.3f}")
+
+
+def _review_labels_for_training(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    video_id = str(payload.get("video_id") or "")
+    case_id = str(payload.get("case_id") or "")
+    labels: list[dict[str, Any]] = []
+    if not LABELS_ROOT.exists():
+        return labels
+    for path in sorted(LABELS_ROOT.glob("*.json")):
+        label = _read_json(path)
+        if video_id and str(label.get("video_id") or "") != video_id:
+            continue
+        if case_id and not video_id and str(label.get("case_id") or "") != case_id:
+            continue
+        if str(label.get("label") or "") not in {"cat", "not_cat"}:
+            continue
+        image_path_raw = str(label.get("image_path") or "")
+        if not image_path_raw:
+            continue
+        try:
+            image_path = _safe_local_path(Path(image_path_raw))
+        except ValueError:
+            continue
+        if not image_path.exists():
+            continue
+        label["_label_file"] = str(path)
+        label["_image_path"] = image_path
+        labels.append(label)
+    return labels
+
+
+def _materialize_review_labels_as_training_package(payload: dict[str, Any]) -> dict[str, Any]:
+    labels = _review_labels_for_training(payload)
+    if not labels:
+        raise ValueError("no saved cat/not-cat review labels found for retrain action")
+
+    video_id = _safe_slug(str(payload.get("video_id") or "all-review-labels"))
+    package_id = f"cat-projector-review-ui-{video_id}-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
+    package_dir = TRAINING_DATASETS_ROOT / package_id
+    frames_dir = package_dir / "frames"
+    frames_dir.mkdir(parents=True, exist_ok=False)
+
+    rows: list[dict[str, str]] = []
+    copied: list[dict[str, str]] = []
+    for index, label in enumerate(labels):
+        image_path = label["_image_path"]
+        target = frames_dir / f"{index:04d}_{_safe_slug(str(label.get('case_id') or image_path.stem))}{image_path.suffix.lower()}"
+        shutil.copy2(image_path, target)
+        label_kind = str(label.get("label") or "")
+        recording_raw = str(label.get("source_recording_dir") or "")
+        recording_dir = Path(recording_raw).expanduser() if recording_raw else None
+        if recording_dir is None or not recording_dir.exists():
+            _source_video, inferred_recording = _recording_context(image_path)
+            recording_dir = inferred_recording
+        source_chunk, source_offset = _source_chunk_for_label(label, image_path, recording_dir)
+        bbox = _mask_bbox_for_label(label)
+        row = {field: "" for field in TRAINING_LABEL_FIELDNAMES}
+        row.update(
+            {
+                "image_relpath": target.relative_to(package_dir).as_posix(),
+                "label_cat_present": "yes" if label_kind == "cat" else "no",
+                "label_cat_playing": "yes" if label_kind == "cat" else "unsure",
+                "review_status": "human_reviewed_from_cat_projector_label_ui",
+                "candidate_bbox_xywh": bbox,
+                "label_candidate_is_cat": "yes" if label_kind == "cat" else "no",
+                "negative_reason": "" if label_kind == "cat" else "human_review_not_cat",
+                "bbox_xywh": bbox if label_kind == "cat" else "",
+                "occlusion": "unknown" if label_kind == "cat" else "",
+                "confidence": "high",
+                "notes": f"materialized from review label {label.get('_label_file')}; {label.get('notes') or ''}".strip(),
+                "source_recording_dir": str(recording_dir) if recording_dir else "",
+                "source_chunk": source_chunk,
+                "source_offset_seconds": source_offset,
+                "video_slug": Path(str(label.get("source_video_path") or "")).name,
+                "candidate_reason": "human_review_ui_mask" if label_kind == "cat" else "human_review_ui_not_cat",
+            }
+        )
+        rows.append(row)
+        copied.append(
+            {
+                "label_file": str(label.get("_label_file") or ""),
+                "source_image": str(image_path),
+                "copied_image": str(target),
+                "label": label_kind,
+                "bbox_xywh": bbox,
+            }
+        )
+
+    labels_csv = package_dir / "labels.csv"
+    with labels_csv.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=TRAINING_LABEL_FIELDNAMES)
+        writer.writeheader()
+        writer.writerows(rows)
+    positive_count = sum(1 for row in rows if row["label_candidate_is_cat"] == "yes")
+    negative_count = sum(1 for row in rows if row["label_candidate_is_cat"] == "no")
+    manifest = {
+        "kind": LABEL_NAMESPACE + "_training_package_v1",
+        "created_at": _utc_now(),
+        "package_id": package_id,
+        "package_dir": str(package_dir),
+        "labels_csv": str(labels_csv),
+        "source_action_payload": {
+            key: value
+            for key, value in payload.items()
+            if key not in {"training_package"}
+        },
+        "source_label_count": len(labels),
+        "positive_count": positive_count,
+        "negative_count": negative_count,
+        "copied": copied,
+    }
+    _write_json(package_dir / "manifest.json", manifest)
+    return manifest
+
+
 def _path_from_payload(payload: dict[str, Any]) -> Path:
     token = str(payload.get("image_token") or "")
     if token:
@@ -1069,6 +1283,9 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
                 if action not in {"retrain_model", "rescore_recording"}:
                     self._send_error_json(HTTPStatus.BAD_REQUEST, "action must be retrain_model or rescore_recording")
                     return
+                if action == "retrain_model":
+                    payload = dict(payload)
+                    payload["training_package"] = _materialize_review_labels_as_training_package(payload)
                 self._send_json(_queue_action(action, payload))
                 return
         except Exception as exc:
@@ -1184,6 +1401,7 @@ def run_fake_smoke(tmp_root: Path) -> int:
     original_masks = globals()["MASKS_ROOT"]
     original_queue = globals()["QUEUE_ROOT"]
     original_video_status = globals()["VIDEO_STATUS_ROOT"]
+    original_training_datasets = globals()["TRAINING_DATASETS_ROOT"]
     original_scan_roots = globals()["SCAN_ROOTS"]
     original_allowed = globals()["ALLOWED_ROOTS"]
     try:
@@ -1199,6 +1417,7 @@ def run_fake_smoke(tmp_root: Path) -> int:
         globals()["MASKS_ROOT"] = fake_review / "masks"
         globals()["QUEUE_ROOT"] = fake_review / "actions"
         globals()["VIDEO_STATUS_ROOT"] = fake_review / "videos"
+        globals()["TRAINING_DATASETS_ROOT"] = fake_state / "datasets"
         globals()["SCAN_ROOTS"] = (fake_dataset / "datasets",)
         globals()["ALLOWED_ROOTS"] = (fake_dataset, fake_state, fake_review)
         for directory in (LABELS_ROOT, MASKS_ROOT, QUEUE_ROOT, VIDEO_STATUS_ROOT):
@@ -1247,8 +1466,14 @@ def run_fake_smoke(tmp_root: Path) -> int:
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urlopen(request, timeout=10) as response:
-                return json.loads(response.read().decode("utf-8"))
+            try:
+                with urlopen(request, timeout=10) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except Exception as exc:
+                if hasattr(exc, "read"):
+                    detail = exc.read().decode("utf-8", errors="replace")
+                    raise AssertionError(f"POST {path} failed: {detail}") from exc
+                raise
 
         cat_case = next(case for case in cases if case["human_label"] == "yes")
         not_cat_case = next(case for case in cases if case["human_label"] == "no")
@@ -1336,6 +1561,7 @@ def run_fake_smoke(tmp_root: Path) -> int:
         globals()["MASKS_ROOT"] = original_masks
         globals()["QUEUE_ROOT"] = original_queue
         globals()["VIDEO_STATUS_ROOT"] = original_video_status
+        globals()["TRAINING_DATASETS_ROOT"] = original_training_datasets
         globals()["SCAN_ROOTS"] = original_scan_roots
         globals()["ALLOWED_ROOTS"] = original_allowed
 

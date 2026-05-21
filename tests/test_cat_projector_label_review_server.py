@@ -22,13 +22,19 @@ def test_fake_smoke_builds_review_queue_and_action_records(tmp_path: Path) -> No
     action_files = sorted((tmp_path / "state" / "label-review" / "actions").glob("*.json"))
     mask_files = sorted((tmp_path / "state" / "label-review" / "masks").glob("*/*.json"))
     video_status_files = sorted((tmp_path / "state" / "label-review" / "videos").glob("*.json"))
+    training_labels = sorted((tmp_path / "state" / "datasets").glob("cat-projector-review-ui-*/labels.csv"))
     assert len(label_files) == 2
     assert len(action_files) == 2
     assert len(mask_files) == 1
     assert len(video_status_files) == 1
+    assert len(training_labels) == 1
     saved_labels = [json.loads(path.read_text(encoding="utf-8")) for path in label_files]
     assert {row["label_candidate_is_cat"] for row in saved_labels} == {"yes", "no"}
     assert {row["video_id"] for row in saved_labels} != {None}
+    training_text = training_labels[0].read_text(encoding="utf-8")
+    assert "label_candidate_is_cat" in training_text
+    assert "yes" in training_text
+    assert "no" in training_text
 
 
 def test_segment_endpoint_requires_configured_sam_without_explicit_degraded_fallback(tmp_path: Path) -> None:
@@ -153,6 +159,52 @@ def test_video_review_pairs_real_batch_input_with_ordered_annotated_outputs(tmp_
         assert frames[0]["model_output_path"].endswith("ann_0001.jpg")
         assert frames[1]["model_output_path"].endswith("ann_0002.jpg")
         assert frames[2]["model_output_path"] is None
+    finally:
+        server.STATE_ROOT = original_state
+        server.REVIEW_ROOT = original_review
+        server.LABELS_ROOT = original_labels
+        server.MASKS_ROOT = original_masks
+        server.QUEUE_ROOT = original_queue
+        server.VIDEO_STATUS_ROOT = original_video_status
+        server.SCAN_ROOTS = original_scan_roots
+        server.ALLOWED_ROOTS = original_allowed
+
+
+def test_batch_review_frames_infer_full_recording_context(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    recording = state / "recordings" / "20260518T184855_session"
+    recording.mkdir(parents=True)
+    (recording / "manifest.json").write_text("{}", encoding="utf-8")
+    (recording / "chunk_0014.mp4").write_bytes(b"fake mp4")
+    batch = state / "batch_reviews" / "final" / "20260518T184855_live1269_no_cat_probe" / "raw"
+    batch.mkdir(parents=True)
+    image = server.Image.new("RGB", (80, 60), (40, 40, 40))
+    frame_path = batch / "chunk_0014_00043.jpg"
+    image.save(frame_path)
+
+    original_state = server.STATE_ROOT
+    original_review = server.REVIEW_ROOT
+    original_labels = server.LABELS_ROOT
+    original_masks = server.MASKS_ROOT
+    original_queue = server.QUEUE_ROOT
+    original_video_status = server.VIDEO_STATUS_ROOT
+    original_scan_roots = server.SCAN_ROOTS
+    original_allowed = server.ALLOWED_ROOTS
+    try:
+        server.STATE_ROOT = state
+        server.REVIEW_ROOT = state / "label-review"
+        server.LABELS_ROOT = server.REVIEW_ROOT / "labels"
+        server.MASKS_ROOT = server.REVIEW_ROOT / "masks"
+        server.QUEUE_ROOT = server.REVIEW_ROOT / "actions"
+        server.VIDEO_STATUS_ROOT = server.REVIEW_ROOT / "videos"
+        server.SCAN_ROOTS = (state / "batch_reviews",)
+        server.ALLOWED_ROOTS = (tmp_path, state, server.REVIEW_ROOT)
+
+        source_video, source_recording = server._recording_context(frame_path)
+        assert source_recording == recording.resolve()
+        assert source_video == (recording / "chunk_0014.mp4").resolve()
+        video = server._discover_videos(1)[0]
+        assert video.source_recording_dir == recording.resolve()
     finally:
         server.STATE_ROOT = original_state
         server.REVIEW_ROOT = original_review
