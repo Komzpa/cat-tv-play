@@ -214,3 +214,65 @@ def test_batch_review_frames_infer_full_recording_context(tmp_path: Path) -> Non
         server.VIDEO_STATUS_ROOT = original_video_status
         server.SCAN_ROOTS = original_scan_roots
         server.ALLOWED_ROOTS = original_allowed
+
+
+def test_video_review_counts_reprocessed_session_artifacts(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    recording = state / "recordings" / "20260518T184855_session"
+    recording.mkdir(parents=True)
+    (recording / "manifest.json").write_text("{}", encoding="utf-8")
+    (recording / "chunk_0001.mp4").write_bytes(b"fake chunk")
+    batch = state / "batch_reviews" / "final" / "20260518T184855_review" / "raw"
+    batch.mkdir(parents=True)
+    image = server.Image.new("RGB", (80, 60), (40, 40, 40))
+    image.save(batch / "chunk_0001_00001.jpg")
+
+    reprocessed = state / "reprocessed" / "review-ui-video-test"
+    reprocessed.mkdir(parents=True)
+    horizontal = reprocessed / "annotated_full_session.mp4"
+    vertical = reprocessed / "annotated_full_session_vertical.mp4"
+    horizontal.write_bytes(b"fake horizontal")
+    vertical.write_bytes(b"fake vertical")
+    manifest = {
+        "kind": "cat_projector_review_reprocess_output_v1",
+        "review_video_id": "video.test",
+        "source_recording_dir": str(recording.resolve()),
+        "outputs": [str(horizontal), str(vertical)],
+    }
+    (reprocessed / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    original_state = server.STATE_ROOT
+    original_review = server.REVIEW_ROOT
+    original_labels = server.LABELS_ROOT
+    original_masks = server.MASKS_ROOT
+    original_queue = server.QUEUE_ROOT
+    original_video_status = server.VIDEO_STATUS_ROOT
+    original_scan_roots = server.SCAN_ROOTS
+    original_allowed = server.ALLOWED_ROOTS
+    try:
+        server.STATE_ROOT = state
+        server.REVIEW_ROOT = state / "label-review"
+        server.LABELS_ROOT = server.REVIEW_ROOT / "labels"
+        server.MASKS_ROOT = server.REVIEW_ROOT / "masks"
+        server.QUEUE_ROOT = server.REVIEW_ROOT / "actions"
+        server.VIDEO_STATUS_ROOT = server.REVIEW_ROOT / "videos"
+        server.SCAN_ROOTS = (state / "batch_reviews",)
+        server.ALLOWED_ROOTS = (tmp_path, state, server.REVIEW_ROOT)
+
+        video = server._discover_videos(1)[0]
+        payload = server._video_payload(video)
+        assert video.output_frame_count == 0
+        assert payload["output_artifact_count"] == 2
+        assert [artifact["path"] for artifact in payload["output_artifacts"]] == [
+            str(horizontal.resolve()),
+            str(vertical.resolve()),
+        ]
+    finally:
+        server.STATE_ROOT = original_state
+        server.REVIEW_ROOT = original_review
+        server.LABELS_ROOT = original_labels
+        server.MASKS_ROOT = original_masks
+        server.QUEUE_ROOT = original_queue
+        server.VIDEO_STATUS_ROOT = original_video_status
+        server.SCAN_ROOTS = original_scan_roots
+        server.ALLOWED_ROOTS = original_allowed

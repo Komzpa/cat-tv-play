@@ -2158,22 +2158,31 @@
       return reviewFrames[activeReviewFrameIndex] || null;
     }
 
+    function reviewVideoModelOutputCount(video) {
+      return Number(video?.output_frame_count || 0) + Number(video?.output_artifact_count || 0);
+    }
+
+    function primaryReviewVideoArtifact(video) {
+      return (video?.output_artifacts || [])[0] || null;
+    }
+
     function updateReviewPlayerBar() {
       const video = activeReviewVideo();
       const frame = activeReviewFrame();
       const label = normaliseReviewLabel(frame?.human_label || activeReviewLabel);
       const status = frame?.review_status || video?.review_status || "unreviewed";
-      const output = frame?.model_output_url ? "model output" : "no output";
+      const outputArtifact = primaryReviewVideoArtifact(video);
+      const output = frame?.model_output_url ? "frame output" : outputArtifact ? "session output" : "no output";
       reviewPlayerTitle.textContent = frame
         ? `${video?.label || "Review video"} · frame ${frame.frame_index}`
         : (video?.label || "Open a review video");
       reviewPlayerMeta.textContent = frame
         ? `${frame.image_path || frame.label || frame.id}`
-        : (video ? `${Number(video.frame_count || 0)} frames · ${Number(video.output_frame_count || 0)} outputs` : "Playlist, frame timeline, labels, and previous model output stay in one place.");
+        : (video ? `${Number(video.frame_count || 0)} frames · ${reviewVideoModelOutputCount(video)} outputs` : "Playlist, frame timeline, labels, and previous model output stay in one place.");
       reviewPlayerLabelChip.textContent = `${status} · ${label}`;
       reviewPlayerLabelChip.className = "review-status-chip" + (label === "cat" ? " ok" : label === "unsure" ? " warn" : "");
       reviewPlayerOutputChip.textContent = output;
-      reviewPlayerOutputChip.className = "review-status-chip" + (frame?.model_output_url ? " ok" : "");
+      reviewPlayerOutputChip.className = "review-status-chip" + (frame?.model_output_url || outputArtifact ? " ok" : "");
     }
 
     function renderReviewVideos() {
@@ -2191,7 +2200,7 @@
         row.className = "review-item" + (item.id === activeReviewVideoId ? " active" : "");
         row.innerHTML = `
           <div class="review-item-title" title="${escapeHtml(item.source_recording_dir || item.source_video_path || item.id)}">${escapeHtml(item.label || item.id)}</div>
-          <div class="review-item-meta">${escapeHtml(item.review_status || "unreviewed")} · ${Number(item.frame_count || 0)} frames · ${Number(item.output_frame_count || 0)} model outputs</div>
+          <div class="review-item-meta">${escapeHtml(item.review_status || "unreviewed")} · ${Number(item.frame_count || 0)} frames · ${reviewVideoModelOutputCount(item)} model outputs</div>
           <div class="review-item-meta">${escapeHtml(item.source_recording_dir ? "full recording" : item.source || "corpus")}</div>
         `;
         row.addEventListener("click", () => openReviewVideo(item.id).catch(error => {
@@ -2270,11 +2279,17 @@
 
     function setModelOutput(frame) {
       const url = frame?.model_output_url || "";
+      const outputArtifact = primaryReviewVideoArtifact(activeReviewVideo());
       modelOutputTitle.textContent = frame ? `previous model output · frame ${frame.frame_index}` : "previous model output";
       if (!url) {
         modelOutputImage.hidden = true;
         modelOutputImage.removeAttribute("src");
         modelOutputEmpty.hidden = false;
+        if (outputArtifact) {
+          modelOutputEmpty.innerHTML = `<a href="${escapeHtml(outputArtifact.url)}" target="_blank" rel="noreferrer">${escapeHtml(outputArtifact.label || "open session model output")}</a>`;
+        } else {
+          modelOutputEmpty.textContent = "no previous model output for this frame";
+        }
         updateReviewPlayerBar();
         return;
       }

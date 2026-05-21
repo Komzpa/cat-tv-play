@@ -166,6 +166,7 @@ class ReviewVideo:
     source_video_path: Path | None = None
     frame_count: int = 0
     output_frame_count: int = 0
+    output_artifacts: tuple[Path, ...] = ()
     review_status: str = "unreviewed"
     notes: str = ""
 
@@ -511,6 +512,120 @@ def _candidate_output_path(input_path: Path) -> Path | None:
     return None
 
 
+def _string_values(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        values: list[str] = []
+        for item in value.values():
+            values.extend(_string_values(item))
+        return values
+    if isinstance(value, list):
+        values: list[str] = []
+        for item in value:
+            values.extend(_string_values(item))
+        return values
+    return [str(value)]
+
+
+def _manifest_matches_video(
+    manifest: dict[str, Any],
+    *,
+    video_id: str,
+    recording_dir: Path | None,
+    group_key: Path,
+    source_video: Path | None,
+) -> bool:
+    values = set(_string_values(manifest))
+    if video_id and video_id in values:
+        return True
+    for candidate in (recording_dir, group_key, source_video):
+        if candidate is not None and str(candidate) in values:
+            return True
+    return False
+
+
+def _reprocessed_dir_name_matches_video(
+    output_dir: Path,
+    *,
+    video_id: str,
+    recording_dir: Path | None,
+    group_key: Path,
+) -> bool:
+    haystack = output_dir.name
+    if recording_dir and recording_dir.name[:15] in haystack:
+        return True
+    if group_key.name and group_key.name in haystack:
+        return True
+    if video_id:
+        compact = re.sub(r"[^A-Za-z0-9]+", "", video_id)
+        if compact and compact[:9] in re.sub(r"[^A-Za-z0-9]+", "", haystack):
+            return True
+    return False
+
+
+def _output_artifacts_for_video(
+    *,
+    video_id: str,
+    recording_dir: Path | None,
+    group_key: Path,
+    source_video: Path | None,
+) -> tuple[Path, ...]:
+    reprocessed_root = STATE_ROOT / "reprocessed"
+    if not reprocessed_root.exists():
+        return ()
+    artifacts: list[Path] = []
+    output_dirs = sorted(
+        (path for path in reprocessed_root.iterdir() if path.is_dir()),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    for output_dir in output_dirs:
+        manifest = _read_json(output_dir / "manifest.json")
+        matches = _manifest_matches_video(
+            manifest,
+            video_id=video_id,
+            recording_dir=recording_dir,
+            group_key=group_key,
+            source_video=source_video,
+        )
+        if not matches:
+            matches = _reprocessed_dir_name_matches_video(
+                output_dir,
+                video_id=video_id,
+                recording_dir=recording_dir,
+                group_key=group_key,
+            )
+        if not matches:
+            continue
+        for artifact in sorted(output_dir.glob("*.mp4")):
+            try:
+                artifacts.append(_safe_local_path(artifact))
+            except ValueError:
+                continue
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for artifact in artifacts:
+        if artifact in seen:
+            continue
+        seen.add(artifact)
+        unique.append(artifact)
+    return tuple(unique)
+
+
+def _artifact_to_payload(path: Path) -> dict[str, Any]:
+    token = _encode_path(path)
+    return {
+        "path": str(path),
+        "url": f"/api/cat-projector-label-review/file/{token}",
+        "label": path.stem.replace("_", " "),
+        "bytes": path.stat().st_size,
+        "mtime": path.stat().st_mtime,
+    }
+
+
 def _video_group_key(case: ReviewCase) -> Path:
     if case.source_recording_dir:
         return case.source_recording_dir
@@ -535,6 +650,7 @@ def _input_frame_paths_for_group(group_key: Path) -> list[Path]:
 def _video_payload(video: ReviewVideo) -> dict[str, Any]:
     status = _load_status_for_video(video.id)
     video_token = _encode_path(video.source_video_path) if video.source_video_path else None
+    output_artifacts = [_artifact_to_payload(path) for path in video.output_artifacts]
     return {
         "id": video.id,
         "kind": LABEL_NAMESPACE + "_video_v1",
@@ -545,6 +661,8 @@ def _video_payload(video: ReviewVideo) -> dict[str, Any]:
         "source_video_url": f"/api/cat-projector-label-review/file/{video_token}" if video_token else None,
         "frame_count": video.frame_count,
         "output_frame_count": video.output_frame_count,
+        "output_artifact_count": len(output_artifacts),
+        "output_artifacts": output_artifacts,
         "review_status": status.get("review_status") or video.review_status,
         "notes": status.get("notes") or video.notes,
         "mtime": video.mtime,
@@ -565,6 +683,12 @@ def _discover_videos(limit: int) -> list[ReviewVideo]:
         input_paths = _input_frame_paths_for_group(key)
         output_count = sum(1 for path in input_paths if _candidate_output_path(path))
         video_id = _video_id_for_path(recording_dir or key)
+        output_artifacts = _output_artifacts_for_video(
+            video_id=video_id,
+            recording_dir=recording_dir,
+            group_key=key,
+            source_video=source_video,
+        )
         status = _load_status_for_video(video_id)
         videos[video_id] = ReviewVideo(
             id=video_id,
@@ -575,6 +699,7 @@ def _discover_videos(limit: int) -> list[ReviewVideo]:
             source_video_path=source_video,
             frame_count=len(input_paths) or len(group),
             output_frame_count=output_count,
+            output_artifacts=output_artifacts,
             review_status=status.get("review_status") or "unreviewed",
             notes=status.get("notes") or "",
         )
@@ -601,6 +726,12 @@ def _discover_videos(limit: int) -> list[ReviewVideo]:
                 continue
             status = _load_status_for_video(video_id)
             newest = max([recording_dir.stat().st_mtime, *[path.stat().st_mtime for path in frame_paths[:200]]])
+            output_artifacts = _output_artifacts_for_video(
+                video_id=video_id,
+                recording_dir=recording_dir,
+                group_key=recording_dir,
+                source_video=chunks[0] if chunks else None,
+            )
             videos[video_id] = ReviewVideo(
                 id=video_id,
                 label=status.get("title") or recording_dir.name,
@@ -610,6 +741,7 @@ def _discover_videos(limit: int) -> list[ReviewVideo]:
                 source_video_path=chunks[0] if chunks else None,
                 frame_count=len(frame_paths),
                 output_frame_count=sum(1 for path in frame_paths if _candidate_output_path(path)),
+                output_artifacts=output_artifacts,
                 review_status=status.get("review_status") or "unreviewed",
                 notes=status.get("notes") or "",
             )
