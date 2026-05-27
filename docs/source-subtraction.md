@@ -61,12 +61,16 @@ into source-video coordinates, and returns black overlay polygons plus the
 camera-space eye-slot box used for debug review. The default slot is
 deliberately small: it is for eyes, not for dimming the whole person.
 
-`scripts/cat_projector_safety_overlay_server.py` is the runtime wrapper. It
-loops the source video, samples the projector camera, filters detections that
-match projected video content against sampled reference frames from the source
-clip, renders the black zones, and serves `/stream.m3u8`, `/status.json`, and
-`/debug-camera.jpg`. The stream alone is not a physical safety boundary because
-a DLNA/HLS client can freeze a bright frame. Home Assistant production wiring
-must run an independent watchdog that treats `active`, stale, or unavailable
-safety status as a lamp-off command while preserving the cat-projector session
-latch.
+`scripts/cat_projector_safety_overlay_server.py` is the runtime wrapper. In
+production it should run with `--status-only`: the projector Android app plays
+the original MP4 natively, while the safety server samples the projector camera,
+filters detections that match projected video content against sampled reference
+frames from the source clip, and serves `/status.json`, `/camera.jpg`, and
+`/debug-camera.jpg`. The older `/stream.m3u8` mode remains useful for isolated
+tests, but it should not be the normal playback path because Python/ffmpeg HLS
+encoding can make the video less smooth than the native player.
+
+The player alone is not a physical safety boundary. Home Assistant production
+wiring must run an independent watchdog that treats `active`, stale, or
+unavailable safety status as a lamp-off command while preserving the
+cat-projector session latch.

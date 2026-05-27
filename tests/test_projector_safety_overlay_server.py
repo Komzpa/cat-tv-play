@@ -401,8 +401,10 @@ def test_runtime_defaults_prioritize_low_latency_camera_updates() -> None:
     assert args.padding_px == 12
     assert args.camera_sample_interval == 0.06
     assert args.camera_snapshot_timeout == 0.8
-    assert args.eye_safety_trail_seconds == 0.5
-    assert args.eye_safety_hold_seconds == 2.0
+    assert args.eye_safety_trail_seconds == 0.15
+    assert args.eye_safety_hold_seconds == 0.25
     assert args.eye_safety_prediction_seconds == 0.25
     assert args.eye_safety_prediction_padding_px == 16.0
     assert args.eye_safety_max_prediction_px == 220.0
+    assert args.status_only is False
+    assert args.source_tracking_fps == 5

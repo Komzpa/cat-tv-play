@@ -1154,6 +1154,62 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
         capture.release()
 
 
+def _run_status_only(args: argparse.Namespace, *, state: SafetyOverlayState) -> None:
+    capture = _open_video_capture(str(args.source_video))
+    status_interval = 1.0 / max(1, args.fps)
+    source_interval = 1.0 / max(1, args.source_tracking_fps)
+    runtime = SafetyRuntime()
+    safety_worker = threading.Thread(target=_run_safety_worker, args=(args,), kwargs={"runtime": runtime})
+    safety_worker.daemon = True
+    safety_worker.start()
+    frame_index = 0
+    last_status_monotonic = time.monotonic()
+    next_source_at = 0.0
+
+    try:
+        while True:
+            started = time.monotonic()
+            if started >= next_source_at:
+                frame_index += 1
+                source_frame = _frame_from_capture(capture, source_size=args.source_size)
+                runtime.update_source_frame(source_frame, frame_index)
+                next_source_at = started + source_interval
+            snapshot = runtime.snapshot()
+            finished = time.monotonic()
+            status_interval_ms = (finished - last_status_monotonic) * 1000.0
+            last_status_monotonic = finished
+            safety_age_ms = (
+                round((finished - snapshot.updated_at) * 1000.0, 1) if snapshot.updated_at is not None else None
+            )
+            performance = {
+                **snapshot.performance,
+                "frame_index": frame_index,
+                "status_only": True,
+                "native_video_playback": True,
+                "source_tracking_fps": args.source_tracking_fps,
+                "status_target_interval_ms": round(status_interval * 1000.0, 1),
+                "status_loop_ms": round((finished - started) * 1000.0, 1),
+                "status_interval_ms": round(status_interval_ms, 1),
+                "safety_result_age_ms": safety_age_ms,
+                "hls_encoder_enabled": False,
+            }
+            state.update(
+                snapshot.result,
+                people=snapshot.people,
+                source_size=args.source_size,
+                fixed_black_rect=args.fixed_black_rect,
+                camera_image=snapshot.camera_image,
+                camera_error=snapshot.camera_error,
+                performance=performance,
+            )
+            elapsed = time.monotonic() - started
+            if elapsed < status_interval:
+                time.sleep(status_interval - elapsed)
+    finally:
+        runtime.stop()
+        capture.release()
+
+
 def _apply_eye_safety_trail(
     result: SafetyOverlayResult,
     *,
@@ -1225,14 +1281,23 @@ def _apply_eye_safety_hold(
 
 
 def serve(args: argparse.Namespace) -> int:
-    if shutil.which("ffmpeg") is None:
+    if not args.status_only and shutil.which("ffmpeg") is None:
         raise RuntimeError("ffmpeg is required for the HLS safety overlay server")
     output_root = args.output_dir or Path(tempfile.mkdtemp(prefix="cat-projector-safety-hls-"))
     output_root.mkdir(parents=True, exist_ok=True)
     state = SafetyOverlayState()
-    renderer = threading.Thread(target=_run_renderer, args=(args,), kwargs={"output_dir": output_root, "state": state})
-    renderer.daemon = True
-    renderer.start()
+    if args.status_only:
+        worker = threading.Thread(target=_run_status_only, args=(args,), kwargs={"state": state})
+        worker.daemon = True
+        worker.start()
+    else:
+        worker = threading.Thread(
+            target=_run_renderer,
+            args=(args,),
+            kwargs={"output_dir": output_root, "state": state},
+        )
+        worker.daemon = True
+        worker.start()
 
     handler = lambda *handler_args, **kwargs: OverlayRequestHandler(  # noqa: E731
         *handler_args,
@@ -1241,7 +1306,13 @@ def serve(args: argparse.Namespace) -> int:
     )
     OverlayRequestHandler.state = state
     httpd = ThreadingHTTPServer((args.host, args.port), handler)
-    print(f"cat_projector_safety_overlay listening on http://{args.host}:{args.port}/stream.m3u8", flush=True)
+    if args.status_only:
+        print(
+            f"cat_projector_safety_overlay status-only listening on http://{args.host}:{args.port}/status.json",
+            flush=True,
+        )
+    else:
+        print(f"cat_projector_safety_overlay listening on http://{args.host}:{args.port}/stream.m3u8", flush=True)
     print(f"status: http://{args.host}:{args.port}/status.json", flush=True)
     httpd.serve_forever()
     return 0
@@ -1274,8 +1345,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--source-reference-frames", type=int, default=3)
     parser.add_argument("--camera-sample-interval", type=float, default=0.06)
     parser.add_argument("--camera-snapshot-timeout", type=float, default=0.8)
-    parser.add_argument("--eye-safety-trail-seconds", type=float, default=0.5)
-    parser.add_argument("--eye-safety-hold-seconds", type=float, default=2.0)
+    parser.add_argument("--eye-safety-trail-seconds", type=float, default=0.15)
+    parser.add_argument("--eye-safety-hold-seconds", type=float, default=0.25)
     parser.add_argument("--eye-safety-prediction-seconds", type=float, default=0.25)
     parser.add_argument("--eye-safety-prediction-padding-px", type=float, default=16.0)
     parser.add_argument("--eye-safety-max-prediction-px", type=float, default=220.0)
@@ -1286,6 +1357,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--hls-list-size", type=int, default=4)
     parser.add_argument("--fixed-black-rect", type=_parse_source_rect)
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--status-only", action="store_true")
+    parser.add_argument("--source-tracking-fps", type=int, default=5)
     args = parser.parse_args(argv)
     if len(args.source_size) != 2:
         raise SystemExit("--source-size must be WIDTHxHEIGHT")

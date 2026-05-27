@@ -205,37 +205,42 @@ See [docs/source-subtraction.md](docs/source-subtraction.md).
 
 ## Eye-Safety Overlay
 
-For live projector sessions, serve the Cat TV source through the local safety
-overlay server and pass its HLS URL to `cat_tv_play.start_session` instead of
-the raw MP4:
+For live projector sessions, keep video playback on the projector's native
+Android player and use the safety server for overlay status only. The server
+still samples the source clip for projector-content filtering, but it does not
+encode or serve the playable video in this mode:
 
 ```bash
 python3 scripts/cat_projector_safety_overlay_server.py \
   --source-video /config/www/cat-tv/current.mp4 \
   --camera-snapshot-url http://192.168.100.39:8081/shot.jpg \
   --host 0.0.0.0 \
-  --port 8787
+  --port 8787 \
+  --status-only
 ```
 
-Then start playback with:
+Then start the projector Android activity with the raw MP4 as `video_url` and
+the safety server as `overlay_status_url`. This avoids the Python/ffmpeg HLS
+path and preserves smooth native playback while black zones are drawn by the
+Android overlay:
 
-```yaml
-service: cat_tv_play.start_session
-data:
-  media_url: "http://<overlay-host>:8787/stream.m3u8"
-  media_content_type: "application/vnd.apple.mpegurl"
+```bash
+adb -s 192.168.100.39:5555 shell am start \
+  -a by.openclaw.catprojectorcamera.DISPLAY_RECT \
+  --es video_url "http://<ha-host>:8123/local/cat-tv/current.mp4" \
+  --es overlay_status_url "http://<overlay-host>:8787/status.json" \
+  --ei source_width 1280 --ei source_height 720
 ```
 
 The server samples the projector camera, runs the local OpenCV MobileNet SSD
 person detector, maps the padded eye band of any person overlapping the
-projected wall back into source-video coordinates, and paints that zone black
-before HLS encoding. `/status.json` includes the camera-space eye band and
+projected wall back into source-video coordinates, and publishes the black
+overlay polygons. `/status.json` includes the camera-space eye band and
 source-space polygon; `/debug-camera.jpg` draws the detected person box plus the
 black eye band on the camera frame so deployment can verify the polygon really
 covers the face area. If the detector, camera, or geometry is unavailable, the
-server reports `safety_overlay_unavailable`; production deployments must pair
-that with an independent lamp watchdog instead of trusting the HLS player to
-remain live.
+server reports `safety_overlay_unavailable`; production deployments must keep
+the independent lamp watchdog active instead of trusting the player alone.
 
 ## Jump Tracking
 
