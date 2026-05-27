@@ -388,6 +388,33 @@ def test_motion_prediction_clamps_large_offset() -> None:
     assert offset_y == 0.0
 
 
+def test_stale_active_result_expires_to_clear_overlay() -> None:
+    zone = overlay_server.projector_safety.SafetyOverlayZone(
+        polygon=((520.0, 160.0), (760.0, 160.0), (760.0, 260.0), (520.0, 260.0)),
+        camera_bbox_xyxy=(500.0, 130.0, 790.0, 390.0),
+    )
+    active = overlay_server.SafetyOverlayResult("active", zones=(zone,), debug={"zone_count": 1})
+
+    fresh = overlay_server._expire_stale_active_result(
+        active,
+        now=10.2,
+        updated_at=10.0,
+        max_age_seconds=0.35,
+    )
+    stale = overlay_server._expire_stale_active_result(
+        active,
+        now=10.5,
+        updated_at=10.0,
+        max_age_seconds=0.35,
+    )
+
+    assert fresh is active
+    assert stale.status == "no_person"
+    assert stale.zones == ()
+    assert stale.debug["stale_active_expired"] is True
+    assert stale.debug["stale_active_age_seconds"] == 0.5
+
+
 def test_runtime_defaults_prioritize_low_latency_camera_updates() -> None:
     args = overlay_server.parse_args(["--source-video", "cats.mp4"])
 
@@ -406,5 +433,6 @@ def test_runtime_defaults_prioritize_low_latency_camera_updates() -> None:
     assert args.eye_safety_prediction_seconds == 0.25
     assert args.eye_safety_prediction_padding_px == 16.0
     assert args.eye_safety_max_prediction_px == 220.0
+    assert args.max_active_overlay_age == 0.35
     assert args.status_only is False
     assert args.source_tracking_fps == 5

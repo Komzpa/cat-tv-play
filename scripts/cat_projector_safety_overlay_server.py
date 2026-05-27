@@ -1126,6 +1126,12 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
             safety_age_ms = (
                 round((finished - snapshot.updated_at) * 1000.0, 1) if snapshot.updated_at is not None else None
             )
+            result = _expire_stale_active_result(
+                snapshot.result,
+                now=finished,
+                updated_at=snapshot.updated_at,
+                max_age_seconds=args.max_active_overlay_age,
+            )
             performance = {
                 **snapshot.performance,
                 "frame_index": frame_index,
@@ -1135,11 +1141,12 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
                 "video_render_ms": round(render_ms, 1),
                 "video_write_ms": round(write_ms, 1),
                 "safety_result_age_ms": safety_age_ms,
+                "max_active_overlay_age_ms": round(args.max_active_overlay_age * 1000.0, 1),
                 "video_decoupled_from_safety_worker": True,
             }
             state.update(
                 result,
-                people=snapshot.people,
+                people=snapshot.people if result.status == snapshot.result.status else [],
                 source_size=args.source_size,
                 fixed_black_rect=args.fixed_black_rect,
                 camera_image=snapshot.camera_image,
@@ -1181,6 +1188,12 @@ def _run_status_only(args: argparse.Namespace, *, state: SafetyOverlayState) -> 
             safety_age_ms = (
                 round((finished - snapshot.updated_at) * 1000.0, 1) if snapshot.updated_at is not None else None
             )
+            result = _expire_stale_active_result(
+                snapshot.result,
+                now=finished,
+                updated_at=snapshot.updated_at,
+                max_age_seconds=args.max_active_overlay_age,
+            )
             performance = {
                 **snapshot.performance,
                 "frame_index": frame_index,
@@ -1191,11 +1204,12 @@ def _run_status_only(args: argparse.Namespace, *, state: SafetyOverlayState) -> 
                 "status_loop_ms": round((finished - started) * 1000.0, 1),
                 "status_interval_ms": round(status_interval_ms, 1),
                 "safety_result_age_ms": safety_age_ms,
+                "max_active_overlay_age_ms": round(args.max_active_overlay_age * 1000.0, 1),
                 "hls_encoder_enabled": False,
             }
             state.update(
-                snapshot.result,
-                people=snapshot.people,
+                result,
+                people=snapshot.people if result.status == snapshot.result.status else [],
                 source_size=args.source_size,
                 fixed_black_rect=args.fixed_black_rect,
                 camera_image=snapshot.camera_image,
@@ -1208,6 +1222,34 @@ def _run_status_only(args: argparse.Namespace, *, state: SafetyOverlayState) -> 
     finally:
         runtime.stop()
         capture.release()
+
+
+def _expire_stale_active_result(
+    result: SafetyOverlayResult,
+    *,
+    now: float,
+    updated_at: float | None,
+    max_age_seconds: float,
+) -> SafetyOverlayResult:
+    if result.status != "active" or max_age_seconds <= 0:
+        return result
+    if updated_at is None:
+        return SafetyOverlayResult(
+            "no_person",
+            debug={**result.debug, "stale_active_expired": True, "stale_active_age_seconds": None},
+        )
+    age = now - updated_at
+    if age <= max_age_seconds:
+        return result
+    return SafetyOverlayResult(
+        "no_person",
+        debug={
+            **result.debug,
+            "stale_active_expired": True,
+            "stale_active_age_seconds": round(age, 3),
+            "max_active_overlay_age_seconds": max_age_seconds,
+        },
+    )
 
 
 def _apply_eye_safety_trail(
@@ -1350,6 +1392,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--eye-safety-prediction-seconds", type=float, default=0.25)
     parser.add_argument("--eye-safety-prediction-padding-px", type=float, default=16.0)
     parser.add_argument("--eye-safety-max-prediction-px", type=float, default=220.0)
+    parser.add_argument("--max-active-overlay-age", type=float, default=0.35)
     parser.add_argument("--person-min-confidence", type=float, default=0.35)
     parser.add_argument("--human-detector-prototxt", type=Path, default=DEFAULT_HUMAN_DETECTOR_PROTOTXT)
     parser.add_argument("--human-detector-model", type=Path, default=DEFAULT_HUMAN_DETECTOR_MODEL)
