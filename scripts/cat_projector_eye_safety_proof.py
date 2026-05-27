@@ -135,6 +135,20 @@ def _annotate_physical(image: Image.Image, status: dict[str, Any]) -> Image.Imag
     return annotated
 
 
+def _scale_source_polygon_to_screen(
+    polygon: list[list[float]],
+    *,
+    source_size: list[int] | tuple[int, int],
+    screen_size: tuple[int, int],
+) -> list[list[float]]:
+    source_width, source_height = int(source_size[0]), int(source_size[1])
+    screen_width, screen_height = screen_size
+    return [
+        [float(x) * screen_width / source_width, float(y) * screen_height / source_height]
+        for x, y in polygon
+    ]
+
+
 def _analyze_physical(image: Image.Image, status: dict[str, Any]) -> dict[str, Any]:
     zone_summaries: list[dict[str, Any]] = []
     for index, zone in enumerate(status.get("zones") or []):
@@ -172,6 +186,58 @@ def _analyze_physical(image: Image.Image, status: dict[str, Any]) -> dict[str, A
     }
 
 
+def _analyze_screen(screen: Image.Image, status: dict[str, Any]) -> dict[str, Any]:
+    source_size = status.get("source_size") or [1280, 720]
+    zone_summaries: list[dict[str, Any]] = []
+    for index, zone in enumerate(status.get("zones") or []):
+        source_polygon = zone.get("polygon")
+        if not isinstance(source_polygon, list) or len(source_polygon) < 3:
+            continue
+        screen_polygon = _scale_source_polygon_to_screen(
+            source_polygon,
+            source_size=source_size,
+            screen_size=screen.size,
+        )
+        mask = _polygon_mask(screen.size, screen_polygon)
+        luma = _luma_stats(screen, mask)
+        zone_summaries.append(
+            {
+                "zone_index": index,
+                "source_polygon": source_polygon,
+                "screen_polygon": screen_polygon,
+                "screen_polygon_luma": luma,
+                "passes_black_screen_threshold": luma.get("p90") is not None and luma["p90"] <= 10.0,
+            }
+        )
+    return {
+        "zone_count": len(zone_summaries),
+        "zones": zone_summaries,
+        "passes_black_screen_threshold": bool(zone_summaries)
+        and all(item["passes_black_screen_threshold"] for item in zone_summaries),
+    }
+
+
+def _analyze_geometry(status: dict[str, Any]) -> dict[str, Any]:
+    zone_summaries: list[dict[str, Any]] = []
+    for index, zone in enumerate(status.get("zones") or []):
+        coverage = zone.get("camera_eye_band_coverage")
+        zone_summaries.append(
+            {
+                "zone_index": index,
+                "camera_eye_band_coverage": coverage,
+                "camera_eye_band_xyxy": zone.get("camera_eye_band_xyxy"),
+                "camera_projected_polygon": zone.get("camera_projected_polygon"),
+                "passes_eye_band_coverage_threshold": isinstance(coverage, int | float) and float(coverage) >= 0.9,
+            }
+        )
+    return {
+        "zone_count": len(zone_summaries),
+        "zones": zone_summaries,
+        "passes_eye_band_coverage_threshold": bool(zone_summaries)
+        and all(item["passes_eye_band_coverage_threshold"] for item in zone_summaries),
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--status-url", default=DEFAULT_STATUS_URL)
@@ -202,6 +268,9 @@ def main() -> int:
     detector_debug_path = out_dir / "detector-debug-camera.jpg"
     detector_debug_path.write_bytes(_read_bytes_url(args.debug_camera_url, timeout=args.http_timeout))
     time.sleep(args.render_wait)
+    render_status = _read_json_url(args.status_url, timeout=args.http_timeout)
+    render_status["proof_render_wait_seconds"] = args.render_wait
+    _save_json(out_dir / "status-after-render.json", render_status)
     physical_bytes = _read_bytes_url(args.camera_snapshot_url, timeout=args.http_timeout)
     physical_path = out_dir / "physical-after-render.jpg"
     physical_path.write_bytes(physical_bytes)
@@ -209,33 +278,45 @@ def main() -> int:
     screen_path.write_bytes(_adb_screencap(args.adb_serial))
 
     physical = Image.open(physical_path).convert("RGB")
+    screen = Image.open(screen_path).convert("RGB")
     detector_camera = Image.open(detector_camera_path).convert("RGB")
     detector_debug = Image.open(detector_debug_path).convert("RGB")
-    annotated = _annotate_physical(physical, status)
+    annotated = _annotate_physical(physical, render_status)
     annotated.save(out_dir / "physical-after-render-annotated.jpg", quality=92)
     detector_annotated = _annotate_physical(detector_debug, status)
     detector_annotated.save(out_dir / "detector-debug-camera-annotated.jpg", quality=92)
     detector_camera_annotated = _annotate_physical(detector_camera, status)
     detector_camera_annotated.save(out_dir / "detector-camera-annotated.jpg", quality=92)
-    analysis = _analyze_physical(physical, status)
+    analysis = _analyze_physical(physical, render_status)
     detector_camera_analysis = _analyze_physical(detector_camera, status)
+    screen_analysis = _analyze_screen(screen, render_status)
+    geometry_analysis = _analyze_geometry(render_status)
+    passes_eye_safety_proof = (
+        render_status.get("status") == "active"
+        and screen_analysis["passes_black_screen_threshold"]
+        and geometry_analysis["passes_eye_band_coverage_threshold"]
+    )
     summary = {
-        "accepted": True,
+        "accepted": passes_eye_safety_proof,
         "out_dir": str(out_dir),
         "render_wait_seconds": args.render_wait,
         "status_path": str(out_dir / "status-active.json"),
+        "status_after_render_path": str(out_dir / "status-after-render.json"),
         "detector_camera_path": str(detector_camera_path),
         "detector_debug_path": str(detector_debug_path),
         "physical_path": str(physical_path),
         "screen_path": str(screen_path),
         "analysis": analysis,
         "detector_camera_analysis": detector_camera_analysis,
+        "screen_analysis": screen_analysis,
+        "geometry_analysis": geometry_analysis,
+        "passes_eye_safety_proof": passes_eye_safety_proof,
         "people_sources": [person.get("source") for person in status.get("people") or []],
         "performance": status.get("performance"),
     }
     _save_json(out_dir / "proof-summary.json", summary)
     print(json.dumps(summary, sort_keys=True))
-    return 0 if analysis["passes_darkness_threshold"] else 1
+    return 0 if passes_eye_safety_proof else 1
 
 
 if __name__ == "__main__":

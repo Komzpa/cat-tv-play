@@ -514,6 +514,9 @@ def _filter_source_projected_people(
     min_residual_fraction: float,
     enable_residual_occluder_fallback: bool = False,
 ) -> tuple[list[PersonDetection], list[dict[str, Any]]]:
+    if not people and not enable_residual_occluder_fallback and not ignored_source_polygons:
+        return [], [{"reason": "residual_occluder_fallback_disabled"}]
+
     residual_views = _build_residual_views(
         camera_image=camera_image,
         source_frame=source_frame,
@@ -995,7 +998,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--person-min-residual-fraction", type=float, default=0.10)
     parser.add_argument("--enable-residual-occluder-fallback", action="store_true")
     parser.add_argument("--source-reference-frames", type=int, default=3)
-    parser.add_argument("--camera-sample-interval", type=float, default=0.12)
+    parser.add_argument("--camera-sample-interval", type=float, default=0.06)
     parser.add_argument("--camera-snapshot-timeout", type=float, default=0.8)
     parser.add_argument("--eye-safety-trail-seconds", type=float, default=0.5)
     parser.add_argument("--eye-safety-hold-seconds", type=float, default=2.0)

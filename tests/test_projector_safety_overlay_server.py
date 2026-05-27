@@ -132,6 +132,26 @@ def test_source_filter_does_not_create_eye_zone_from_residual_without_detector_p
     assert skipped == [{"reason": "residual_occluder_fallback_disabled"}]
 
 
+def test_source_filter_skips_residual_work_without_detector_people_by_default(monkeypatch) -> None:
+    def fail_build_residual_views(**_kwargs):
+        raise AssertionError("residual views should not be built without detector people")
+
+    monkeypatch.setattr(overlay_server, "_build_residual_views", fail_build_residual_views)
+
+    accepted, skipped = overlay_server._filter_source_projected_people(
+        [],
+        camera_image=Image.new("RGB", (1280, 720), "white"),
+        source_frame=Image.new("RGB", (1280, 720), "white"),
+        projector_polygon=FULL_FRAME_PROJECTOR,
+        residual_threshold=28.0,
+        min_residual_area_px=1200,
+        min_residual_fraction=0.10,
+    )
+
+    assert accepted == []
+    assert skipped == [{"reason": "residual_occluder_fallback_disabled"}]
+
+
 def test_source_filter_can_fall_back_to_physical_occluder_when_enabled() -> None:
     source = Image.new("RGB", (1280, 720), "white")
     camera = source.copy()
@@ -292,7 +312,7 @@ def test_runtime_defaults_prioritize_low_latency_camera_updates() -> None:
 
     assert args.fps == 20
     assert args.source_reference_frames == 3
-    assert args.camera_sample_interval == 0.12
+    assert args.camera_sample_interval == 0.06
     assert args.camera_snapshot_timeout == 0.8
     assert args.eye_safety_trail_seconds == 0.5
     assert args.eye_safety_hold_seconds == 2.0
