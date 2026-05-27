@@ -225,5 +225,5 @@ def test_runtime_defaults_prioritize_low_latency_camera_updates() -> None:
     assert args.fps == 20
     assert args.source_reference_frames == 3
     assert args.camera_sample_interval == 0.12
-    assert args.camera_snapshot_timeout == 0.35
+    assert args.camera_snapshot_timeout == 0.8
     assert args.eye_safety_hold_seconds == 2.0
