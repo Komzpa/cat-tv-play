@@ -814,7 +814,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--min-overlap-area-px", type=int, default=24)
     parser.add_argument("--person-residual-threshold", type=float, default=28.0)
     parser.add_argument("--person-min-residual-area-px", type=int, default=1200)
-    parser.add_argument("--person-min-residual-fraction", type=float, default=0.025)
+    parser.add_argument("--person-min-residual-fraction", type=float, default=0.10)
     parser.add_argument("--source-reference-frames", type=int, default=36)
     parser.add_argument("--camera-sample-interval", type=float, default=0.35)
     parser.add_argument("--person-min-confidence", type=float, default=0.35)

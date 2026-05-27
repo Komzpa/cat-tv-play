@@ -169,6 +169,41 @@ def test_source_subtracted_candidates_reject_bad_baseline_shape() -> None:
         )
 
 
+def test_source_subtraction_fits_projector_rgb_to_camera_luma() -> None:
+    pytest.importorskip("cv2")
+    source_arr = np.zeros((720, 1280, 3), dtype=np.uint8)
+    yy, xx = np.indices((720, 1280))
+    source_arr[..., 0] = (xx % 256).astype(np.uint8)
+    source_arr[..., 1] = (yy % 256).astype(np.uint8)
+    source_arr[..., 2] = ((xx // 3 + yy // 2) % 256).astype(np.uint8)
+    source = Image.fromarray(source_arr, mode="RGB")
+    warped_rgb = source_subtraction.warp_source_rgb_to_camera(
+        source,
+        projector_polygon=PROJECTOR_POLYGON,
+        width=1280,
+        height=720,
+    ).astype(np.float32)
+    projection = source_subtraction.projection_mask(PROJECTOR_POLYGON, 1280, 720)
+    camera_arr = np.full((720, 1280), 80, dtype=np.uint8)
+    camera_arr[projection] = np.clip(
+        0.15 * warped_rgb[..., 0][projection]
+        + 0.70 * warped_rgb[..., 1][projection]
+        + 0.05 * warped_rgb[..., 2][projection]
+        + 18,
+        0,
+        255,
+    ).astype(np.uint8)
+    camera = Image.fromarray(camera_arr, mode="L").convert("RGB")
+
+    residual, _warped = source_subtraction.source_subtracted_residual(
+        camera,
+        source_frame=source,
+        projector_polygon=PROJECTOR_POLYGON,
+    )
+
+    assert float(np.percentile(np.abs(residual[projection]), 95)) < 3.0
+
+
 def test_robust_component_top_ignores_single_high_noise_pixel() -> None:
     labels = np.zeros((40, 40), dtype=np.int32)
     labels[10:30, 15:25] = 1

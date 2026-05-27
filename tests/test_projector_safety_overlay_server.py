@@ -43,7 +43,7 @@ def test_source_filter_rejects_projected_video_content() -> None:
         projector_polygon=FULL_FRAME_PROJECTOR,
         residual_threshold=28.0,
         min_residual_area_px=1200,
-        min_residual_fraction=0.025,
+        min_residual_fraction=0.10,
     )
 
     assert accepted == []
@@ -69,7 +69,7 @@ def test_source_filter_keeps_real_occluder_in_projector_beam() -> None:
         projector_polygon=FULL_FRAME_PROJECTOR,
         residual_threshold=28.0,
         min_residual_area_px=1200,
-        min_residual_fraction=0.025,
+        min_residual_fraction=0.10,
     )
 
     assert len(accepted) == 1
@@ -105,7 +105,7 @@ def test_source_filter_rejects_projected_video_content_from_reference_frame() ->
         projector_polygon=FULL_FRAME_PROJECTOR,
         residual_threshold=28.0,
         min_residual_area_px=1200,
-        min_residual_fraction=0.025,
+        min_residual_fraction=0.10,
     )
 
     assert accepted == []
@@ -125,7 +125,7 @@ def test_source_filter_falls_back_to_physical_occluder_without_detector_person()
         projector_polygon=FULL_FRAME_PROJECTOR,
         residual_threshold=28.0,
         min_residual_area_px=1200,
-        min_residual_fraction=0.025,
+        min_residual_fraction=0.10,
     )
 
     assert skipped == []
@@ -147,7 +147,7 @@ def test_source_filter_ignores_own_fixed_black_rect_feedback() -> None:
         projector_polygon=FULL_FRAME_PROJECTOR,
         residual_threshold=28.0,
         min_residual_area_px=1200,
-        min_residual_fraction=0.025,
+        min_residual_fraction=0.10,
     )
 
     assert accepted == []

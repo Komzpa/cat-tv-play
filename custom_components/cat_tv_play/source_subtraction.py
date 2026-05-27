@@ -197,6 +197,91 @@ def warp_source_to_camera(
     return cv2.warpPerspective(source_gray, homography, (width, height))
 
 
+def warp_source_rgb_to_camera(
+    source_frame: Image.Image,
+    *,
+    projector_polygon: Iterable[tuple[float, float]],
+    width: int,
+    height: int,
+) -> np.ndarray:
+    """Warp a source RGB frame into camera pixels.
+
+    The projector camera does not see the wall like a normal RGB viewer. Keep
+    the RGB channels until the current camera frame can fit its own
+    projector-color-to-camera-luma mapping.
+    """
+
+    try:
+        import cv2
+    except Exception as exc:  # pragma: no cover - depends on optional review tooling.
+        raise RuntimeError("opencv-python is required for projector source subtraction") from exc
+
+    source_rgb = np.asarray(source_frame.convert("RGB").resize((1280, 720)), dtype=np.uint8)
+    source_points = np.float32([[0, 0], [1279, 0], [1279, 719], [0, 719]])
+    camera_points = np.float32(tuple(projector_polygon))
+    homography = cv2.getPerspectiveTransform(source_points, camera_points)
+    return cv2.warpPerspective(source_rgb, homography, (width, height))
+
+
+def _fit_projector_rgb_to_camera_luma(
+    warped_rgb: np.ndarray,
+    camera_gray: np.ndarray,
+    fit_mask: np.ndarray,
+) -> np.ndarray | None:
+    rgb = warped_rgb.astype(np.float32)
+    camera = camera_gray.astype(np.float32)
+    source_signal = rgb.max(axis=2)
+    keep = fit_mask & (source_signal > 35) & (camera > 25)
+    if int(keep.sum()) < 500:
+        return None
+
+    features = np.column_stack(
+        [
+            rgb[..., 0][keep],
+            rgb[..., 1][keep],
+            rgb[..., 2][keep],
+            np.ones(int(keep.sum()), dtype=np.float32),
+        ]
+    )
+    target = camera[keep]
+    try:
+        coefficients, *_rest = np.linalg.lstsq(features, target, rcond=None)
+    except np.linalg.LinAlgError:
+        return None
+    prediction = features @ coefficients
+    residual = np.abs(prediction - target)
+    cutoff = max(8.0, float(np.percentile(residual, 70)))
+    robust_keep = residual <= cutoff
+    if int(robust_keep.sum()) < 500:
+        return coefficients.astype(np.float32)
+    try:
+        coefficients, *_rest = np.linalg.lstsq(features[robust_keep], target[robust_keep], rcond=None)
+    except np.linalg.LinAlgError:
+        return None
+    return coefficients.astype(np.float32)
+
+
+def _projector_rgb_expected_luma(
+    warped_rgb: np.ndarray,
+    camera_gray: np.ndarray,
+    fit_mask: np.ndarray,
+) -> np.ndarray:
+    coefficients = _fit_projector_rgb_to_camera_luma(warped_rgb, camera_gray, fit_mask)
+    warped_luma = np.asarray(Image.fromarray(warped_rgb, mode="RGB").convert("L"), dtype=np.uint8)
+    if coefficients is None:
+        scale, offset = _robust_linear_match(warped_luma, camera_gray, fit_mask)
+        return np.clip(scale * warped_luma.astype(np.float32) + offset, 0, 255)
+
+    rgb = warped_rgb.astype(np.float32)
+    expected = (
+        coefficients[0] * rgb[..., 0]
+        + coefficients[1] * rgb[..., 1]
+        + coefficients[2] * rgb[..., 2]
+        + coefficients[3]
+    )
+    return np.clip(expected, 0, 255)
+
+
 def source_subtracted_residual(
     camera_frame: Image.Image,
     *,
@@ -210,12 +295,13 @@ def source_subtracted_residual(
     height, width = camera_gray.shape
     projector_polygon = tuple(projector_polygon)
     projection = projection_mask(projector_polygon, width, height)
-    warped_source = warp_source_to_camera(
+    warped_source_rgb = warp_source_rgb_to_camera(
         source_frame,
         projector_polygon=projector_polygon,
         width=width,
         height=height,
     )
+    warped_source = np.asarray(Image.fromarray(warped_source_rgb, mode="RGB").convert("L"), dtype=np.uint8)
     if room_background is None:
         expected = camera_gray.astype(np.float32)
     else:
@@ -229,8 +315,8 @@ def source_subtracted_residual(
     fit_mask = projection.copy()
     fit_mask[int(height * 0.69) :, :] = False
     fit_mask[:, int(width * 0.82) :] = False
-    scale, offset = _robust_linear_match(warped_source, camera_gray, fit_mask)
-    expected[projection] = np.clip(scale * warped_source[projection].astype(np.float32) + offset, 0, 255)
+    mapped_source = _projector_rgb_expected_luma(warped_source_rgb, camera_gray, fit_mask)
+    expected[projection] = mapped_source[projection]
     return expected - camera_gray.astype(np.float32), warped_source
 
 
