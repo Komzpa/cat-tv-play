@@ -111,3 +111,44 @@ def test_source_filter_rejects_projected_video_content_from_reference_frame() ->
     assert accepted == []
     assert skipped[0]["reason"] == "matches_projected_source"
     assert skipped[0]["best_reference_index"] == 1
+
+
+def test_source_filter_falls_back_to_physical_occluder_without_detector_person() -> None:
+    source = Image.new("RGB", (1280, 720), "white")
+    camera = source.copy()
+    ImageDraw.Draw(camera).rectangle((520, 180, 760, 520), fill="black")
+
+    accepted, skipped = overlay_server._filter_source_projected_people(
+        [],
+        camera_image=camera,
+        source_frame=source,
+        projector_polygon=FULL_FRAME_PROJECTOR,
+        residual_threshold=28.0,
+        min_residual_area_px=1200,
+        min_residual_fraction=0.025,
+    )
+
+    assert skipped == []
+    assert len(accepted) == 1
+    assert accepted[0].source == "source_subtracted_human_occluder"
+    assert accepted[0].bbox_xyxy == (520.0, 180.0, 761.0, 521.0)
+
+
+def test_source_filter_ignores_own_fixed_black_rect_feedback() -> None:
+    source = Image.new("RGB", (1280, 720), "white")
+    camera = source.copy()
+    ImageDraw.Draw(camera).rectangle((520, 260, 760, 420), fill="black")
+
+    accepted, skipped = overlay_server._filter_source_projected_people(
+        [],
+        camera_image=camera,
+        source_frame=source,
+        ignored_source_polygons=[((520.0, 260.0), (760.0, 260.0), (760.0, 420.0), (520.0, 420.0))],
+        projector_polygon=FULL_FRAME_PROJECTOR,
+        residual_threshold=28.0,
+        min_residual_area_px=1200,
+        min_residual_fraction=0.025,
+    )
+
+    assert accepted == []
+    assert skipped == []

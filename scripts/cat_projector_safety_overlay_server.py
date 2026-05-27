@@ -311,19 +311,13 @@ def _bbox_residual_stats(
     return int(dark.sum()), float(dark.mean())
 
 
-def _filter_source_projected_people(
-    people: list[PersonDetection],
+def _build_residual_views(
     *,
     camera_image: Image.Image,
     source_frame: Image.Image,
-    source_reference_frames: list[Image.Image] | None = None,
+    source_reference_frames: list[Image.Image] | None,
     projector_polygon: tuple[tuple[float, float], ...],
-    residual_threshold: float,
-    min_residual_area_px: int,
-    min_residual_fraction: float,
-) -> tuple[list[PersonDetection], list[dict[str, Any]]]:
-    if not people:
-        return [], []
+) -> list[tuple[int, np.ndarray, np.ndarray]]:
     source_frames = [source_frame]
     if source_reference_frames:
         source_frames.extend(source_reference_frames)
@@ -335,6 +329,157 @@ def _filter_source_projected_people(
             projector_polygon=projector_polygon,
         )
         residual_views.append((frame_index, residual, warped_source > 150))
+    return residual_views
+
+
+def _source_polygons_to_camera_mask(
+    *,
+    source_polygons: list[tuple[tuple[float, float], ...]],
+    source_size: tuple[int, int],
+    projector_polygon: tuple[tuple[float, float], ...],
+    camera_size: tuple[int, int],
+) -> np.ndarray:
+    width, height = camera_size
+    mask = Image.new("L", (width, height), 0)
+    if not source_polygons:
+        return np.asarray(mask, dtype=bool)
+    try:
+        import cv2
+    except Exception:
+        return np.asarray(mask, dtype=bool)
+    source_width, source_height = source_size
+    source_points = np.float32(
+        [[0, 0], [source_width - 1, 0], [source_width - 1, source_height - 1], [0, source_height - 1]]
+    )
+    camera_points = np.float32(projector_polygon)
+    homography = cv2.getPerspectiveTransform(source_points, camera_points)
+    draw = ImageDraw.Draw(mask)
+    for polygon in source_polygons:
+        if len(polygon) < 3:
+            continue
+        points = np.float32(polygon).reshape(-1, 1, 2)
+        projected = cv2.perspectiveTransform(points, homography).reshape(-1, 2)
+        draw.polygon([(float(x), float(y)) for x, y in projected], fill=255)
+    return np.asarray(mask, dtype=bool)
+
+
+def _fixed_rect_to_polygon(rect: tuple[int, int, int, int] | None) -> tuple[tuple[float, float], ...] | None:
+    if rect is None:
+        return None
+    x0, y0, x1, y1 = rect
+    return ((float(x0), float(y0)), (float(x1), float(y0)), (float(x1), float(y1)), (float(x0), float(y1)))
+
+
+def _detect_residual_occluder_people(
+    residual_views: list[tuple[int, np.ndarray, np.ndarray]],
+    *,
+    threshold: float,
+    min_residual_area_px: int,
+    min_residual_fraction: float,
+    ignored_camera_mask: np.ndarray,
+) -> tuple[list[PersonDetection], list[dict[str, Any]]]:
+    if not residual_views:
+        return [], []
+    try:
+        import cv2
+    except Exception:
+        return [], [{"reason": "residual_occluder_unavailable", "error": "cv2 import failed"}]
+
+    height, width = residual_views[0][1].shape
+    combined = np.zeros((height, width), dtype=bool)
+    for _frame_index, residual, source_bright_mask in residual_views:
+        combined |= (residual > threshold) & source_bright_mask
+    combined &= ~ignored_camera_mask
+    combined[: max(2, int(height * 0.05)), :] = False
+    mask_u8 = combined.astype(np.uint8)
+    mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_OPEN, np.ones((3, 3), dtype=np.uint8))
+    mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_CLOSE, np.ones((9, 9), dtype=np.uint8))
+
+    count, _labels, stats, _centroids = cv2.connectedComponentsWithStats(mask_u8, connectivity=8)
+    people: list[PersonDetection] = []
+    skipped: list[dict[str, Any]] = []
+    for label in range(1, count):
+        left, top, candidate_width, candidate_height, area = (int(value) for value in stats[label])
+        if area < min_residual_area_px:
+            continue
+        if candidate_width < 60 or candidate_height < 80:
+            continue
+        if candidate_width > int(width * 0.38) or candidate_height > int(height * 0.85):
+            continue
+        bbox = (
+            float(left),
+            float(top),
+            float(left + candidate_width),
+            float(top + candidate_height),
+        )
+        bbox_stats = [
+            (
+                frame_index,
+                *_bbox_residual_stats(
+                    residual,
+                    bbox,
+                    threshold=threshold,
+                    source_bright_mask=source_bright_mask & ~ignored_camera_mask,
+                ),
+            )
+            for frame_index, residual, source_bright_mask in residual_views
+        ]
+        best_frame_index, residual_area, residual_fraction = min(bbox_stats, key=lambda item: (item[1], item[2]))
+        debug = {
+            "source_subtracted_residual_area_px": residual_area,
+            "source_subtracted_residual_fraction": residual_fraction,
+            "source_subtracted_best_reference_index": best_frame_index,
+            "source_subtracted_reference_count": len(residual_views),
+            "component_area_px": area,
+        }
+        if residual_area >= min_residual_area_px and residual_fraction >= min_residual_fraction:
+            people.append(
+                PersonDetection(
+                    bbox_xyxy=bbox,
+                    confidence=min(0.99, max(0.2, residual_fraction)),
+                    source="source_subtracted_human_occluder",
+                    debug=debug,
+                )
+            )
+        else:
+            skipped.append(
+                {
+                    "reason": "residual_matches_projected_source",
+                    "bbox_xyxy": bbox,
+                    "residual_area_px": residual_area,
+                    "residual_fraction": residual_fraction,
+                    "best_reference_index": best_frame_index,
+                    "reference_count": len(residual_views),
+                }
+            )
+    return people, skipped
+
+
+def _filter_source_projected_people(
+    people: list[PersonDetection],
+    *,
+    camera_image: Image.Image,
+    source_frame: Image.Image,
+    source_reference_frames: list[Image.Image] | None = None,
+    ignored_source_polygons: list[tuple[tuple[float, float], ...]] | None = None,
+    source_size: tuple[int, int] = (1280, 720),
+    projector_polygon: tuple[tuple[float, float], ...],
+    residual_threshold: float,
+    min_residual_area_px: int,
+    min_residual_fraction: float,
+) -> tuple[list[PersonDetection], list[dict[str, Any]]]:
+    residual_views = _build_residual_views(
+        camera_image=camera_image,
+        source_frame=source_frame,
+        source_reference_frames=source_reference_frames,
+        projector_polygon=projector_polygon,
+    )
+    ignored_camera_mask = _source_polygons_to_camera_mask(
+        source_polygons=ignored_source_polygons or [],
+        source_size=source_size,
+        projector_polygon=projector_polygon,
+        camera_size=camera_image.size,
+    )
     accepted: list[PersonDetection] = []
     skipped: list[dict[str, Any]] = []
     for index, person in enumerate(people):
@@ -359,7 +504,7 @@ def _filter_source_projected_people(
             "source_subtracted_residual_area_px": residual_area,
             "source_subtracted_residual_fraction": residual_fraction,
             "source_subtracted_best_reference_index": best_frame_index,
-            "source_subtracted_reference_count": len(source_frames),
+            "source_subtracted_reference_count": len(residual_views),
         }
         enriched = PersonDetection(
             bbox_xyxy=person.bbox_xyxy,
@@ -380,9 +525,19 @@ def _filter_source_projected_people(
                     "residual_area_px": residual_area,
                     "residual_fraction": residual_fraction,
                     "best_reference_index": best_frame_index,
-                    "reference_count": len(source_frames),
+                    "reference_count": len(residual_views),
                 }
             )
+    if not accepted:
+        occluder_people, occluder_skipped = _detect_residual_occluder_people(
+            residual_views,
+            threshold=residual_threshold,
+            min_residual_area_px=min_residual_area_px,
+            min_residual_fraction=min_residual_fraction,
+            ignored_camera_mask=ignored_camera_mask,
+        )
+        accepted.extend(occluder_people)
+        skipped.extend(occluder_skipped)
     return accepted, skipped
 
 
@@ -532,6 +687,7 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
     last_raw_people: list[PersonDetection] = []
     last_source_filter_skipped: list[dict[str, Any]] = []
     last_camera_error: str | None = None
+    last_blackout_polygons: list[tuple[tuple[float, float], ...]] = []
 
     while True:
         started = time.monotonic()
@@ -540,17 +696,29 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
         if last_camera is None or now - last_camera_at >= args.camera_sample_interval:
             try:
                 last_camera = _read_camera_snapshot(args.camera_snapshot_url)
-                last_raw_people = detector.detect(last_camera)
-                last_people, last_source_filter_skipped = _filter_source_projected_people(
+                detector_skipped: list[dict[str, Any]] = []
+                try:
+                    last_raw_people = detector.detect(last_camera)
+                except Exception as exc:
+                    last_raw_people = []
+                    detector_skipped = [{"reason": "person_detector_unavailable", "error": str(exc)}]
+                ignored_source_polygons = list(last_blackout_polygons)
+                fixed_rect_polygon = _fixed_rect_to_polygon(args.fixed_black_rect)
+                if fixed_rect_polygon is not None:
+                    ignored_source_polygons.append(fixed_rect_polygon)
+                last_people, filter_skipped = _filter_source_projected_people(
                     last_raw_people,
                     camera_image=last_camera,
                     source_frame=source_frame,
                     source_reference_frames=source_reference_frames,
+                    ignored_source_polygons=ignored_source_polygons,
+                    source_size=args.source_size,
                     projector_polygon=args.projector_polygon,
                     residual_threshold=args.person_residual_threshold,
                     min_residual_area_px=args.person_min_residual_area_px,
                     min_residual_fraction=args.person_min_residual_fraction,
                 )
+                last_source_filter_skipped = detector_skipped + filter_skipped
                 last_camera_error = None
             except Exception as exc:
                 last_raw_people = []
@@ -569,6 +737,8 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
                 people=last_people,
                 eye_band_top_fraction=args.eye_band_top_fraction,
                 eye_band_bottom_fraction=args.eye_band_bottom_fraction,
+                eye_band_left_fraction=args.eye_band_left_fraction,
+                eye_band_right_fraction=args.eye_band_right_fraction,
                 padding_px=args.padding_px,
                 min_overlap_area_px=args.min_overlap_area_px,
             )
@@ -578,9 +748,10 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
                     zones=result.zones,
                     debug={**result.debug, "source_filter_skipped": last_source_filter_skipped},
                 )
+            last_blackout_polygons = [zone.polygon for zone in result.zones]
         state.update(
             result,
-            people=last_raw_people,
+            people=last_people,
             source_size=args.source_size,
             fixed_black_rect=args.fixed_black_rect,
             camera_image=last_camera,
@@ -635,9 +806,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=(1280, 720),
     )
     parser.add_argument("--projector-polygon", type=_parse_projector_polygon, default=DEFAULT_PROJECTOR_POLYGON)
-    parser.add_argument("--eye-band-top-fraction", type=float, default=0.04)
-    parser.add_argument("--eye-band-bottom-fraction", type=float, default=0.34)
-    parser.add_argument("--padding-px", type=int, default=70)
+    parser.add_argument("--eye-band-top-fraction", type=float, default=0.08)
+    parser.add_argument("--eye-band-bottom-fraction", type=float, default=0.22)
+    parser.add_argument("--eye-band-left-fraction", type=float, default=0.22)
+    parser.add_argument("--eye-band-right-fraction", type=float, default=0.78)
+    parser.add_argument("--padding-px", type=int, default=20)
     parser.add_argument("--min-overlap-area-px", type=int, default=24)
     parser.add_argument("--person-residual-threshold", type=float, default=28.0)
     parser.add_argument("--person-min-residual-area-px", type=int, default=1200)
