@@ -50,3 +50,17 @@ physical things that are not explained by the known projector frame".
 That still needs model training. The model must see positive and negative
 examples from source-subtracted candidates, especially occluded lower-wall cats,
 stool/table false positives, and projected prey leakage.
+
+## Eye-Safety Overlay
+
+The live eye-safety path uses the same projector-plane geometry in the opposite
+direction. `custom_components/cat_tv_play/projector_safety.py` takes person
+detections in projector-camera pixels, intersects the padded upper head band
+with the projected wall polygon, maps that overlap back into source-video
+coordinates, and returns black overlay polygons.
+
+`scripts/cat_projector_safety_overlay_server.py` is the runtime wrapper. It
+loops the source video, samples the projector camera, renders the black zones,
+and serves `/stream.m3u8` plus `/status.json`. The default policy is fail-open:
+if the detector, camera, or calibration is unavailable, playback continues
+unchanged and the status becomes `safety_overlay_unavailable`.

@@ -29,6 +29,11 @@ still a pilot until it has broader Home Assistant runtime testing.
   centimeters and returns `jump_height_cm`.
 - Source-subtraction helpers can remove the known projected clip from review
   camera frames before proposing cat candidates.
+- Live eye-safety overlay tooling can black out the projected head band when a
+  person is detected in the projector beam.
+- Segmentation-first detector abstractions support local YOLO-style cat masks
+  for jump measurement; the old contrast/CatBoost detector is retained as an
+  explicit legacy fallback and hard-negative source.
 - Wall-plane tracking rejects physically impossible candidate jumps before
   smoothing and extracts peak height from accepted raw detections.
 - `sensor.cat_tv_play_session` exposes the active session and recent observation.
@@ -198,16 +203,48 @@ part of the background and disappear from detection.
 
 See [docs/source-subtraction.md](docs/source-subtraction.md).
 
+## Eye-Safety Overlay
+
+For live projector sessions, serve the Cat TV source through the local safety
+overlay server and pass its HLS URL to `cat_tv_play.start_session` instead of
+the raw MP4:
+
+```bash
+python3 scripts/cat_projector_safety_overlay_server.py \
+  --source-video /config/www/cat-tv/current.mp4 \
+  --camera-snapshot-url http://192.168.100.39:8081/shot.jpg \
+  --host 0.0.0.0 \
+  --port 8787
+```
+
+Then start playback with:
+
+```yaml
+service: cat_tv_play.start_session
+data:
+  media_url: "http://<overlay-host>:8787/stream.m3u8"
+  media_content_type: "application/vnd.apple.mpegurl"
+```
+
+The server samples the projector camera, runs the local OpenCV MobileNet SSD
+person detector, maps the top part of any person overlapping the projected wall
+back into source-video coordinates, and paints that zone black before HLS
+encoding. If the detector, camera, or geometry is unavailable, v1 leaves the
+video unchanged and reports `safety_overlay_unavailable` at `/status.json`.
+
 ## Jump Tracking
 
-Review tooling should transform candidate points into wall centimeters before
-filtering. `custom_components/cat_tv_play/tracking.py` provides a conservative
-wall-plane tracker: it predicts the current track, gates impossible candidates,
-updates only with accepted detections, and keeps raw accepted heights for peak
-extraction. `custom_components/cat_tv_play/review_overlay.py` can hold the
-best three jump-peak crops in a right-side review panel for annotated clips.
+Review tooling should transform measurement points into wall centimeters before
+filtering. The modern path is segmentation-first: a detector returns a cat mask,
+`measurement.py` extracts a robust top-of-mask point, calibration maps that point
+to wall centimeters, and `custom_components/cat_tv_play/tracking.py` gates
+impossible motion before peak extraction. The old bbox top remains only as a
+low-trust debug fallback. `custom_components/cat_tv_play/review_overlay.py` can
+hold the best three jump-peak crops in a right-side review panel for annotated
+clips.
 
-See [docs/tracking.md](docs/tracking.md).
+See [docs/tracking.md](docs/tracking.md) and
+[docs/segmentation-pipeline.md](docs/segmentation-pipeline.md).
 
 ## Label Review UI
 
@@ -215,14 +252,61 @@ The repository also ships a local-only Sher jump-frame review tool at
 `web/calibration-tools/projector-wall-calibrator.html`. It extends the
 calibration surface with a `review` mode for browsing local
 `cat-tv-learning` frames, sorting uncertain detector cases first, saving
-`cat` / `not_cat` / `unsure` labels, editing bbox/mask annotations, and queuing
-explicit retrain or rescore actions.
+video-player review decisions (`good`, `false_positive`, `missed_cat`,
+`bad_geometry`, `unsure`), editing bbox/mask annotations on the current frame,
+and running or queuing explicit retrain/rescore actions.
+
+Reviewed masks can be exported for a Sher-specific YOLO segmentation model:
+
+```bash
+python3 scripts/export_cat_projector_yolo_segmentation.py \
+  --output ~/.openclaw/state/cat-tv-learning/exports/sher-yolo-seg-$(date -u +%Y%m%dT%H%M%SZ) \
+  --symlink
+```
+
+Validate the reviewed masks and train/evaluate from a local YOLO segmentation
+base model:
+
+```bash
+make validate-sher-yolo-seg
+make train-sher-yolo-seg \
+  YOLO_EXPORT=~/.openclaw/state/cat-tv-learning/exports/sher-yolo-seg-20260523T013502Z \
+  YOLO_BASE_MODEL=/path/to/local/yolo11n-seg.pt \
+  YOLO_MODEL=~/.openclaw/state/cat-tv-learning/models/sher-yolo-seg.pt
+make eval-sher-yolo-seg \
+  YOLO_EXPORT=~/.openclaw/state/cat-tv-learning/exports/sher-yolo-seg-20260523T013502Z \
+  YOLO_MODEL=~/.openclaw/state/cat-tv-learning/models/sher-yolo-seg.pt
+```
+
+Then rescore with a local segmentation model:
+
+```bash
+python3 scripts/cat_projector_active_learning.py \
+  --detector-backend segmentation \
+  --segmentation-model /path/to/sher-yolo-seg.pt
+```
+
+For live local rescore jobs, the same model can be provided with
+`CAT_PROJECTOR_SEGMENTATION_MODEL=/path/to/sher-yolo-seg.pt`. Without a
+configured segmentation model, the default `auto` backend falls back to the old
+contrast/CatBoost detector so existing local jobs remain runnable. Pass
+`--detector-backend segmentation` when you require the modern path and want a
+missing model to fail loudly; pass `--detector-backend legacy` for explicit
+fallback/debug runs.
+
+The segmentation path is offline/local and does not train inside Home Assistant
+runtime.
 
 Run the review backend locally:
 
 ```bash
-python3 scripts/cat_projector_label_review_server.py --host 0.0.0.0 --port 8790
+python3 scripts/cat_projector_label_review_server.py --host 0.0.0.0 --port 8790 --allow-live-jobs
 ```
+
+Review mode is video-first: pick a recording, use Space/arrows to play or step
+the local frame sequence, follow the suspicious-frame marks on the timeline,
+save the current review decision, and jump to the next suspect. Previous model
+rendering is an optional compare overlay; household frames remain local.
 
 Run the local Segment Anything service separately, with official Meta
 `segment-anything` dependencies and a local checkpoint:
@@ -231,7 +315,7 @@ Run the local Segment Anything service separately, with official Meta
 CAT_PROJECTOR_SAM_CHECKPOINT=/path/to/sam_vit_b_01ec64.pth \
   python3 scripts/cat_projector_sam_service.py --host 127.0.0.1 --port 8766 --warmup
 
-python3 scripts/cat_projector_label_review_server.py --host 0.0.0.0 --port 8790
+python3 scripts/cat_projector_label_review_server.py --host 0.0.0.0 --port 8790 --allow-live-jobs
 ```
 
 By default it reads `CAT_TV_LEARNING_ROOT`, a repo-local
