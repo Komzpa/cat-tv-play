@@ -227,10 +227,15 @@ data:
 ```
 
 The server samples the projector camera, runs the local OpenCV MobileNet SSD
-person detector, maps the top part of any person overlapping the projected wall
-back into source-video coordinates, and paints that zone black before HLS
-encoding. If the detector, camera, or geometry is unavailable, v1 leaves the
-video unchanged and reports `safety_overlay_unavailable` at `/status.json`.
+person detector, maps the padded eye band of any person overlapping the
+projected wall back into source-video coordinates, and paints that zone black
+before HLS encoding. `/status.json` includes the camera-space eye band and
+source-space polygon; `/debug-camera.jpg` draws the detected person box plus the
+black eye band on the camera frame so deployment can verify the polygon really
+covers the face area. If the detector, camera, or geometry is unavailable, the
+server reports `safety_overlay_unavailable`; production deployments must pair
+that with an independent lamp watchdog instead of trusting the HLS player to
+remain live.
 
 ## Jump Tracking
 

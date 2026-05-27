@@ -28,7 +28,7 @@ def _zone_result(bbox: tuple[float, float, float, float]):
     )
 
 
-def test_eye_safety_head_band_maps_camera_overlap_to_source_polygon() -> None:
+def test_eye_safety_eye_band_maps_camera_overlap_to_source_polygon() -> None:
     result = _zone_result((200.0, 100.0, 300.0, 300.0))
 
     assert result.status == "active"
@@ -40,6 +40,8 @@ def test_eye_safety_head_band_maps_camera_overlap_to_source_polygon() -> None:
     assert max(xs) <= 645.0
     assert min(ys) >= 115.0
     assert max(ys) <= 340.0
+    assert zone.camera_eye_band_xyxy == (200.0, 120.0, 300.0, 184.0)
+    assert zone.source == "projector_eye_safety_eye_band"
     assert zone.camera_overlap_area_px > 0
 
 
@@ -90,5 +92,5 @@ def test_render_eye_safety_overlay_blacks_only_active_zone() -> None:
     rendered = projector_safety.render_eye_safety_overlay(frame, result)
     arr = np.asarray(rendered)
 
-    assert tuple(arr[130, 330]) == (0, 0, 0)
+    assert tuple(arr[190, 330]) == (0, 0, 0)
     assert tuple(arr[20, 20]) == (255, 255, 255)

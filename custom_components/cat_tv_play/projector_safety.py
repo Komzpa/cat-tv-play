@@ -30,7 +30,8 @@ class SafetyOverlayZone:
 
     polygon: tuple[Point, ...]
     camera_bbox_xyxy: BBoxXYXY
-    source: str = "projector_eye_safety_head_band"
+    camera_eye_band_xyxy: BBoxXYXY | None = None
+    source: str = "projector_eye_safety_eye_band"
     confidence: float | None = None
     camera_overlap_area_px: int = 0
 
@@ -50,11 +51,12 @@ def compute_eye_safety_overlay(
     source_size: tuple[int, int],
     projector_polygon: Iterable[Point],
     people: Iterable[PersonDetection],
-    head_fraction: float = 0.45,
+    eye_band_top_fraction: float = 0.10,
+    eye_band_bottom_fraction: float = 0.42,
     padding_px: int = 18,
     min_overlap_area_px: int = 24,
 ) -> SafetyOverlayResult:
-    """Map projected person head bands from camera pixels into source pixels.
+    """Map projected person eye bands from camera pixels into source pixels.
 
     If geometry tooling is unavailable, fail open by returning
     ``safety_overlay_unavailable``. The caller can keep playback unchanged and
@@ -93,14 +95,21 @@ def compute_eye_safety_overlay(
     zones: list[SafetyOverlayZone] = []
     skipped: list[dict[str, Any]] = []
     for index, person in enumerate(people):
-        head_mask = _person_head_mask(
+        eye_band = _person_eye_band_bbox(
             person,
             camera_width=camera_width,
             camera_height=camera_height,
-            head_fraction=head_fraction,
+            eye_band_top_fraction=eye_band_top_fraction,
+            eye_band_bottom_fraction=eye_band_bottom_fraction,
             padding_px=padding_px,
         )
-        overlap = head_mask & projection_mask
+        eye_mask = _person_eye_band_mask(
+            person,
+            eye_band=eye_band,
+            camera_width=camera_width,
+            camera_height=camera_height,
+        )
+        overlap = eye_mask & projection_mask
         overlap_area = int(overlap.sum())
         if overlap_area < min_overlap_area_px:
             skipped.append({"index": index, "reason": "no_projection_overlap", "overlap_area_px": overlap_area})
@@ -120,6 +129,7 @@ def compute_eye_safety_overlay(
             SafetyOverlayZone(
                 polygon=polygon,
                 camera_bbox_xyxy=_clamp_bbox(person.bbox_xyxy, camera_width, camera_height),
+                camera_eye_band_xyxy=eye_band,
                 confidence=float(person.confidence),
                 camera_overlap_area_px=overlap_area,
             )
@@ -194,23 +204,36 @@ def _clamp_bbox(bbox_xyxy: BBoxXYXY, width: int, height: int) -> BBoxXYXY:
     return left, top, right, bottom
 
 
-def _person_head_mask(
+def _person_eye_band_bbox(
     person: PersonDetection,
     *,
     camera_width: int,
     camera_height: int,
-    head_fraction: float,
+    eye_band_top_fraction: float,
+    eye_band_bottom_fraction: float,
     padding_px: int,
-) -> np.ndarray:
-    if not 0.0 < head_fraction <= 1.0:
-        raise ValueError("head_fraction must be in the range (0, 1]")
+) -> BBoxXYXY:
+    if not 0.0 <= eye_band_top_fraction < eye_band_bottom_fraction <= 1.0:
+        raise ValueError("eye band fractions must satisfy 0 <= top < bottom <= 1")
     x0, y0, x1, y1 = _clamp_bbox(person.bbox_xyxy, camera_width, camera_height)
-    head_bottom = y0 + (y1 - y0) * head_fraction
+    person_height = y1 - y0
+    eye_top = y0 + person_height * eye_band_top_fraction
+    eye_bottom = y0 + person_height * eye_band_bottom_fraction
     left = max(0, int(np.floor(x0 - padding_px)))
-    top = max(0, int(np.floor(y0 - padding_px)))
+    top = max(0, int(np.floor(eye_top - padding_px)))
     right = min(camera_width, int(np.ceil(x1 + padding_px)))
-    bottom = min(camera_height, int(np.ceil(head_bottom + padding_px)))
+    bottom = min(camera_height, int(np.ceil(eye_bottom + padding_px)))
+    return float(left), float(top), float(right), float(bottom)
 
+
+def _person_eye_band_mask(
+    person: PersonDetection,
+    *,
+    eye_band: BBoxXYXY,
+    camera_width: int,
+    camera_height: int,
+) -> np.ndarray:
+    left, top, right, bottom = (int(round(value)) for value in eye_band)
     mask = np.zeros((camera_height, camera_width), dtype=bool)
     if right <= left or bottom <= top:
         return mask

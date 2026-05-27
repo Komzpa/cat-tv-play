@@ -14,12 +14,13 @@ import threading
 import time
 from dataclasses import asdict
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 from urllib.request import urlopen
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -114,14 +115,21 @@ class SafetyOverlayState:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self.payload: dict[str, Any] = {"status": "starting"}
+        self.debug_camera_jpeg: bytes | None = None
 
     def update(
         self,
         result: SafetyOverlayResult,
         *,
         people: list[PersonDetection],
+        camera_image: Image.Image | None = None,
         camera_error: str | None = None,
     ) -> None:
+        debug_camera_jpeg = _render_debug_camera_jpeg(
+            camera_image,
+            result=result,
+            people=people,
+        )
         with self._lock:
             self.payload = {
                 "status": result.status,
@@ -133,10 +141,15 @@ class SafetyOverlayState:
                 "camera_error": camera_error,
                 "updated_at": time.time(),
             }
+            self.debug_camera_jpeg = debug_camera_jpeg
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             return dict(self.payload)
+
+    def debug_camera_snapshot(self) -> bytes | None:
+        with self._lock:
+            return self.debug_camera_jpeg
 
 
 class OverlayRequestHandler(SimpleHTTPRequestHandler):
@@ -147,6 +160,17 @@ class OverlayRequestHandler(SimpleHTTPRequestHandler):
             payload = json.dumps(self.state.snapshot(), ensure_ascii=False, indent=2).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+        if self.path == "/debug-camera.jpg":
+            payload = self.state.debug_camera_snapshot()
+            if payload is None:
+                self.send_error(404, "Debug camera frame is not available yet")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
@@ -169,6 +193,26 @@ def _parse_projector_polygon(value: str) -> tuple[tuple[float, float], ...]:
     if len(points) != 4:
         raise ValueError("--projector-polygon must contain four x,y pairs separated by semicolons")
     return tuple(points)
+
+
+def _render_debug_camera_jpeg(
+    camera_image: Image.Image | None,
+    *,
+    result: SafetyOverlayResult,
+    people: list[PersonDetection],
+) -> bytes | None:
+    if camera_image is None:
+        return None
+    image = camera_image.convert("RGB")
+    draw = ImageDraw.Draw(image, "RGBA")
+    for person in people:
+        draw.rectangle(person.bbox_xyxy, outline=(255, 180, 0, 255), width=4)
+    for zone in result.zones:
+        if zone.camera_eye_band_xyxy is not None:
+            draw.rectangle(zone.camera_eye_band_xyxy, fill=(0, 0, 0, 170), outline=(0, 0, 0, 255), width=3)
+    output = BytesIO()
+    image.save(output, format="JPEG", quality=88)
+    return output.getvalue()
 
 
 def _open_video_capture(source: str) -> Any:
@@ -300,11 +344,12 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
                 source_size=args.source_size,
                 projector_polygon=args.projector_polygon,
                 people=last_people,
-                head_fraction=args.head_fraction,
+                eye_band_top_fraction=args.eye_band_top_fraction,
+                eye_band_bottom_fraction=args.eye_band_bottom_fraction,
                 padding_px=args.padding_px,
                 min_overlap_area_px=args.min_overlap_area_px,
             )
-        state.update(result, people=last_people, camera_error=last_camera_error)
+        state.update(result, people=last_people, camera_image=last_camera, camera_error=last_camera_error)
         rendered = render_eye_safety_overlay(source_frame, result)
         try:
             ffmpeg.stdin.write(rendered.tobytes())
@@ -353,7 +398,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=(1280, 720),
     )
     parser.add_argument("--projector-polygon", type=_parse_projector_polygon, default=DEFAULT_PROJECTOR_POLYGON)
-    parser.add_argument("--head-fraction", type=float, default=0.45)
+    parser.add_argument("--eye-band-top-fraction", type=float, default=0.10)
+    parser.add_argument("--eye-band-bottom-fraction", type=float, default=0.42)
     parser.add_argument("--padding-px", type=int, default=18)
     parser.add_argument("--min-overlap-area-px", type=int, default=24)
     parser.add_argument("--camera-sample-interval", type=float, default=0.35)
