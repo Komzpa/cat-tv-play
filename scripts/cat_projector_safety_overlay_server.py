@@ -140,6 +140,7 @@ class SafetyOverlayState:
         fixed_black_rect: tuple[int, int, int, int] | None = None,
         camera_image: Image.Image | None = None,
         camera_error: str | None = None,
+        performance: dict[str, Any] | None = None,
     ) -> None:
         debug_camera_jpeg = _render_debug_camera_jpeg(
             camera_image,
@@ -155,6 +156,7 @@ class SafetyOverlayState:
             "source_size": [int(source_size[0]), int(source_size[1])],
             "fixed_black_rect": fixed_black_rect,
             "debug": result.debug,
+            "performance": performance or {},
             "camera_error": camera_error,
             "updated_at": time.time(),
         }
@@ -691,24 +693,37 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
     held_result: SafetyOverlayResult | None = None
     held_people: list[PersonDetection] = []
     held_at = 0.0
+    frame_index = 0
+    last_status_monotonic = time.monotonic()
+    last_camera_sample_monotonic: float | None = None
+    last_camera_read_ms: float | None = None
+    last_detector_ms: float | None = None
+    last_source_filter_ms: float | None = None
 
     while True:
         started = time.monotonic()
+        frame_index += 1
         source_frame = _frame_from_capture(capture, source_size=args.source_size)
         now = time.monotonic()
         if last_camera is None or now - last_camera_at >= args.camera_sample_interval:
             try:
-                last_camera = _read_camera_snapshot(args.camera_snapshot_url)
+                camera_started = time.monotonic()
+                last_camera = _read_camera_snapshot(args.camera_snapshot_url, timeout=args.camera_snapshot_timeout)
+                last_camera_read_ms = (time.monotonic() - camera_started) * 1000.0
                 detector_skipped: list[dict[str, Any]] = []
                 try:
+                    detector_started = time.monotonic()
                     last_raw_people = detector.detect(last_camera)
+                    last_detector_ms = (time.monotonic() - detector_started) * 1000.0
                 except Exception as exc:
                     last_raw_people = []
+                    last_detector_ms = None
                     detector_skipped = [{"reason": "person_detector_unavailable", "error": str(exc)}]
                 ignored_source_polygons = list(last_blackout_polygons)
                 fixed_rect_polygon = _fixed_rect_to_polygon(args.fixed_black_rect)
                 if fixed_rect_polygon is not None:
                     ignored_source_polygons.append(fixed_rect_polygon)
+                source_filter_started = time.monotonic()
                 last_people, filter_skipped = _filter_source_projected_people(
                     last_raw_people,
                     camera_image=last_camera,
@@ -721,13 +736,18 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
                     min_residual_area_px=args.person_min_residual_area_px,
                     min_residual_fraction=args.person_min_residual_fraction,
                 )
+                last_source_filter_ms = (time.monotonic() - source_filter_started) * 1000.0
                 last_source_filter_skipped = detector_skipped + filter_skipped
                 last_camera_error = None
+                last_camera_sample_monotonic = time.monotonic()
             except Exception as exc:
                 last_raw_people = []
                 last_people = []
                 last_source_filter_skipped = []
                 last_camera_error = str(exc)
+                last_camera_read_ms = None
+                last_detector_ms = None
+                last_source_filter_ms = None
             last_camera_at = now
 
         if last_camera is None or last_camera_error:
@@ -761,6 +781,26 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
                 hold_seconds=args.eye_safety_hold_seconds,
             )
             last_blackout_polygons = [zone.polygon for zone in result.zones]
+        finished = time.monotonic()
+        status_interval_ms = (finished - last_status_monotonic) * 1000.0
+        last_status_monotonic = finished
+        performance = {
+            "frame_index": frame_index,
+            "loop_ms": round((finished - started) * 1000.0, 1),
+            "status_interval_ms": round(status_interval_ms, 1),
+            "target_frame_interval_ms": round(frame_interval * 1000.0, 1),
+            "camera_sample_interval_ms": round(args.camera_sample_interval * 1000.0, 1),
+            "camera_snapshot_timeout_ms": round(args.camera_snapshot_timeout * 1000.0, 1),
+            "camera_age_ms": (
+                round((finished - last_camera_sample_monotonic) * 1000.0, 1)
+                if last_camera_sample_monotonic is not None
+                else None
+            ),
+            "camera_read_ms": round(last_camera_read_ms, 1) if last_camera_read_ms is not None else None,
+            "detector_ms": round(last_detector_ms, 1) if last_detector_ms is not None else None,
+            "source_filter_ms": round(last_source_filter_ms, 1) if last_source_filter_ms is not None else None,
+            "eye_safety_hold_seconds": args.eye_safety_hold_seconds,
+        }
         state.update(
             result,
             people=held_people if result.debug.get("held_after_last_detection") else last_people,
@@ -768,6 +808,7 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
             fixed_black_rect=args.fixed_black_rect,
             camera_image=last_camera,
             camera_error=last_camera_error,
+            performance=performance,
         )
         rendered = _render_fixed_black_rect(source_frame, args.fixed_black_rect)
         rendered = render_eye_safety_overlay(rendered, result)
@@ -843,7 +884,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--camera-snapshot-url", default=DEFAULT_CAMERA_SNAPSHOT_URL)
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8787)
-    parser.add_argument("--fps", type=int, default=15)
+    parser.add_argument("--fps", type=int, default=20)
     parser.add_argument(
         "--source-size",
         type=lambda value: tuple(int(part) for part in value.split("x")),
@@ -860,7 +901,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--person-min-residual-area-px", type=int, default=1200)
     parser.add_argument("--person-min-residual-fraction", type=float, default=0.10)
     parser.add_argument("--source-reference-frames", type=int, default=36)
-    parser.add_argument("--camera-sample-interval", type=float, default=0.35)
+    parser.add_argument("--camera-sample-interval", type=float, default=0.12)
+    parser.add_argument("--camera-snapshot-timeout", type=float, default=0.35)
     parser.add_argument("--eye-safety-hold-seconds", type=float, default=2.0)
     parser.add_argument("--person-min-confidence", type=float, default=0.35)
     parser.add_argument("--human-detector-prototxt", type=Path, default=DEFAULT_HUMAN_DETECTOR_PROTOTXT)

@@ -217,3 +217,12 @@ def test_eye_safety_hold_expires_after_timeout() -> None:
     assert next_held_result is None
     assert held_people == []
     assert held_at == 0.0
+
+
+def test_runtime_defaults_prioritize_low_latency_camera_updates() -> None:
+    args = overlay_server.parse_args(["--source-video", "cats.mp4"])
+
+    assert args.fps == 20
+    assert args.camera_sample_interval == 0.12
+    assert args.camera_snapshot_timeout == 0.35
+    assert args.eye_safety_hold_seconds == 2.0
