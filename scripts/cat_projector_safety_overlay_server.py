@@ -900,7 +900,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--person-residual-threshold", type=float, default=28.0)
     parser.add_argument("--person-min-residual-area-px", type=int, default=1200)
     parser.add_argument("--person-min-residual-fraction", type=float, default=0.10)
-    parser.add_argument("--source-reference-frames", type=int, default=6)
+    parser.add_argument("--source-reference-frames", type=int, default=3)
     parser.add_argument("--camera-sample-interval", type=float, default=0.12)
     parser.add_argument("--camera-snapshot-timeout", type=float, default=0.35)
     parser.add_argument("--eye-safety-hold-seconds", type=float, default=2.0)
