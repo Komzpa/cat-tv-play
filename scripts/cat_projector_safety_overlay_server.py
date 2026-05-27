@@ -127,8 +127,10 @@ class SafetyOverlayState:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self.payload: dict[str, Any] = {"status": "starting"}
+        self.camera_jpeg: bytes | None = None
         self.debug_camera_jpeg: bytes | None = None
         self.last_active_payload: dict[str, Any] | None = None
+        self.last_active_camera_jpeg: bytes | None = None
         self.last_active_debug_camera_jpeg: bytes | None = None
 
     def update(
@@ -142,6 +144,7 @@ class SafetyOverlayState:
         camera_error: str | None = None,
         performance: dict[str, Any] | None = None,
     ) -> None:
+        camera_jpeg = _render_camera_jpeg(camera_image)
         debug_camera_jpeg = _render_debug_camera_jpeg(
             camera_image,
             result=result,
@@ -162,9 +165,11 @@ class SafetyOverlayState:
         }
         with self._lock:
             self.payload = payload
+            self.camera_jpeg = camera_jpeg
             self.debug_camera_jpeg = debug_camera_jpeg
             if result.status == "active":
                 self.last_active_payload = dict(payload)
+                self.last_active_camera_jpeg = camera_jpeg
                 self.last_active_debug_camera_jpeg = debug_camera_jpeg
 
     def snapshot(self) -> dict[str, Any]:
@@ -175,6 +180,10 @@ class SafetyOverlayState:
         with self._lock:
             return self.debug_camera_jpeg
 
+    def camera_snapshot(self) -> bytes | None:
+        with self._lock:
+            return self.camera_jpeg
+
     def last_active_snapshot(self) -> dict[str, Any] | None:
         with self._lock:
             return dict(self.last_active_payload) if self.last_active_payload is not None else None
@@ -182,6 +191,10 @@ class SafetyOverlayState:
     def last_active_debug_camera_snapshot(self) -> bytes | None:
         with self._lock:
             return self.last_active_debug_camera_jpeg
+
+    def last_active_camera_snapshot(self) -> bytes | None:
+        with self._lock:
+            return self.last_active_camera_jpeg
 
 
 class OverlayRequestHandler(SimpleHTTPRequestHandler):
@@ -219,10 +232,32 @@ class OverlayRequestHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(payload)
             return
+        if self.path == "/camera.jpg":
+            payload = self.state.camera_snapshot()
+            if payload is None:
+                self.send_error(404, "Camera frame is not available yet")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         if self.path == "/last-active-debug-camera.jpg":
             payload = self.state.last_active_debug_camera_snapshot()
             if payload is None:
                 self.send_error(404, "No active debug camera frame has been observed yet")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+        if self.path == "/last-active-camera.jpg":
+            payload = self.state.last_active_camera_snapshot()
+            if payload is None:
+                self.send_error(404, "No active camera frame has been observed yet")
                 return
             self.send_response(200)
             self.send_header("Content-Type", "image/jpeg")
@@ -270,6 +305,14 @@ def _render_fixed_black_rect(
     draw = ImageDraw.Draw(output)
     draw.rectangle(rect, fill=(0, 0, 0))
     return output
+
+
+def _render_camera_jpeg(camera_image: Image.Image | None) -> bytes | None:
+    if camera_image is None:
+        return None
+    output = BytesIO()
+    camera_image.convert("RGB").save(output, format="JPEG", quality=88)
+    return output.getvalue()
 
 
 def _render_debug_camera_jpeg(
@@ -693,6 +736,7 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
     last_source_filter_skipped: list[dict[str, Any]] = []
     last_camera_error: str | None = None
     last_blackout_polygons: list[tuple[tuple[float, float], ...]] = []
+    recent_eye_zone_results: list[tuple[float, SafetyOverlayResult]] = []
     held_result: SafetyOverlayResult | None = None
     held_people: list[PersonDetection] = []
     held_at = 0.0
@@ -775,6 +819,12 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
                     zones=result.zones,
                     debug={**result.debug, "source_filter_skipped": last_source_filter_skipped},
                 )
+            result, recent_eye_zone_results = _apply_eye_safety_trail(
+                result,
+                recent_eye_zone_results=recent_eye_zone_results,
+                now=time.monotonic(),
+                trail_seconds=args.eye_safety_trail_seconds,
+            )
             result, held_result, held_people, held_at = _apply_eye_safety_hold(
                 result,
                 current_people=last_people,
@@ -803,6 +853,7 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
             "camera_read_ms": round(last_camera_read_ms, 1) if last_camera_read_ms is not None else None,
             "detector_ms": round(last_detector_ms, 1) if last_detector_ms is not None else None,
             "source_filter_ms": round(last_source_filter_ms, 1) if last_source_filter_ms is not None else None,
+            "eye_safety_trail_seconds": args.eye_safety_trail_seconds,
             "eye_safety_hold_seconds": args.eye_safety_hold_seconds,
         }
         state.update(
@@ -825,6 +876,44 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
         elapsed = time.monotonic() - started
         if elapsed < frame_interval:
             time.sleep(frame_interval - elapsed)
+
+
+def _apply_eye_safety_trail(
+    result: SafetyOverlayResult,
+    *,
+    recent_eye_zone_results: list[tuple[float, SafetyOverlayResult]],
+    now: float,
+    trail_seconds: float,
+) -> tuple[SafetyOverlayResult, list[tuple[float, SafetyOverlayResult]]]:
+    if trail_seconds <= 0:
+        return result, []
+
+    cutoff = now - trail_seconds
+    recent = [(timestamp, previous) for timestamp, previous in recent_eye_zone_results if timestamp >= cutoff]
+    if result.status == "active" and result.zones:
+        recent.append((now, result))
+    if result.status != "active" or not result.zones:
+        return result, recent
+
+    zones = []
+    seen: set[tuple[tuple[int, int], ...]] = set()
+    for _timestamp, previous in recent:
+        for zone in previous.zones:
+            key = tuple((round(x), round(y)) for x, y in zone.polygon)
+            if key in seen:
+                continue
+            seen.add(key)
+            zones.append(zone)
+    if len(zones) == len(result.zones):
+        return result, recent
+
+    debug = {
+        **result.debug,
+        "eye_safety_trail_seconds": trail_seconds,
+        "eye_safety_trail_zone_count": len(zones),
+        "eye_safety_current_zone_count": len(result.zones),
+    }
+    return SafetyOverlayResult(result.status, zones=tuple(zones), debug=debug), recent
 
 
 def _apply_eye_safety_hold(
@@ -908,6 +997,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--source-reference-frames", type=int, default=3)
     parser.add_argument("--camera-sample-interval", type=float, default=0.12)
     parser.add_argument("--camera-snapshot-timeout", type=float, default=0.8)
+    parser.add_argument("--eye-safety-trail-seconds", type=float, default=0.5)
     parser.add_argument("--eye-safety-hold-seconds", type=float, default=2.0)
     parser.add_argument("--person-min-confidence", type=float, default=0.35)
     parser.add_argument("--human-detector-prototxt", type=Path, default=DEFAULT_HUMAN_DETECTOR_PROTOTXT)

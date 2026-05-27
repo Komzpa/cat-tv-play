@@ -239,6 +239,54 @@ def test_eye_safety_hold_expires_after_timeout() -> None:
     assert held_at == 0.0
 
 
+def test_eye_safety_trail_keeps_recent_eye_zones() -> None:
+    old_zone = overlay_server.projector_safety.SafetyOverlayZone(
+        polygon=((520.0, 160.0), (760.0, 160.0), (760.0, 260.0), (520.0, 260.0)),
+        camera_bbox_xyxy=(500.0, 130.0, 790.0, 390.0),
+    )
+    new_zone = overlay_server.projector_safety.SafetyOverlayZone(
+        polygon=((560.0, 160.0), (800.0, 160.0), (800.0, 260.0), (560.0, 260.0)),
+        camera_bbox_xyxy=(540.0, 130.0, 830.0, 390.0),
+    )
+    old = overlay_server.SafetyOverlayResult("active", zones=(old_zone,), debug={})
+    current = overlay_server.SafetyOverlayResult("active", zones=(new_zone,), debug={"zone_count": 1})
+
+    trailed, recent = overlay_server._apply_eye_safety_trail(
+        current,
+        recent_eye_zone_results=[(9.7, old)],
+        now=10.0,
+        trail_seconds=0.5,
+    )
+
+    assert trailed.status == "active"
+    assert trailed.zones == (old_zone, new_zone)
+    assert trailed.debug["eye_safety_trail_zone_count"] == 2
+    assert len(recent) == 2
+
+
+def test_eye_safety_trail_drops_expired_zones() -> None:
+    old_zone = overlay_server.projector_safety.SafetyOverlayZone(
+        polygon=((520.0, 160.0), (760.0, 160.0), (760.0, 260.0), (520.0, 260.0)),
+        camera_bbox_xyxy=(500.0, 130.0, 790.0, 390.0),
+    )
+    new_zone = overlay_server.projector_safety.SafetyOverlayZone(
+        polygon=((560.0, 160.0), (800.0, 160.0), (800.0, 260.0), (560.0, 260.0)),
+        camera_bbox_xyxy=(540.0, 130.0, 830.0, 390.0),
+    )
+    old = overlay_server.SafetyOverlayResult("active", zones=(old_zone,), debug={})
+    current = overlay_server.SafetyOverlayResult("active", zones=(new_zone,), debug={"zone_count": 1})
+
+    trailed, recent = overlay_server._apply_eye_safety_trail(
+        current,
+        recent_eye_zone_results=[(9.0, old)],
+        now=10.0,
+        trail_seconds=0.5,
+    )
+
+    assert trailed is current
+    assert recent == [(10.0, current)]
+
+
 def test_runtime_defaults_prioritize_low_latency_camera_updates() -> None:
     args = overlay_server.parse_args(["--source-video", "cats.mp4"])
 
@@ -246,4 +294,5 @@ def test_runtime_defaults_prioritize_low_latency_camera_updates() -> None:
     assert args.source_reference_frames == 3
     assert args.camera_sample_interval == 0.12
     assert args.camera_snapshot_timeout == 0.8
+    assert args.eye_safety_trail_seconds == 0.5
     assert args.eye_safety_hold_seconds == 2.0
