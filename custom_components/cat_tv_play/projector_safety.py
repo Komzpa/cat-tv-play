@@ -31,6 +31,8 @@ class SafetyOverlayZone:
     polygon: tuple[Point, ...]
     camera_bbox_xyxy: BBoxXYXY
     camera_eye_band_xyxy: BBoxXYXY | None = None
+    camera_projected_polygon: tuple[Point, ...] = ()
+    camera_eye_band_coverage: float | None = None
     source: str = "projector_eye_safety_eye_band"
     confidence: float | None = None
     camera_overlap_area_px: int = 0
@@ -51,9 +53,9 @@ def compute_eye_safety_overlay(
     source_size: tuple[int, int],
     projector_polygon: Iterable[Point],
     people: Iterable[PersonDetection],
-    eye_band_top_fraction: float = 0.10,
-    eye_band_bottom_fraction: float = 0.42,
-    padding_px: int = 18,
+    eye_band_top_fraction: float = 0.0,
+    eye_band_bottom_fraction: float = 1.0,
+    padding_px: int = 180,
     min_overlap_area_px: int = 24,
 ) -> SafetyOverlayResult:
     """Map projected person eye bands from camera pixels into source pixels.
@@ -91,6 +93,7 @@ def compute_eye_safety_overlay(
         source_height=source_height,
         cv2=cv2,
     )
+    source_to_camera_homography = np.linalg.inv(inverse_homography).astype(np.float32)
 
     zones: list[SafetyOverlayZone] = []
     skipped: list[dict[str, Any]] = []
@@ -125,11 +128,22 @@ def compute_eye_safety_overlay(
         if len(polygon) < 3:
             skipped.append({"index": index, "reason": "empty_source_polygon", "overlap_area_px": overlap_area})
             continue
+        camera_projected_polygon = _source_polygon_to_camera(
+            polygon,
+            source_to_camera_homography=source_to_camera_homography,
+            camera_width=camera_width,
+            camera_height=camera_height,
+            cv2=cv2,
+        )
+        camera_projected_mask = _polygon_mask(camera_projected_polygon, camera_width, camera_height)
+        coverage = _mask_coverage(overlap, camera_projected_mask)
         zones.append(
             SafetyOverlayZone(
                 polygon=polygon,
                 camera_bbox_xyxy=_clamp_bbox(person.bbox_xyxy, camera_width, camera_height),
                 camera_eye_band_xyxy=eye_band,
+                camera_projected_polygon=camera_projected_polygon,
+                camera_eye_band_coverage=coverage,
                 confidence=float(person.confidence),
                 camera_overlap_area_px=overlap_area,
             )
@@ -274,3 +288,31 @@ def _mask_to_source_polygon(
             )
         )
     return tuple(polygon)
+
+
+def _source_polygon_to_camera(
+    polygon: tuple[Point, ...],
+    *,
+    source_to_camera_homography: np.ndarray,
+    camera_width: int,
+    camera_height: int,
+    cv2: Any,
+) -> tuple[Point, ...]:
+    source_points = np.float32(polygon).reshape(-1, 1, 2)
+    camera_points = cv2.perspectiveTransform(source_points, source_to_camera_homography).reshape(-1, 2)
+    projected: list[Point] = []
+    for x, y in camera_points:
+        projected.append(
+            (
+                float(max(0.0, min(float(camera_width - 1), float(x)))),
+                float(max(0.0, min(float(camera_height - 1), float(y)))),
+            )
+        )
+    return tuple(projected)
+
+
+def _mask_coverage(target: np.ndarray, cover: np.ndarray) -> float:
+    target_area = int(target.sum())
+    if target_area <= 0:
+        return 0.0
+    return float((target & cover).sum() / target_area)

@@ -39,10 +39,11 @@ def test_eye_safety_eye_band_maps_camera_overlap_to_source_polygon() -> None:
     assert min(xs) >= 315.0
     assert max(xs) <= 645.0
     assert min(ys) >= 115.0
-    assert max(ys) <= 340.0
-    assert zone.camera_eye_band_xyxy == (200.0, 120.0, 300.0, 184.0)
+    assert max(ys) >= 595.0
+    assert zone.camera_eye_band_xyxy == (200.0, 100.0, 300.0, 300.0)
     assert zone.source == "projector_eye_safety_eye_band"
     assert zone.camera_overlap_area_px > 0
+    assert zone.camera_eye_band_coverage == 1.0
 
 
 def test_eye_safety_ignores_person_outside_projection() -> None:

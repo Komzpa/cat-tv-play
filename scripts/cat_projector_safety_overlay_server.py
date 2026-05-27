@@ -116,12 +116,16 @@ class SafetyOverlayState:
         self._lock = threading.Lock()
         self.payload: dict[str, Any] = {"status": "starting"}
         self.debug_camera_jpeg: bytes | None = None
+        self.last_active_payload: dict[str, Any] | None = None
+        self.last_active_debug_camera_jpeg: bytes | None = None
 
     def update(
         self,
         result: SafetyOverlayResult,
         *,
         people: list[PersonDetection],
+        source_size: tuple[int, int],
+        fixed_black_rect: tuple[int, int, int, int] | None = None,
         camera_image: Image.Image | None = None,
         camera_error: str | None = None,
     ) -> None:
@@ -130,18 +134,24 @@ class SafetyOverlayState:
             result=result,
             people=people,
         )
+        payload = {
+            "status": result.status,
+            "zone_count": len(result.zones),
+            "zones": [asdict(zone) for zone in result.zones],
+            "person_count": len(people),
+            "people": [asdict(person) for person in people],
+            "source_size": [int(source_size[0]), int(source_size[1])],
+            "fixed_black_rect": fixed_black_rect,
+            "debug": result.debug,
+            "camera_error": camera_error,
+            "updated_at": time.time(),
+        }
         with self._lock:
-            self.payload = {
-                "status": result.status,
-                "zone_count": len(result.zones),
-                "zones": [asdict(zone) for zone in result.zones],
-                "person_count": len(people),
-                "people": [asdict(person) for person in people],
-                "debug": result.debug,
-                "camera_error": camera_error,
-                "updated_at": time.time(),
-            }
+            self.payload = payload
             self.debug_camera_jpeg = debug_camera_jpeg
+            if result.status == "active":
+                self.last_active_payload = dict(payload)
+                self.last_active_debug_camera_jpeg = debug_camera_jpeg
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
@@ -150,6 +160,14 @@ class SafetyOverlayState:
     def debug_camera_snapshot(self) -> bytes | None:
         with self._lock:
             return self.debug_camera_jpeg
+
+    def last_active_snapshot(self) -> dict[str, Any] | None:
+        with self._lock:
+            return dict(self.last_active_payload) if self.last_active_payload is not None else None
+
+    def last_active_debug_camera_snapshot(self) -> bytes | None:
+        with self._lock:
+            return self.last_active_debug_camera_jpeg
 
 
 class OverlayRequestHandler(SimpleHTTPRequestHandler):
@@ -164,10 +182,33 @@ class OverlayRequestHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(payload)
             return
+        if self.path == "/last-active-status.json":
+            snapshot = self.state.last_active_snapshot()
+            if snapshot is None:
+                self.send_error(404, "No active safety overlay has been observed yet")
+                return
+            payload = json.dumps(snapshot, ensure_ascii=False, indent=2).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         if self.path == "/debug-camera.jpg":
             payload = self.state.debug_camera_snapshot()
             if payload is None:
                 self.send_error(404, "Debug camera frame is not available yet")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+        if self.path == "/last-active-debug-camera.jpg":
+            payload = self.state.last_active_debug_camera_snapshot()
+            if payload is None:
+                self.send_error(404, "No active debug camera frame has been observed yet")
                 return
             self.send_response(200)
             self.send_header("Content-Type", "image/jpeg")
@@ -193,6 +234,28 @@ def _parse_projector_polygon(value: str) -> tuple[tuple[float, float], ...]:
     if len(points) != 4:
         raise ValueError("--projector-polygon must contain four x,y pairs separated by semicolons")
     return tuple(points)
+
+
+def _parse_source_rect(value: str) -> tuple[int, int, int, int]:
+    parts = tuple(int(part.strip()) for part in value.split(","))
+    if len(parts) != 4:
+        raise ValueError("rectangle must be x0,y0,x1,y1")
+    x0, y0, x1, y1 = parts
+    if x1 <= x0 or y1 <= y0:
+        raise ValueError("rectangle must satisfy x1 > x0 and y1 > y0")
+    return x0, y0, x1, y1
+
+
+def _render_fixed_black_rect(
+    source_frame: Image.Image,
+    rect: tuple[int, int, int, int] | None,
+) -> Image.Image:
+    if rect is None:
+        return source_frame
+    output = source_frame.convert("RGB")
+    draw = ImageDraw.Draw(output)
+    draw.rectangle(rect, fill=(0, 0, 0))
+    return output
 
 
 def _render_debug_camera_jpeg(
@@ -349,8 +412,16 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
                 padding_px=args.padding_px,
                 min_overlap_area_px=args.min_overlap_area_px,
             )
-        state.update(result, people=last_people, camera_image=last_camera, camera_error=last_camera_error)
-        rendered = render_eye_safety_overlay(source_frame, result)
+        state.update(
+            result,
+            people=last_people,
+            source_size=args.source_size,
+            fixed_black_rect=args.fixed_black_rect,
+            camera_image=last_camera,
+            camera_error=last_camera_error,
+        )
+        rendered = _render_fixed_black_rect(source_frame, args.fixed_black_rect)
+        rendered = render_eye_safety_overlay(rendered, result)
         try:
             ffmpeg.stdin.write(rendered.tobytes())
             ffmpeg.stdin.flush()
@@ -398,9 +469,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=(1280, 720),
     )
     parser.add_argument("--projector-polygon", type=_parse_projector_polygon, default=DEFAULT_PROJECTOR_POLYGON)
-    parser.add_argument("--eye-band-top-fraction", type=float, default=0.10)
-    parser.add_argument("--eye-band-bottom-fraction", type=float, default=0.42)
-    parser.add_argument("--padding-px", type=int, default=18)
+    parser.add_argument("--eye-band-top-fraction", type=float, default=0.0)
+    parser.add_argument("--eye-band-bottom-fraction", type=float, default=1.0)
+    parser.add_argument("--padding-px", type=int, default=180)
     parser.add_argument("--min-overlap-area-px", type=int, default=24)
     parser.add_argument("--camera-sample-interval", type=float, default=0.35)
     parser.add_argument("--person-min-confidence", type=float, default=0.35)
@@ -408,6 +479,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--human-detector-model", type=Path, default=DEFAULT_HUMAN_DETECTOR_MODEL)
     parser.add_argument("--hls-time", type=int, default=1)
     parser.add_argument("--hls-list-size", type=int, default=4)
+    parser.add_argument("--fixed-black-rect", type=_parse_source_rect)
     parser.add_argument("--output-dir", type=Path)
     args = parser.parse_args(argv)
     if len(args.source_size) != 2:
