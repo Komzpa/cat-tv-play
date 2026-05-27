@@ -55,15 +55,18 @@ stool/table false positives, and projected prey leakage.
 
 The live eye-safety path uses the same projector-plane geometry in the opposite
 direction. `custom_components/cat_tv_play/projector_safety.py` takes person
-detections in projector-camera pixels, intersects the padded eye band with the
-projected wall polygon, maps that overlap back into source-video coordinates,
-and returns black overlay polygons plus the camera-space eye-band box used for
-debug review.
+detections in projector-camera pixels, intersects a narrow eye-slot inside the
+top of the person box with the projected wall polygon, maps that overlap back
+into source-video coordinates, and returns black overlay polygons plus the
+camera-space eye-slot box used for debug review. The default slot is
+deliberately small: it is for eyes, not for dimming the whole person.
 
 `scripts/cat_projector_safety_overlay_server.py` is the runtime wrapper. It
-loops the source video, samples the projector camera, renders the black zones,
-and serves `/stream.m3u8`, `/status.json`, and `/debug-camera.jpg`. The stream
-alone is not a physical safety boundary because a DLNA/HLS client can freeze a
-bright frame. Home Assistant production wiring must run an independent watchdog
-that treats `active`, stale, or unavailable safety status as a lamp-off command
-while preserving the cat-projector session latch.
+loops the source video, samples the projector camera, filters detections that
+match projected video content against sampled reference frames from the source
+clip, renders the black zones, and serves `/stream.m3u8`, `/status.json`, and
+`/debug-camera.jpg`. The stream alone is not a physical safety boundary because
+a DLNA/HLS client can freeze a bright frame. Home Assistant production wiring
+must run an independent watchdog that treats `active`, stale, or unavailable
+safety status as a lamp-off command while preserving the cat-projector session
+latch.

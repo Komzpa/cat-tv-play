@@ -36,11 +36,11 @@ def test_eye_safety_eye_band_maps_camera_overlap_to_source_polygon() -> None:
     zone = result.zones[0]
     xs = [point[0] for point in zone.polygon]
     ys = [point[1] for point in zone.polygon]
-    assert min(xs) >= 315.0
-    assert max(xs) <= 645.0
-    assert min(ys) >= 115.0
-    assert max(ys) <= 445.0
-    assert zone.camera_eye_band_xyxy == (200.0, 108.0, 300.0, 168.0)
+    assert min(xs) >= 385.0
+    assert max(xs) <= 575.0
+    assert min(ys) >= 155.0
+    assert max(ys) <= 230.0
+    assert zone.camera_eye_band_xyxy == (222.0, 116.0, 278.0, 144.0)
     assert zone.source == "projector_eye_safety_eye_band"
     assert zone.camera_overlap_area_px > 0
     assert zone.camera_eye_band_coverage == 1.0
@@ -93,5 +93,5 @@ def test_render_eye_safety_overlay_blacks_only_active_zone() -> None:
     rendered = projector_safety.render_eye_safety_overlay(frame, result)
     arr = np.asarray(rendered)
 
-    assert tuple(arr[190, 330]) == (0, 0, 0)
+    assert tuple(arr[180, 420]) == (0, 0, 0)
     assert tuple(arr[20, 20]) == (255, 255, 255)

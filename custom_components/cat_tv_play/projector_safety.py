@@ -53,9 +53,11 @@ def compute_eye_safety_overlay(
     source_size: tuple[int, int],
     projector_polygon: Iterable[Point],
     people: Iterable[PersonDetection],
-    eye_band_top_fraction: float = 0.04,
-    eye_band_bottom_fraction: float = 0.34,
-    padding_px: int = 70,
+    eye_band_top_fraction: float = 0.08,
+    eye_band_bottom_fraction: float = 0.22,
+    eye_band_left_fraction: float = 0.22,
+    eye_band_right_fraction: float = 0.78,
+    padding_px: int = 20,
     min_overlap_area_px: int = 24,
 ) -> SafetyOverlayResult:
     """Map projected person eye bands from camera pixels into source pixels.
@@ -104,6 +106,8 @@ def compute_eye_safety_overlay(
             camera_height=camera_height,
             eye_band_top_fraction=eye_band_top_fraction,
             eye_band_bottom_fraction=eye_band_bottom_fraction,
+            eye_band_left_fraction=eye_band_left_fraction,
+            eye_band_right_fraction=eye_band_right_fraction,
             padding_px=padding_px,
         )
         eye_mask = _person_eye_band_mask(
@@ -225,17 +229,24 @@ def _person_eye_band_bbox(
     camera_height: int,
     eye_band_top_fraction: float,
     eye_band_bottom_fraction: float,
+    eye_band_left_fraction: float,
+    eye_band_right_fraction: float,
     padding_px: int,
 ) -> BBoxXYXY:
     if not 0.0 <= eye_band_top_fraction < eye_band_bottom_fraction <= 1.0:
         raise ValueError("eye band fractions must satisfy 0 <= top < bottom <= 1")
+    if not 0.0 <= eye_band_left_fraction < eye_band_right_fraction <= 1.0:
+        raise ValueError("eye band horizontal fractions must satisfy 0 <= left < right <= 1")
     x0, y0, x1, y1 = _clamp_bbox(person.bbox_xyxy, camera_width, camera_height)
+    person_width = x1 - x0
     person_height = y1 - y0
+    eye_left = x0 + person_width * eye_band_left_fraction
+    eye_right = x0 + person_width * eye_band_right_fraction
     eye_top = y0 + person_height * eye_band_top_fraction
     eye_bottom = y0 + person_height * eye_band_bottom_fraction
-    left = max(0, int(np.floor(x0 - padding_px)))
+    left = max(0, int(np.floor(eye_left - padding_px)))
     top = max(0, int(np.floor(eye_top - padding_px)))
-    right = min(camera_width, int(np.ceil(x1 + padding_px)))
+    right = min(camera_width, int(np.ceil(eye_right + padding_px)))
     bottom = min(camera_height, int(np.ceil(eye_bottom + padding_px)))
     return float(left), float(top), float(right), float(bottom)
 

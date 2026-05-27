@@ -316,6 +316,7 @@ def _filter_source_projected_people(
     *,
     camera_image: Image.Image,
     source_frame: Image.Image,
+    source_reference_frames: list[Image.Image] | None = None,
     projector_polygon: tuple[tuple[float, float], ...],
     residual_threshold: float,
     min_residual_area_px: int,
@@ -323,25 +324,42 @@ def _filter_source_projected_people(
 ) -> tuple[list[PersonDetection], list[dict[str, Any]]]:
     if not people:
         return [], []
-    residual, warped_source = source_subtraction.source_subtracted_residual(
-        camera_image,
-        source_frame=source_frame,
-        projector_polygon=projector_polygon,
-    )
-    source_bright_mask = warped_source > 150
+    source_frames = [source_frame]
+    if source_reference_frames:
+        source_frames.extend(source_reference_frames)
+    residual_views: list[tuple[int, np.ndarray, np.ndarray]] = []
+    for frame_index, candidate_source in enumerate(source_frames):
+        residual, warped_source = source_subtraction.source_subtracted_residual(
+            camera_image,
+            source_frame=candidate_source,
+            projector_polygon=projector_polygon,
+        )
+        residual_views.append((frame_index, residual, warped_source > 150))
     accepted: list[PersonDetection] = []
     skipped: list[dict[str, Any]] = []
     for index, person in enumerate(people):
-        residual_area, residual_fraction = _bbox_residual_stats(
-            residual,
-            person.bbox_xyxy,
-            threshold=residual_threshold,
-            source_bright_mask=source_bright_mask,
+        stats = [
+            (
+                frame_index,
+                *_bbox_residual_stats(
+                    residual,
+                    person.bbox_xyxy,
+                    threshold=residual_threshold,
+                    source_bright_mask=source_bright_mask,
+                ),
+            )
+            for frame_index, residual, source_bright_mask in residual_views
+        ]
+        best_frame_index, residual_area, residual_fraction = min(
+            stats,
+            key=lambda item: (item[1], item[2]),
         )
         debug = {
             **person.debug,
             "source_subtracted_residual_area_px": residual_area,
             "source_subtracted_residual_fraction": residual_fraction,
+            "source_subtracted_best_reference_index": best_frame_index,
+            "source_subtracted_reference_count": len(source_frames),
         }
         enriched = PersonDetection(
             bbox_xyxy=person.bbox_xyxy,
@@ -361,9 +379,44 @@ def _filter_source_projected_people(
                     "confidence": person.confidence,
                     "residual_area_px": residual_area,
                     "residual_fraction": residual_fraction,
+                    "best_reference_index": best_frame_index,
+                    "reference_count": len(source_frames),
                 }
             )
     return accepted, skipped
+
+
+def _sample_source_reference_frames(
+    source: str,
+    *,
+    source_size: tuple[int, int],
+    max_frames: int,
+) -> list[Image.Image]:
+    if max_frames <= 0:
+        return []
+    try:
+        capture = _open_video_capture(source)
+    except Exception:
+        return []
+    try:
+        try:
+            import cv2
+        except Exception:
+            return []
+        total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        if total_frames <= 0:
+            return []
+        positions = np.linspace(0, max(0, total_frames - 1), num=min(max_frames, total_frames), dtype=int)
+        frames: list[Image.Image] = []
+        for position in positions:
+            capture.set(cv2.CAP_PROP_POS_FRAMES, int(position))
+            try:
+                frames.append(_frame_from_capture(capture, source_size=source_size))
+            except Exception:
+                continue
+        return frames
+    finally:
+        capture.release()
 
 
 def _open_video_capture(source: str) -> Any:
@@ -459,6 +512,11 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
         detector = UnavailablePersonDetector(f"person detector unavailable: {exc}")
 
     capture = _open_video_capture(str(args.source_video))
+    source_reference_frames = _sample_source_reference_frames(
+        str(args.source_video),
+        source_size=args.source_size,
+        max_frames=args.source_reference_frames,
+    )
     ffmpeg = _start_ffmpeg_hls(
         output_dir=output_dir,
         source_size=args.source_size,
@@ -487,6 +545,7 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
                     last_raw_people,
                     camera_image=last_camera,
                     source_frame=source_frame,
+                    source_reference_frames=source_reference_frames,
                     projector_polygon=args.projector_polygon,
                     residual_threshold=args.person_residual_threshold,
                     min_residual_area_px=args.person_min_residual_area_px,
@@ -583,6 +642,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--person-residual-threshold", type=float, default=28.0)
     parser.add_argument("--person-min-residual-area-px", type=int, default=1200)
     parser.add_argument("--person-min-residual-fraction", type=float, default=0.025)
+    parser.add_argument("--source-reference-frames", type=int, default=36)
     parser.add_argument("--camera-sample-interval", type=float, default=0.35)
     parser.add_argument("--person-min-confidence", type=float, default=0.35)
     parser.add_argument("--human-detector-prototxt", type=Path, default=DEFAULT_HUMAN_DETECTOR_PROTOTXT)

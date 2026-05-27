@@ -75,3 +75,39 @@ def test_source_filter_keeps_real_occluder_in_projector_beam() -> None:
     assert len(accepted) == 1
     assert skipped == []
     assert accepted[0].debug["source_subtracted_residual_area_px"] > 1200
+
+
+def test_source_filter_rejects_projected_video_content_from_reference_frame() -> None:
+    current_source = Image.new("RGB", (1280, 720), "white")
+    cat_intro_source = Image.new("RGB", (1280, 720), "white")
+    ImageDraw.Draw(cat_intro_source).ellipse((520, 160, 760, 360), fill="black")
+    camera = Image.fromarray(
+        overlay_server.source_subtraction.warp_source_to_camera(
+            cat_intro_source,
+            projector_polygon=FULL_FRAME_PROJECTOR,
+            width=1280,
+            height=720,
+        )
+    ).convert("RGB")
+    people = [
+        overlay_server.PersonDetection(
+            bbox_xyxy=(500.0, 130.0, 790.0, 390.0),
+            confidence=0.9,
+            source="test",
+        )
+    ]
+
+    accepted, skipped = overlay_server._filter_source_projected_people(
+        people,
+        camera_image=camera,
+        source_frame=current_source,
+        source_reference_frames=[cat_intro_source],
+        projector_polygon=FULL_FRAME_PROJECTOR,
+        residual_threshold=28.0,
+        min_residual_area_px=1200,
+        min_residual_fraction=0.025,
+    )
+
+    assert accepted == []
+    assert skipped[0]["reason"] == "matches_projected_source"
+    assert skipped[0]["best_reference_index"] == 1
