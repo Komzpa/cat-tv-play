@@ -38,7 +38,19 @@ def _load_projector_safety_module() -> Any:
     return module
 
 
+def _load_source_subtraction_module() -> Any:
+    path = REPO_ROOT / "custom_components" / "cat_tv_play" / "source_subtraction.py"
+    spec = importlib.util.spec_from_file_location("cat_tv_play_source_subtraction_runtime", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load source_subtraction module from {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 projector_safety = _load_projector_safety_module()
+source_subtraction = _load_source_subtraction_module()
 PersonDetection = projector_safety.PersonDetection
 SafetyOverlayResult = projector_safety.SafetyOverlayResult
 compute_eye_safety_overlay = projector_safety.compute_eye_safety_overlay
@@ -278,6 +290,82 @@ def _render_debug_camera_jpeg(
     return output.getvalue()
 
 
+def _bbox_residual_stats(
+    residual: np.ndarray,
+    bbox_xyxy: tuple[float, float, float, float],
+    *,
+    threshold: float,
+    source_bright_mask: np.ndarray,
+) -> tuple[int, float]:
+    height, width = residual.shape
+    x0, y0, x1, y1 = bbox_xyxy
+    left = max(0, min(width, int(np.floor(min(x0, x1)))))
+    top = max(0, min(height, int(np.floor(min(y0, y1)))))
+    right = max(0, min(width, int(np.ceil(max(x0, x1)))))
+    bottom = max(0, min(height, int(np.ceil(max(y0, y1)))))
+    if right <= left or bottom <= top:
+        return 0, 0.0
+    patch = residual[top:bottom, left:right]
+    bright_patch = source_bright_mask[top:bottom, left:right]
+    dark = (patch > threshold) & bright_patch
+    return int(dark.sum()), float(dark.mean())
+
+
+def _filter_source_projected_people(
+    people: list[PersonDetection],
+    *,
+    camera_image: Image.Image,
+    source_frame: Image.Image,
+    projector_polygon: tuple[tuple[float, float], ...],
+    residual_threshold: float,
+    min_residual_area_px: int,
+    min_residual_fraction: float,
+) -> tuple[list[PersonDetection], list[dict[str, Any]]]:
+    if not people:
+        return [], []
+    residual, warped_source = source_subtraction.source_subtracted_residual(
+        camera_image,
+        source_frame=source_frame,
+        projector_polygon=projector_polygon,
+    )
+    source_bright_mask = warped_source > 150
+    accepted: list[PersonDetection] = []
+    skipped: list[dict[str, Any]] = []
+    for index, person in enumerate(people):
+        residual_area, residual_fraction = _bbox_residual_stats(
+            residual,
+            person.bbox_xyxy,
+            threshold=residual_threshold,
+            source_bright_mask=source_bright_mask,
+        )
+        debug = {
+            **person.debug,
+            "source_subtracted_residual_area_px": residual_area,
+            "source_subtracted_residual_fraction": residual_fraction,
+        }
+        enriched = PersonDetection(
+            bbox_xyxy=person.bbox_xyxy,
+            confidence=person.confidence,
+            source=person.source,
+            mask=person.mask,
+            debug=debug,
+        )
+        if residual_area >= min_residual_area_px and residual_fraction >= min_residual_fraction:
+            accepted.append(enriched)
+        else:
+            skipped.append(
+                {
+                    "index": index,
+                    "reason": "matches_projected_source",
+                    "bbox_xyxy": person.bbox_xyxy,
+                    "confidence": person.confidence,
+                    "residual_area_px": residual_area,
+                    "residual_fraction": residual_fraction,
+                }
+            )
+    return accepted, skipped
+
+
 def _open_video_capture(source: str) -> Any:
     try:
         import cv2
@@ -383,6 +471,8 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
     last_camera_at = 0.0
     last_camera: Image.Image | None = None
     last_people: list[PersonDetection] = []
+    last_raw_people: list[PersonDetection] = []
+    last_source_filter_skipped: list[dict[str, Any]] = []
     last_camera_error: str | None = None
 
     while True:
@@ -392,10 +482,21 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
         if last_camera is None or now - last_camera_at >= args.camera_sample_interval:
             try:
                 last_camera = _read_camera_snapshot(args.camera_snapshot_url)
-                last_people = detector.detect(last_camera)
+                last_raw_people = detector.detect(last_camera)
+                last_people, last_source_filter_skipped = _filter_source_projected_people(
+                    last_raw_people,
+                    camera_image=last_camera,
+                    source_frame=source_frame,
+                    projector_polygon=args.projector_polygon,
+                    residual_threshold=args.person_residual_threshold,
+                    min_residual_area_px=args.person_min_residual_area_px,
+                    min_residual_fraction=args.person_min_residual_fraction,
+                )
                 last_camera_error = None
             except Exception as exc:
+                last_raw_people = []
                 last_people = []
+                last_source_filter_skipped = []
                 last_camera_error = str(exc)
             last_camera_at = now
 
@@ -412,9 +513,15 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
                 padding_px=args.padding_px,
                 min_overlap_area_px=args.min_overlap_area_px,
             )
+            if last_source_filter_skipped:
+                result = SafetyOverlayResult(
+                    result.status,
+                    zones=result.zones,
+                    debug={**result.debug, "source_filter_skipped": last_source_filter_skipped},
+                )
         state.update(
             result,
-            people=last_people,
+            people=last_raw_people,
             source_size=args.source_size,
             fixed_black_rect=args.fixed_black_rect,
             camera_image=last_camera,
@@ -469,10 +576,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=(1280, 720),
     )
     parser.add_argument("--projector-polygon", type=_parse_projector_polygon, default=DEFAULT_PROJECTOR_POLYGON)
-    parser.add_argument("--eye-band-top-fraction", type=float, default=0.0)
-    parser.add_argument("--eye-band-bottom-fraction", type=float, default=1.0)
-    parser.add_argument("--padding-px", type=int, default=180)
+    parser.add_argument("--eye-band-top-fraction", type=float, default=0.04)
+    parser.add_argument("--eye-band-bottom-fraction", type=float, default=0.34)
+    parser.add_argument("--padding-px", type=int, default=70)
     parser.add_argument("--min-overlap-area-px", type=int, default=24)
+    parser.add_argument("--person-residual-threshold", type=float, default=28.0)
+    parser.add_argument("--person-min-residual-area-px", type=int, default=1200)
+    parser.add_argument("--person-min-residual-fraction", type=float, default=0.025)
     parser.add_argument("--camera-sample-interval", type=float, default=0.35)
     parser.add_argument("--person-min-confidence", type=float, default=0.35)
     parser.add_argument("--human-detector-prototxt", type=Path, default=DEFAULT_HUMAN_DETECTOR_PROTOTXT)

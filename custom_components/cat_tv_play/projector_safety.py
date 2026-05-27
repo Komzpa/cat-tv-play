@@ -53,9 +53,9 @@ def compute_eye_safety_overlay(
     source_size: tuple[int, int],
     projector_polygon: Iterable[Point],
     people: Iterable[PersonDetection],
-    eye_band_top_fraction: float = 0.0,
-    eye_band_bottom_fraction: float = 1.0,
-    padding_px: int = 180,
+    eye_band_top_fraction: float = 0.04,
+    eye_band_bottom_fraction: float = 0.34,
+    padding_px: int = 70,
     min_overlap_area_px: int = 24,
 ) -> SafetyOverlayResult:
     """Map projected person eye bands from camera pixels into source pixels.
