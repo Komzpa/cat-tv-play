@@ -227,6 +227,8 @@ def _fit_projector_rgb_to_camera_luma(
     warped_rgb: np.ndarray,
     camera_gray: np.ndarray,
     fit_mask: np.ndarray,
+    *,
+    max_fit_pixels: int = 12000,
 ) -> np.ndarray | None:
     rgb = warped_rgb.astype(np.float32)
     camera = camera_gray.astype(np.float32)
@@ -234,6 +236,8 @@ def _fit_projector_rgb_to_camera_luma(
     keep = fit_mask & (source_signal > 35) & (camera > 25)
     if int(keep.sum()) < 500:
         return None
+    if int(keep.sum()) > max_fit_pixels:
+        keep = _subsample_mask(keep, max_pixels=max_fit_pixels)
 
     features = np.column_stack(
         [
@@ -253,6 +257,17 @@ def _fit_projector_rgb_to_camera_luma(
         return _nonnegative_projector_coefficients(features, target, coefficients)
     coefficients = _ridge_fit_projector_luma(features[robust_keep], target[robust_keep])
     return _nonnegative_projector_coefficients(features[robust_keep], target[robust_keep], coefficients)
+
+
+def _subsample_mask(mask: np.ndarray, *, max_pixels: int) -> np.ndarray:
+    selected = np.zeros(mask.shape, dtype=bool)
+    ys, xs = np.nonzero(mask)
+    if len(ys) <= max_pixels:
+        selected[ys, xs] = True
+        return selected
+    step = max(1, int(np.floor(len(ys) / max_pixels)))
+    selected[ys[::step][:max_pixels], xs[::step][:max_pixels]] = True
+    return selected
 
 
 def _ridge_fit_projector_luma(features: np.ndarray, target: np.ndarray) -> np.ndarray:
