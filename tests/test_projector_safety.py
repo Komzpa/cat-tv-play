@@ -36,11 +36,11 @@ def test_eye_safety_eye_band_maps_camera_overlap_to_source_polygon() -> None:
     zone = result.zones[0]
     xs = [point[0] for point in zone.polygon]
     ys = [point[1] for point in zone.polygon]
-    assert min(xs) >= 385.0
-    assert max(xs) <= 575.0
-    assert min(ys) >= 155.0
-    assert max(ys) <= 230.0
-    assert zone.camera_eye_band_xyxy == (222.0, 116.0, 278.0, 144.0)
+    assert min(xs) >= 420.0
+    assert max(xs) <= 535.0
+    assert min(ys) >= 150.0
+    assert max(ys) <= 210.0
+    assert zone.camera_eye_band_xyxy == (232.0, 114.0, 268.0, 138.0)
     assert zone.source == "projector_eye_safety_eye_band"
     assert zone.camera_overlap_area_px > 0
     assert zone.camera_eye_band_coverage == 1.0
@@ -60,6 +60,27 @@ def test_eye_safety_clips_partial_head_overlap_to_projection() -> None:
     xs = [point[0] for point in result.zones[0].polygon]
     assert min(xs) == 0.0
     assert max(xs) < 260.0
+
+
+def test_eye_safety_prediction_expands_eye_band_toward_motion() -> None:
+    result = projector_safety.compute_eye_safety_overlay(
+        camera_size=(640, 480),
+        source_size=(1280, 720),
+        projector_polygon=PROJECTOR_POLYGON,
+        people=[
+            projector_safety.PersonDetection(
+                bbox_xyxy=(200.0, 100.0, 300.0, 300.0),
+                confidence=0.88,
+                source="test",
+                debug={"prediction_offset_px": (40.0, 8.0), "prediction_padding_px": 4.0},
+            )
+        ],
+        padding_px=0,
+        min_overlap_area_px=4,
+    )
+
+    assert result.status == "active"
+    assert result.zones[0].camera_eye_band_xyxy == (228.0, 110.0, 312.0, 150.0)
 
 
 def test_eye_safety_no_person_status() -> None:
@@ -93,5 +114,5 @@ def test_render_eye_safety_overlay_blacks_only_active_zone() -> None:
     rendered = projector_safety.render_eye_safety_overlay(frame, result)
     arr = np.asarray(rendered)
 
-    assert tuple(arr[180, 420]) == (0, 0, 0)
+    assert tuple(arr[180, 460]) == (0, 0, 0)
     assert tuple(arr[20, 20]) == (255, 255, 255)

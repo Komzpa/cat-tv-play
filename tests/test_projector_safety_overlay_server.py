@@ -333,13 +333,76 @@ def test_eye_safety_trail_drops_expired_zones() -> None:
     assert recent == [(10.0, current)]
 
 
+def test_motion_prediction_annotates_people_from_previous_velocity() -> None:
+    previous = overlay_server.PersonDetection(
+        bbox_xyxy=(100.0, 100.0, 180.0, 260.0),
+        confidence=0.9,
+        source="test",
+    )
+    current = overlay_server.PersonDetection(
+        bbox_xyxy=(130.0, 112.0, 210.0, 272.0),
+        confidence=0.91,
+        source="test",
+    )
+
+    annotated = overlay_server._annotate_motion_prediction(
+        [current],
+        previous_people=[previous],
+        previous_at=10.0,
+        now=10.1,
+        horizon_seconds=0.25,
+        padding_px=16.0,
+        max_prediction_px=220.0,
+    )
+
+    assert annotated[0].bbox_xyxy == current.bbox_xyxy
+    assert annotated[0].debug["prediction_offset_px"] == (75.0, 30.0)
+    assert annotated[0].debug["prediction_padding_px"] == 16.0
+    assert annotated[0].debug["eye_velocity_px_s"] == (300.0, 120.0)
+
+
+def test_motion_prediction_clamps_large_offset() -> None:
+    previous = overlay_server.PersonDetection(
+        bbox_xyxy=(100.0, 100.0, 180.0, 260.0),
+        confidence=0.9,
+        source="test",
+    )
+    current = overlay_server.PersonDetection(
+        bbox_xyxy=(500.0, 100.0, 580.0, 260.0),
+        confidence=0.91,
+        source="test",
+    )
+
+    annotated = overlay_server._annotate_motion_prediction(
+        [current],
+        previous_people=[previous],
+        previous_at=10.0,
+        now=10.1,
+        horizon_seconds=0.25,
+        padding_px=16.0,
+        max_prediction_px=80.0,
+    )
+
+    offset_x, offset_y = annotated[0].debug["prediction_offset_px"]
+    assert offset_x == 80.0
+    assert offset_y == 0.0
+
+
 def test_runtime_defaults_prioritize_low_latency_camera_updates() -> None:
     args = overlay_server.parse_args(["--source-video", "cats.mp4"])
 
     assert args.fps == 20
     assert args.source_reference_frames == 3
-    assert args.source_filter_scale == 0.5
+    assert args.source_filter_scale == 0.35
+    assert args.eye_band_top_fraction == 0.07
+    assert args.eye_band_bottom_fraction == 0.19
+    assert args.eye_band_left_fraction == 0.32
+    assert args.eye_band_right_fraction == 0.68
+    assert args.padding_px == 12
     assert args.camera_sample_interval == 0.06
     assert args.camera_snapshot_timeout == 0.8
     assert args.eye_safety_trail_seconds == 0.5
     assert args.eye_safety_hold_seconds == 2.0
+    assert args.eye_safety_prediction_seconds == 0.25
+    assert args.eye_safety_prediction_padding_px == 16.0
+    assert args.eye_safety_max_prediction_px == 220.0

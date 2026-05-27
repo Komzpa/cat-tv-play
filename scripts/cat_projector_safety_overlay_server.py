@@ -12,7 +12,7 @@ import sys
 import tempfile
 import threading
 import time
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, field
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from pathlib import Path
@@ -751,23 +751,339 @@ def _start_ffmpeg_hls(
     return subprocess.Popen(command, stdin=subprocess.PIPE)
 
 
-def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOverlayState) -> None:
-    detector: MobileNetPersonDetector | UnavailablePersonDetector
+@dataclass(frozen=True)
+class SafetyComputationSnapshot:
+    result: SafetyOverlayResult = field(default_factory=lambda: SafetyOverlayResult("starting"))
+    people: list[PersonDetection] = field(default_factory=list)
+    camera_image: Image.Image | None = None
+    camera_error: str | None = None
+    performance: dict[str, Any] = field(default_factory=dict)
+    blackout_polygons: list[tuple[tuple[float, float], ...]] = field(default_factory=list)
+    updated_at: float | None = None
+
+
+class SafetyRuntime:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._source_frame: Image.Image | None = None
+        self._source_frame_index = 0
+        self._source_updated_at: float | None = None
+        self._snapshot = SafetyComputationSnapshot()
+        self._stop = False
+
+    def stop(self) -> None:
+        with self._lock:
+            self._stop = True
+
+    def should_stop(self) -> bool:
+        with self._lock:
+            return self._stop
+
+    def update_source_frame(self, source_frame: Image.Image, frame_index: int) -> None:
+        with self._lock:
+            self._source_frame = source_frame
+            self._source_frame_index = frame_index
+            self._source_updated_at = time.monotonic()
+
+    def source_frame_snapshot(self) -> tuple[Image.Image | None, int, float | None]:
+        with self._lock:
+            return self._source_frame, self._source_frame_index, self._source_updated_at
+
+    def update_snapshot(self, snapshot: SafetyComputationSnapshot) -> None:
+        with self._lock:
+            self._snapshot = snapshot
+
+    def snapshot(self) -> SafetyComputationSnapshot:
+        with self._lock:
+            return self._snapshot
+
+
+def _bbox_center(bbox_xyxy: tuple[float, float, float, float]) -> tuple[float, float]:
+    x0, y0, x1, y1 = bbox_xyxy
+    return (float(x0) + float(x1)) / 2.0, (float(y0) + float(y1)) / 2.0
+
+
+def _clamp_prediction_offset(
+    offset_x: float,
+    offset_y: float,
+    *,
+    max_prediction_px: float,
+) -> tuple[float, float]:
+    distance = float((offset_x * offset_x + offset_y * offset_y) ** 0.5)
+    if distance <= max_prediction_px or distance <= 0.0:
+        return offset_x, offset_y
+    scale = max_prediction_px / distance
+    return offset_x * scale, offset_y * scale
+
+
+def _prediction_horizon_seconds(
+    *,
+    configured_seconds: float,
+    camera_sample_interval: float,
+    worker_loop_ms: float | None,
+    video_frame_interval: float,
+) -> float:
+    measured = camera_sample_interval + video_frame_interval
+    if worker_loop_ms is not None:
+        measured = max(measured, worker_loop_ms / 1000.0 + video_frame_interval)
+    return max(0.0, max(configured_seconds, measured))
+
+
+def _annotate_motion_prediction(
+    people: list[PersonDetection],
+    *,
+    previous_people: list[PersonDetection],
+    previous_at: float | None,
+    now: float,
+    horizon_seconds: float,
+    padding_px: float,
+    max_prediction_px: float,
+) -> list[PersonDetection]:
+    if not people:
+        return []
+    if not previous_people or previous_at is None or now <= previous_at:
+        return [
+            PersonDetection(
+                bbox_xyxy=person.bbox_xyxy,
+                confidence=person.confidence,
+                source=person.source,
+                mask=person.mask,
+                debug={
+                    **person.debug,
+                    "prediction_horizon_seconds": round(horizon_seconds, 3),
+                    "prediction_padding_px": padding_px,
+                    "prediction_offset_px": (0.0, 0.0),
+                    "eye_velocity_px_s": (0.0, 0.0),
+                },
+            )
+            for person in people
+        ]
+
+    elapsed = max(1e-3, now - previous_at)
+    unmatched = list(previous_people)
+    annotated: list[PersonDetection] = []
+    for person in people:
+        center_x, center_y = _bbox_center(person.bbox_xyxy)
+        match_index: int | None = None
+        match_distance: float | None = None
+        for index, candidate in enumerate(unmatched):
+            previous_x, previous_y = _bbox_center(candidate.bbox_xyxy)
+            distance = ((center_x - previous_x) ** 2 + (center_y - previous_y) ** 2) ** 0.5
+            if match_distance is None or distance < match_distance:
+                match_index = index
+                match_distance = distance
+        velocity_x = 0.0
+        velocity_y = 0.0
+        if match_index is not None and match_distance is not None:
+            previous = unmatched.pop(match_index)
+            previous_x, previous_y = _bbox_center(previous.bbox_xyxy)
+            velocity_x = (center_x - previous_x) / elapsed
+            velocity_y = (center_y - previous_y) / elapsed
+        offset_x, offset_y = _clamp_prediction_offset(
+            velocity_x * horizon_seconds,
+            velocity_y * horizon_seconds,
+            max_prediction_px=max_prediction_px,
+        )
+        annotated.append(
+            PersonDetection(
+                bbox_xyxy=person.bbox_xyxy,
+                confidence=person.confidence,
+                source=person.source,
+                mask=person.mask,
+                debug={
+                    **person.debug,
+                    "prediction_horizon_seconds": round(horizon_seconds, 3),
+                    "prediction_padding_px": padding_px,
+                    "prediction_offset_px": (round(offset_x, 2), round(offset_y, 2)),
+                    "eye_velocity_px_s": (round(velocity_x, 2), round(velocity_y, 2)),
+                },
+            )
+        )
+    return annotated
+
+
+def _build_detector(args: argparse.Namespace) -> MobileNetPersonDetector | UnavailablePersonDetector:
     try:
-        detector = MobileNetPersonDetector(
+        return MobileNetPersonDetector(
             prototxt=args.human_detector_prototxt.expanduser(),
             model=args.human_detector_model.expanduser(),
             min_confidence=args.person_min_confidence,
         )
     except Exception as exc:
-        detector = UnavailablePersonDetector(f"person detector unavailable: {exc}")
+        return UnavailablePersonDetector(f"person detector unavailable: {exc}")
 
-    capture = _open_video_capture(str(args.source_video))
+
+def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> None:
+    detector = _build_detector(args)
     source_reference_frames = _sample_source_reference_frames(
         str(args.source_video),
         source_size=args.source_size,
         max_frames=args.source_reference_frames,
     )
+    recent_eye_zone_results: list[tuple[float, SafetyOverlayResult]] = []
+    held_result: SafetyOverlayResult | None = None
+    held_people: list[PersonDetection] = []
+    held_at = 0.0
+    previous_people: list[PersonDetection] = []
+    previous_people_at: float | None = None
+    last_blackout_polygons: list[tuple[tuple[float, float], ...]] = []
+    sample_index = 0
+
+    while not runtime.should_stop():
+        source_frame, source_frame_index, source_updated_at = runtime.source_frame_snapshot()
+        if source_frame is None:
+            time.sleep(min(0.02, max(0.001, args.camera_sample_interval)))
+            continue
+
+        started = time.monotonic()
+        sample_index += 1
+        camera_image: Image.Image | None = None
+        camera_error: str | None = None
+        raw_people: list[PersonDetection] = []
+        people: list[PersonDetection] = []
+        source_filter_skipped: list[dict[str, Any]] = []
+        camera_read_ms: float | None = None
+        detector_ms: float | None = None
+        source_filter_ms: float | None = None
+        result: SafetyOverlayResult
+
+        try:
+            camera_started = time.monotonic()
+            camera_image = _read_camera_snapshot(args.camera_snapshot_url, timeout=args.camera_snapshot_timeout)
+            camera_read_ms = (time.monotonic() - camera_started) * 1000.0
+            detector_skipped: list[dict[str, Any]] = []
+            try:
+                detector_started = time.monotonic()
+                raw_people = detector.detect(camera_image)
+                detector_ms = (time.monotonic() - detector_started) * 1000.0
+            except Exception as exc:
+                detector_skipped = [{"reason": "person_detector_unavailable", "error": str(exc)}]
+            ignored_source_polygons = list(last_blackout_polygons)
+            fixed_rect_polygon = _fixed_rect_to_polygon(args.fixed_black_rect)
+            if fixed_rect_polygon is not None:
+                ignored_source_polygons.append(fixed_rect_polygon)
+            source_filter_started = time.monotonic()
+            people, filter_skipped = _filter_source_projected_people(
+                raw_people,
+                camera_image=camera_image,
+                source_frame=source_frame,
+                source_reference_frames=source_reference_frames,
+                ignored_source_polygons=ignored_source_polygons,
+                source_size=args.source_size,
+                projector_polygon=args.projector_polygon,
+                residual_threshold=args.person_residual_threshold,
+                min_residual_area_px=args.person_min_residual_area_px,
+                min_residual_fraction=args.person_min_residual_fraction,
+                enable_residual_occluder_fallback=args.enable_residual_occluder_fallback,
+                source_filter_scale=args.source_filter_scale,
+            )
+            source_filter_ms = (time.monotonic() - source_filter_started) * 1000.0
+            source_filter_skipped = detector_skipped + filter_skipped
+        except Exception as exc:
+            camera_error = str(exc)
+
+        now = time.monotonic()
+        worker_loop_ms_so_far = (now - started) * 1000.0
+        horizon_seconds = _prediction_horizon_seconds(
+            configured_seconds=args.eye_safety_prediction_seconds,
+            camera_sample_interval=args.camera_sample_interval,
+            worker_loop_ms=worker_loop_ms_so_far,
+            video_frame_interval=1.0 / max(1, args.fps),
+        )
+        people = _annotate_motion_prediction(
+            people,
+            previous_people=previous_people,
+            previous_at=previous_people_at,
+            now=now,
+            horizon_seconds=horizon_seconds,
+            padding_px=args.eye_safety_prediction_padding_px,
+            max_prediction_px=args.eye_safety_max_prediction_px,
+        )
+        if people:
+            previous_people = list(people)
+            previous_people_at = now
+
+        if camera_image is None or camera_error:
+            result = SafetyOverlayResult("safety_overlay_unavailable", debug={"error": camera_error})
+        else:
+            result = compute_eye_safety_overlay(
+                camera_size=camera_image.size,
+                source_size=args.source_size,
+                projector_polygon=args.projector_polygon,
+                people=people,
+                eye_band_top_fraction=args.eye_band_top_fraction,
+                eye_band_bottom_fraction=args.eye_band_bottom_fraction,
+                eye_band_left_fraction=args.eye_band_left_fraction,
+                eye_band_right_fraction=args.eye_band_right_fraction,
+                padding_px=args.padding_px,
+                min_overlap_area_px=args.min_overlap_area_px,
+            )
+            result = SafetyOverlayResult(
+                result.status,
+                zones=result.zones,
+                debug={
+                    **result.debug,
+                    "source_filter_skipped": source_filter_skipped,
+                    "raw_person_count": len(raw_people),
+                    "prediction_horizon_seconds": round(horizon_seconds, 3),
+                    "prediction_padding_px": args.eye_safety_prediction_padding_px,
+                    "max_prediction_px": args.eye_safety_max_prediction_px,
+                },
+            )
+            result, recent_eye_zone_results = _apply_eye_safety_trail(
+                result,
+                recent_eye_zone_results=recent_eye_zone_results,
+                now=now,
+                trail_seconds=args.eye_safety_trail_seconds,
+            )
+            result, held_result, held_people, held_at = _apply_eye_safety_hold(
+                result,
+                current_people=people,
+                held_result=held_result,
+                held_people=held_people,
+                held_at=held_at,
+                now=now,
+                hold_seconds=args.eye_safety_hold_seconds,
+            )
+            last_blackout_polygons = [zone.polygon for zone in result.zones]
+
+        finished = time.monotonic()
+        performance = {
+            "safety_sample_index": sample_index,
+            "safety_worker_loop_ms": round((finished - started) * 1000.0, 1),
+            "camera_sample_interval_ms": round(args.camera_sample_interval * 1000.0, 1),
+            "camera_snapshot_timeout_ms": round(args.camera_snapshot_timeout * 1000.0, 1),
+            "camera_read_ms": round(camera_read_ms, 1) if camera_read_ms is not None else None,
+            "detector_ms": round(detector_ms, 1) if detector_ms is not None else None,
+            "source_filter_ms": round(source_filter_ms, 1) if source_filter_ms is not None else None,
+            "source_frame_index": source_frame_index,
+            "source_frame_age_ms": (
+                round((finished - source_updated_at) * 1000.0, 1) if source_updated_at is not None else None
+            ),
+            "eye_safety_trail_seconds": args.eye_safety_trail_seconds,
+            "eye_safety_hold_seconds": args.eye_safety_hold_seconds,
+            "eye_safety_prediction_horizon_ms": round(horizon_seconds * 1000.0, 1),
+            "eye_safety_prediction_padding_px": args.eye_safety_prediction_padding_px,
+            "eye_safety_max_prediction_px": args.eye_safety_max_prediction_px,
+        }
+        runtime.update_snapshot(
+            SafetyComputationSnapshot(
+                result=result,
+                people=held_people if result.debug.get("held_after_last_detection") else people,
+                camera_image=camera_image,
+                camera_error=camera_error,
+                performance=performance,
+                blackout_polygons=list(last_blackout_polygons),
+                updated_at=finished,
+            )
+        )
+        elapsed = time.monotonic() - started
+        if elapsed < args.camera_sample_interval:
+            time.sleep(args.camera_sample_interval - elapsed)
+
+
+def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOverlayState) -> None:
+    capture = _open_video_capture(str(args.source_video))
     ffmpeg = _start_ffmpeg_hls(
         output_dir=output_dir,
         source_size=args.source_size,
@@ -777,154 +1093,65 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
     )
     assert ffmpeg.stdin is not None
     frame_interval = 1.0 / max(1, args.fps)
-    last_camera_at = 0.0
-    last_camera: Image.Image | None = None
-    last_people: list[PersonDetection] = []
-    last_raw_people: list[PersonDetection] = []
-    last_source_filter_skipped: list[dict[str, Any]] = []
-    last_camera_error: str | None = None
-    last_blackout_polygons: list[tuple[tuple[float, float], ...]] = []
-    recent_eye_zone_results: list[tuple[float, SafetyOverlayResult]] = []
-    held_result: SafetyOverlayResult | None = None
-    held_people: list[PersonDetection] = []
-    held_at = 0.0
+    runtime = SafetyRuntime()
+    safety_worker = threading.Thread(target=_run_safety_worker, args=(args,), kwargs={"runtime": runtime})
+    safety_worker.daemon = True
+    safety_worker.start()
     frame_index = 0
     last_status_monotonic = time.monotonic()
-    last_camera_sample_monotonic: float | None = None
-    last_camera_read_ms: float | None = None
-    last_detector_ms: float | None = None
-    last_source_filter_ms: float | None = None
 
-    while True:
-        started = time.monotonic()
-        frame_index += 1
-        source_frame = _frame_from_capture(capture, source_size=args.source_size)
-        now = time.monotonic()
-        if last_camera is None or now - last_camera_at >= args.camera_sample_interval:
+    try:
+        while True:
+            started = time.monotonic()
+            frame_index += 1
+            source_frame = _frame_from_capture(capture, source_size=args.source_size)
+            runtime.update_source_frame(source_frame, frame_index)
+            snapshot = runtime.snapshot()
+            result = snapshot.result
+            rendered_started = time.monotonic()
+            rendered = _render_fixed_black_rect(source_frame, args.fixed_black_rect)
+            rendered = render_eye_safety_overlay(rendered, result)
+            render_ms = (time.monotonic() - rendered_started) * 1000.0
+            write_started = time.monotonic()
             try:
-                camera_started = time.monotonic()
-                last_camera = _read_camera_snapshot(args.camera_snapshot_url, timeout=args.camera_snapshot_timeout)
-                last_camera_read_ms = (time.monotonic() - camera_started) * 1000.0
-                detector_skipped: list[dict[str, Any]] = []
-                try:
-                    detector_started = time.monotonic()
-                    last_raw_people = detector.detect(last_camera)
-                    last_detector_ms = (time.monotonic() - detector_started) * 1000.0
-                except Exception as exc:
-                    last_raw_people = []
-                    last_detector_ms = None
-                    detector_skipped = [{"reason": "person_detector_unavailable", "error": str(exc)}]
-                ignored_source_polygons = list(last_blackout_polygons)
-                fixed_rect_polygon = _fixed_rect_to_polygon(args.fixed_black_rect)
-                if fixed_rect_polygon is not None:
-                    ignored_source_polygons.append(fixed_rect_polygon)
-                source_filter_started = time.monotonic()
-                last_people, filter_skipped = _filter_source_projected_people(
-                    last_raw_people,
-                    camera_image=last_camera,
-                    source_frame=source_frame,
-                    source_reference_frames=source_reference_frames,
-                    ignored_source_polygons=ignored_source_polygons,
-                    source_size=args.source_size,
-                    projector_polygon=args.projector_polygon,
-                    residual_threshold=args.person_residual_threshold,
-                    min_residual_area_px=args.person_min_residual_area_px,
-                    min_residual_fraction=args.person_min_residual_fraction,
-                    enable_residual_occluder_fallback=args.enable_residual_occluder_fallback,
-                    source_filter_scale=args.source_filter_scale,
-                )
-                last_source_filter_ms = (time.monotonic() - source_filter_started) * 1000.0
-                last_source_filter_skipped = detector_skipped + filter_skipped
-                last_camera_error = None
-                last_camera_sample_monotonic = time.monotonic()
-            except Exception as exc:
-                last_raw_people = []
-                last_people = []
-                last_source_filter_skipped = []
-                last_camera_error = str(exc)
-                last_camera_read_ms = None
-                last_detector_ms = None
-                last_source_filter_ms = None
-            last_camera_at = now
+                ffmpeg.stdin.write(rendered.tobytes())
+                ffmpeg.stdin.flush()
+            except BrokenPipeError as exc:
+                raise RuntimeError("ffmpeg HLS writer exited") from exc
+            write_ms = (time.monotonic() - write_started) * 1000.0
 
-        if last_camera is None or last_camera_error:
-            result = SafetyOverlayResult("safety_overlay_unavailable", debug={"error": last_camera_error})
-        else:
-            result = compute_eye_safety_overlay(
-                camera_size=last_camera.size,
+            finished = time.monotonic()
+            status_interval_ms = (finished - last_status_monotonic) * 1000.0
+            last_status_monotonic = finished
+            safety_age_ms = (
+                round((finished - snapshot.updated_at) * 1000.0, 1) if snapshot.updated_at is not None else None
+            )
+            performance = {
+                **snapshot.performance,
+                "frame_index": frame_index,
+                "video_loop_ms": round((finished - started) * 1000.0, 1),
+                "video_status_interval_ms": round(status_interval_ms, 1),
+                "target_frame_interval_ms": round(frame_interval * 1000.0, 1),
+                "video_render_ms": round(render_ms, 1),
+                "video_write_ms": round(write_ms, 1),
+                "safety_result_age_ms": safety_age_ms,
+                "video_decoupled_from_safety_worker": True,
+            }
+            state.update(
+                result,
+                people=snapshot.people,
                 source_size=args.source_size,
-                projector_polygon=args.projector_polygon,
-                people=last_people,
-                eye_band_top_fraction=args.eye_band_top_fraction,
-                eye_band_bottom_fraction=args.eye_band_bottom_fraction,
-                eye_band_left_fraction=args.eye_band_left_fraction,
-                eye_band_right_fraction=args.eye_band_right_fraction,
-                padding_px=args.padding_px,
-                min_overlap_area_px=args.min_overlap_area_px,
+                fixed_black_rect=args.fixed_black_rect,
+                camera_image=snapshot.camera_image,
+                camera_error=snapshot.camera_error,
+                performance=performance,
             )
-            if last_source_filter_skipped:
-                result = SafetyOverlayResult(
-                    result.status,
-                    zones=result.zones,
-                    debug={**result.debug, "source_filter_skipped": last_source_filter_skipped},
-                )
-            result, recent_eye_zone_results = _apply_eye_safety_trail(
-                result,
-                recent_eye_zone_results=recent_eye_zone_results,
-                now=time.monotonic(),
-                trail_seconds=args.eye_safety_trail_seconds,
-            )
-            result, held_result, held_people, held_at = _apply_eye_safety_hold(
-                result,
-                current_people=last_people,
-                held_result=held_result,
-                held_people=held_people,
-                held_at=held_at,
-                now=time.monotonic(),
-                hold_seconds=args.eye_safety_hold_seconds,
-            )
-            last_blackout_polygons = [zone.polygon for zone in result.zones]
-        finished = time.monotonic()
-        status_interval_ms = (finished - last_status_monotonic) * 1000.0
-        last_status_monotonic = finished
-        performance = {
-            "frame_index": frame_index,
-            "loop_ms": round((finished - started) * 1000.0, 1),
-            "status_interval_ms": round(status_interval_ms, 1),
-            "target_frame_interval_ms": round(frame_interval * 1000.0, 1),
-            "camera_sample_interval_ms": round(args.camera_sample_interval * 1000.0, 1),
-            "camera_snapshot_timeout_ms": round(args.camera_snapshot_timeout * 1000.0, 1),
-            "camera_age_ms": (
-                round((finished - last_camera_sample_monotonic) * 1000.0, 1)
-                if last_camera_sample_monotonic is not None
-                else None
-            ),
-            "camera_read_ms": round(last_camera_read_ms, 1) if last_camera_read_ms is not None else None,
-            "detector_ms": round(last_detector_ms, 1) if last_detector_ms is not None else None,
-            "source_filter_ms": round(last_source_filter_ms, 1) if last_source_filter_ms is not None else None,
-            "eye_safety_trail_seconds": args.eye_safety_trail_seconds,
-            "eye_safety_hold_seconds": args.eye_safety_hold_seconds,
-        }
-        state.update(
-            result,
-            people=held_people if result.debug.get("held_after_last_detection") else last_people,
-            source_size=args.source_size,
-            fixed_black_rect=args.fixed_black_rect,
-            camera_image=last_camera,
-            camera_error=last_camera_error,
-            performance=performance,
-        )
-        rendered = _render_fixed_black_rect(source_frame, args.fixed_black_rect)
-        rendered = render_eye_safety_overlay(rendered, result)
-        try:
-            ffmpeg.stdin.write(rendered.tobytes())
-            ffmpeg.stdin.flush()
-        except BrokenPipeError as exc:
-            raise RuntimeError("ffmpeg HLS writer exited") from exc
-
-        elapsed = time.monotonic() - started
-        if elapsed < frame_interval:
-            time.sleep(frame_interval - elapsed)
+            elapsed = time.monotonic() - started
+            if elapsed < frame_interval:
+                time.sleep(frame_interval - elapsed)
+    finally:
+        runtime.stop()
+        capture.release()
 
 
 def _apply_eye_safety_trail(
@@ -1033,22 +1260,25 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=(1280, 720),
     )
     parser.add_argument("--projector-polygon", type=_parse_projector_polygon, default=DEFAULT_PROJECTOR_POLYGON)
-    parser.add_argument("--eye-band-top-fraction", type=float, default=0.08)
-    parser.add_argument("--eye-band-bottom-fraction", type=float, default=0.22)
-    parser.add_argument("--eye-band-left-fraction", type=float, default=0.22)
-    parser.add_argument("--eye-band-right-fraction", type=float, default=0.78)
-    parser.add_argument("--padding-px", type=int, default=20)
+    parser.add_argument("--eye-band-top-fraction", type=float, default=0.07)
+    parser.add_argument("--eye-band-bottom-fraction", type=float, default=0.19)
+    parser.add_argument("--eye-band-left-fraction", type=float, default=0.32)
+    parser.add_argument("--eye-band-right-fraction", type=float, default=0.68)
+    parser.add_argument("--padding-px", type=int, default=12)
     parser.add_argument("--min-overlap-area-px", type=int, default=24)
     parser.add_argument("--person-residual-threshold", type=float, default=28.0)
     parser.add_argument("--person-min-residual-area-px", type=int, default=1200)
     parser.add_argument("--person-min-residual-fraction", type=float, default=0.10)
-    parser.add_argument("--source-filter-scale", type=float, default=0.5)
+    parser.add_argument("--source-filter-scale", type=float, default=0.35)
     parser.add_argument("--enable-residual-occluder-fallback", action="store_true")
     parser.add_argument("--source-reference-frames", type=int, default=3)
     parser.add_argument("--camera-sample-interval", type=float, default=0.06)
     parser.add_argument("--camera-snapshot-timeout", type=float, default=0.8)
     parser.add_argument("--eye-safety-trail-seconds", type=float, default=0.5)
     parser.add_argument("--eye-safety-hold-seconds", type=float, default=2.0)
+    parser.add_argument("--eye-safety-prediction-seconds", type=float, default=0.25)
+    parser.add_argument("--eye-safety-prediction-padding-px", type=float, default=16.0)
+    parser.add_argument("--eye-safety-max-prediction-px", type=float, default=220.0)
     parser.add_argument("--person-min-confidence", type=float, default=0.35)
     parser.add_argument("--human-detector-prototxt", type=Path, default=DEFAULT_HUMAN_DETECTOR_PROTOTXT)
     parser.add_argument("--human-detector-model", type=Path, default=DEFAULT_HUMAN_DETECTOR_MODEL)

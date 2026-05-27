@@ -53,11 +53,11 @@ def compute_eye_safety_overlay(
     source_size: tuple[int, int],
     projector_polygon: Iterable[Point],
     people: Iterable[PersonDetection],
-    eye_band_top_fraction: float = 0.08,
-    eye_band_bottom_fraction: float = 0.22,
-    eye_band_left_fraction: float = 0.22,
-    eye_band_right_fraction: float = 0.78,
-    padding_px: int = 20,
+    eye_band_top_fraction: float = 0.07,
+    eye_band_bottom_fraction: float = 0.19,
+    eye_band_left_fraction: float = 0.32,
+    eye_band_right_fraction: float = 0.68,
+    padding_px: int = 12,
     min_overlap_area_px: int = 24,
 ) -> SafetyOverlayResult:
     """Map projected person eye bands from camera pixels into source pixels.
@@ -248,7 +248,44 @@ def _person_eye_band_bbox(
     top = max(0, int(np.floor(eye_top - padding_px)))
     right = min(camera_width, int(np.ceil(eye_right + padding_px)))
     bottom = min(camera_height, int(np.ceil(eye_bottom + padding_px)))
-    return float(left), float(top), float(right), float(bottom)
+    eye_band = (float(left), float(top), float(right), float(bottom))
+    return _apply_eye_band_prediction(
+        eye_band,
+        person.debug,
+        camera_width=camera_width,
+        camera_height=camera_height,
+    )
+
+
+def _apply_eye_band_prediction(
+    eye_band: BBoxXYXY,
+    debug: dict[str, Any],
+    *,
+    camera_width: int,
+    camera_height: int,
+) -> BBoxXYXY:
+    raw_offset = debug.get("prediction_offset_px")
+    if not isinstance(raw_offset, (list, tuple)) or len(raw_offset) != 2:
+        return eye_band
+    try:
+        offset_x = float(raw_offset[0])
+        offset_y = float(raw_offset[1])
+    except (TypeError, ValueError):
+        return eye_band
+    raw_padding = debug.get("prediction_padding_px", 0.0)
+    try:
+        prediction_padding = max(0.0, float(raw_padding))
+    except (TypeError, ValueError):
+        prediction_padding = 0.0
+    left, top, right, bottom = eye_band
+    predicted = (left + offset_x, top + offset_y, right + offset_x, bottom + offset_y)
+    union = (
+        min(left, predicted[0]) - prediction_padding,
+        min(top, predicted[1]) - prediction_padding,
+        max(right, predicted[2]) + prediction_padding,
+        max(bottom, predicted[3]) + prediction_padding,
+    )
+    return _clamp_bbox(union, camera_width, camera_height)
 
 
 def _person_eye_band_mask(
