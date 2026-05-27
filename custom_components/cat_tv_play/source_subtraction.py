@@ -244,21 +244,54 @@ def _fit_projector_rgb_to_camera_luma(
         ]
     )
     target = camera[keep]
-    try:
-        coefficients, *_rest = np.linalg.lstsq(features, target, rcond=None)
-    except np.linalg.LinAlgError:
-        return None
+    coefficients = _ridge_fit_projector_luma(features, target)
     prediction = features @ coefficients
     residual = np.abs(prediction - target)
     cutoff = max(8.0, float(np.percentile(residual, 70)))
     robust_keep = residual <= cutoff
     if int(robust_keep.sum()) < 500:
-        return coefficients.astype(np.float32)
+        return _nonnegative_projector_coefficients(features, target, coefficients)
+    coefficients = _ridge_fit_projector_luma(features[robust_keep], target[robust_keep])
+    return _nonnegative_projector_coefficients(features[robust_keep], target[robust_keep], coefficients)
+
+
+def _ridge_fit_projector_luma(features: np.ndarray, target: np.ndarray) -> np.ndarray:
+    """Fit RGB projector colors to camera luma without chasing correlated colors."""
+
+    feature_scale = np.maximum(np.std(features[:, :3], axis=0), 1.0)
+    centered = features.copy()
+    centered[:, :3] = centered[:, :3] / feature_scale
+    ridge = np.diag(np.array([6.0, 6.0, 6.0, 0.0], dtype=np.float32))
     try:
-        coefficients, *_rest = np.linalg.lstsq(features[robust_keep], target[robust_keep], rcond=None)
+        coefficients = np.linalg.solve(centered.T @ centered + ridge, centered.T @ target)
     except np.linalg.LinAlgError:
-        return None
+        coefficients, *_rest = np.linalg.lstsq(centered, target, rcond=None)
+    coefficients[:3] = coefficients[:3] / feature_scale
     return coefficients.astype(np.float32)
+
+
+def _nonnegative_projector_coefficients(
+    features: np.ndarray,
+    target: np.ndarray,
+    coefficients: np.ndarray,
+) -> np.ndarray:
+    """Keep the fitted camera response physically plausible for mono/IR views."""
+
+    output = coefficients.astype(np.float32, copy=True)
+    output[:3] = np.clip(output[:3], 0.0, 4.0)
+    output[3] = float(np.median(target - features[:, :3] @ output[:3]))
+    if float(output[:3].sum()) < 0.02:
+        return _fit_grayscale_projector_coefficients(features, target)
+    return output.astype(np.float32)
+
+
+def _fit_grayscale_projector_coefficients(features: np.ndarray, target: np.ndarray) -> np.ndarray:
+    luma = 0.299 * features[:, 0] + 0.587 * features[:, 1] + 0.114 * features[:, 2]
+    source_low, source_high = np.percentile(luma, [10, 90])
+    target_low, target_high = np.percentile(target, [10, 90])
+    scale = max(0.02, min(4.0, float(target_high - target_low) / max(1.0, float(source_high - source_low))))
+    offset = float(np.median(target - scale * luma))
+    return np.array([0.299 * scale, 0.587 * scale, 0.114 * scale, offset], dtype=np.float32)
 
 
 def _projector_rgb_expected_luma(

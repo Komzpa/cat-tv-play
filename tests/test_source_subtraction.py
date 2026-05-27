@@ -204,6 +204,25 @@ def test_source_subtraction_fits_projector_rgb_to_camera_luma() -> None:
     assert float(np.percentile(np.abs(residual[projection]), 95)) < 3.0
 
 
+def test_projector_rgb_mapping_keeps_nonnegative_channel_weights() -> None:
+    rng = np.random.default_rng(42)
+    rgb = rng.integers(0, 256, size=(80, 100, 3), dtype=np.uint8)
+    mask = np.ones((80, 100), dtype=bool)
+    target = np.clip(0.04 * rgb[..., 0] + 0.62 * rgb[..., 1] + 0.18 * rgb[..., 2] + 21, 0, 255).astype(np.uint8)
+
+    coefficients = source_subtraction._fit_projector_rgb_to_camera_luma(rgb, target, mask)
+
+    assert coefficients is not None
+    assert np.all(coefficients[:3] >= 0)
+    prediction = (
+        coefficients[0] * rgb[..., 0].astype(np.float32)
+        + coefficients[1] * rgb[..., 1].astype(np.float32)
+        + coefficients[2] * rgb[..., 2].astype(np.float32)
+        + coefficients[3]
+    )
+    assert float(np.percentile(np.abs(prediction - target), 95)) < 3.0
+
+
 def test_robust_component_top_ignores_single_high_noise_pixel() -> None:
     labels = np.zeros((40, 40), dtype=np.int32)
     labels[10:30, 15:25] = 1
