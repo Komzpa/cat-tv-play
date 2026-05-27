@@ -469,6 +469,7 @@ def _filter_source_projected_people(
     residual_threshold: float,
     min_residual_area_px: int,
     min_residual_fraction: float,
+    enable_residual_occluder_fallback: bool = False,
 ) -> tuple[list[PersonDetection], list[dict[str, Any]]]:
     residual_views = _build_residual_views(
         camera_image=camera_image,
@@ -530,7 +531,7 @@ def _filter_source_projected_people(
                     "reference_count": len(residual_views),
                 }
             )
-    if not accepted:
+    if not accepted and enable_residual_occluder_fallback:
         occluder_people, occluder_skipped = _detect_residual_occluder_people(
             residual_views,
             threshold=residual_threshold,
@@ -540,6 +541,8 @@ def _filter_source_projected_people(
         )
         accepted.extend(occluder_people)
         skipped.extend(occluder_skipped)
+    elif not accepted and not people and not ignored_camera_mask.any():
+        skipped.append({"reason": "residual_occluder_fallback_disabled"})
     return accepted, skipped
 
 
@@ -735,6 +738,7 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
                     residual_threshold=args.person_residual_threshold,
                     min_residual_area_px=args.person_min_residual_area_px,
                     min_residual_fraction=args.person_min_residual_fraction,
+                    enable_residual_occluder_fallback=args.enable_residual_occluder_fallback,
                 )
                 last_source_filter_ms = (time.monotonic() - source_filter_started) * 1000.0
                 last_source_filter_skipped = detector_skipped + filter_skipped
@@ -900,6 +904,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--person-residual-threshold", type=float, default=28.0)
     parser.add_argument("--person-min-residual-area-px", type=int, default=1200)
     parser.add_argument("--person-min-residual-fraction", type=float, default=0.10)
+    parser.add_argument("--enable-residual-occluder-fallback", action="store_true")
     parser.add_argument("--source-reference-frames", type=int, default=3)
     parser.add_argument("--camera-sample-interval", type=float, default=0.12)
     parser.add_argument("--camera-snapshot-timeout", type=float, default=0.8)

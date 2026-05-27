@@ -204,7 +204,7 @@ def test_source_subtraction_fits_projector_rgb_to_camera_luma() -> None:
     assert float(np.percentile(np.abs(residual[projection]), 95)) < 3.0
 
 
-def test_projector_rgb_mapping_keeps_nonnegative_channel_weights() -> None:
+def test_projector_rgb_mapping_keeps_bounded_channel_weights() -> None:
     rng = np.random.default_rng(42)
     rgb = rng.integers(0, 256, size=(80, 100, 3), dtype=np.uint8)
     mask = np.ones((80, 100), dtype=bool)
@@ -213,13 +213,8 @@ def test_projector_rgb_mapping_keeps_nonnegative_channel_weights() -> None:
     coefficients = source_subtraction._fit_projector_rgb_to_camera_luma(rgb, target, mask)
 
     assert coefficients is not None
-    assert np.all(coefficients[:3] >= 0)
-    prediction = (
-        coefficients[0] * rgb[..., 0].astype(np.float32)
-        + coefficients[1] * rgb[..., 1].astype(np.float32)
-        + coefficients[2] * rgb[..., 2].astype(np.float32)
-        + coefficients[3]
-    )
+    assert np.all(np.abs(coefficients[:-1]) <= 4.0)
+    prediction = source_subtraction._projector_rgb_features(rgb) @ coefficients
     assert float(np.percentile(np.abs(prediction - target), 95)) < 3.0
 
 
@@ -237,14 +232,37 @@ def test_projector_rgb_mapping_subsamples_large_fit_masks() -> None:
     )
 
     assert coefficients is not None
-    assert np.all(coefficients[:3] >= 0)
-    prediction = (
-        coefficients[0] * rgb[..., 0].astype(np.float32)
-        + coefficients[1] * rgb[..., 1].astype(np.float32)
-        + coefficients[2] * rgb[..., 2].astype(np.float32)
-        + coefficients[3]
-    )
+    assert np.all(np.abs(coefficients[:-1]) <= 4.0)
+    prediction = source_subtraction._projector_rgb_features(rgb) @ coefficients
     assert float(np.percentile(np.abs(prediction - target), 95)) < 4.0
+
+
+def test_projector_rgb_mapping_handles_mono_ir_like_camera_response() -> None:
+    rng = np.random.default_rng(44)
+    rgb = rng.integers(5, 256, size=(120, 160, 3), dtype=np.uint8)
+    mask = np.ones((120, 160), dtype=bool)
+    rgb_f = rgb.astype(np.float32)
+    channel_max = rgb_f.max(axis=2)
+    channel_min = rgb_f.min(axis=2)
+    saturation = channel_max - channel_min
+    sqrt_channel_max = np.sqrt(channel_max / 255.0) * 255.0
+    target = np.clip(
+        0.22 * rgb_f[..., 1] + 0.28 * channel_max + 0.10 * saturation + 0.16 * sqrt_channel_max + 9,
+        0,
+        255,
+    ).astype(np.uint8)
+
+    coefficients = source_subtraction._fit_projector_rgb_to_camera_luma(
+        rgb,
+        target,
+        mask,
+        max_fit_pixels=4000,
+    )
+
+    assert coefficients is not None
+    assert np.all(np.abs(coefficients[:-1]) <= 4.0)
+    prediction = source_subtraction._projector_rgb_features(rgb) @ coefficients
+    assert float(np.percentile(np.abs(prediction - target), 95)) < 5.0
 
 
 def test_robust_component_top_ignores_single_high_noise_pixel() -> None:

@@ -14,6 +14,19 @@ from dataclasses import dataclass
 import numpy as np
 from PIL import Image, ImageDraw
 
+PROJECTOR_RGB_FEATURE_NAMES = (
+    "red",
+    "green",
+    "blue",
+    "channel_max",
+    "channel_min",
+    "channel_mean",
+    "srgb_luma",
+    "saturation",
+    "sqrt_channel_max",
+    "bias",
+)
+
 
 @dataclass(frozen=True)
 class SourceSubtractionCandidate:
@@ -228,7 +241,7 @@ def _fit_projector_rgb_to_camera_luma(
     camera_gray: np.ndarray,
     fit_mask: np.ndarray,
     *,
-    max_fit_pixels: int = 12000,
+    max_fit_pixels: int = 3000,
 ) -> np.ndarray | None:
     rgb = warped_rgb.astype(np.float32)
     camera = camera_gray.astype(np.float32)
@@ -239,14 +252,7 @@ def _fit_projector_rgb_to_camera_luma(
     if int(keep.sum()) > max_fit_pixels:
         keep = _subsample_mask(keep, max_pixels=max_fit_pixels)
 
-    features = np.column_stack(
-        [
-            rgb[..., 0][keep],
-            rgb[..., 1][keep],
-            rgb[..., 2][keep],
-            np.ones(int(keep.sum()), dtype=np.float32),
-        ]
-    )
+    features = _projector_rgb_feature_matrix(rgb, keep)
     target = camera[keep]
     coefficients = _ridge_fit_projector_luma(features, target)
     prediction = features @ coefficients
@@ -254,9 +260,95 @@ def _fit_projector_rgb_to_camera_luma(
     cutoff = max(8.0, float(np.percentile(residual, 70)))
     robust_keep = residual <= cutoff
     if int(robust_keep.sum()) < 500:
-        return _nonnegative_projector_coefficients(features, target, coefficients)
+        return _regularized_projector_coefficients(features, target, coefficients)
     coefficients = _ridge_fit_projector_luma(features[robust_keep], target[robust_keep])
-    return _nonnegative_projector_coefficients(features[robust_keep], target[robust_keep], coefficients)
+    return _regularized_projector_coefficients(features[robust_keep], target[robust_keep], coefficients)
+
+
+def _projector_rgb_features(rgb: np.ndarray) -> np.ndarray:
+    """Return projector-color features used to model the camera's mono/IR view."""
+
+    rgb_f = rgb.astype(np.float32, copy=False)
+    red = rgb_f[..., 0]
+    green = rgb_f[..., 1]
+    blue = rgb_f[..., 2]
+    channel_max = rgb_f.max(axis=2)
+    channel_min = rgb_f.min(axis=2)
+    channel_mean = rgb_f.mean(axis=2)
+    srgb_luma = 0.299 * red + 0.587 * green + 0.114 * blue
+    saturation = channel_max - channel_min
+    sqrt_channel_max = np.sqrt(np.clip(channel_max, 0, 255) / 255.0) * 255.0
+    bias = np.ones(red.shape, dtype=np.float32)
+    return np.stack(
+        [
+            red,
+            green,
+            blue,
+            channel_max,
+            channel_min,
+            channel_mean,
+            srgb_luma,
+            saturation,
+            sqrt_channel_max,
+            bias,
+        ],
+        axis=2,
+    )
+
+
+def _projector_rgb_feature_matrix(rgb: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Return selected projector-color feature rows without allocating a full feature image."""
+
+    rgb_f = rgb.astype(np.float32, copy=False)
+    red = rgb_f[..., 0][mask]
+    green = rgb_f[..., 1][mask]
+    blue = rgb_f[..., 2][mask]
+    channel_max = np.maximum(np.maximum(red, green), blue)
+    channel_min = np.minimum(np.minimum(red, green), blue)
+    channel_mean = (red + green + blue) / 3.0
+    srgb_luma = 0.299 * red + 0.587 * green + 0.114 * blue
+    saturation = channel_max - channel_min
+    sqrt_channel_max = np.sqrt(np.clip(channel_max, 0, 255) / 255.0) * 255.0
+    bias = np.ones(red.shape, dtype=np.float32)
+    return np.column_stack(
+        [
+            red,
+            green,
+            blue,
+            channel_max,
+            channel_min,
+            channel_mean,
+            srgb_luma,
+            saturation,
+            sqrt_channel_max,
+            bias,
+        ]
+    )
+
+
+def _predict_projector_rgb_luma(rgb: np.ndarray, coefficients: np.ndarray) -> np.ndarray:
+    rgb_f = rgb.astype(np.float32, copy=False)
+    red = rgb_f[..., 0]
+    green = rgb_f[..., 1]
+    blue = rgb_f[..., 2]
+    channel_max = np.maximum(np.maximum(red, green), blue)
+    channel_min = np.minimum(np.minimum(red, green), blue)
+    channel_mean = (red + green + blue) / 3.0
+    srgb_luma = 0.299 * red + 0.587 * green + 0.114 * blue
+    saturation = channel_max - channel_min
+    sqrt_channel_max = np.sqrt(np.clip(channel_max, 0, 255) / 255.0) * 255.0
+    return (
+        coefficients[0] * red
+        + coefficients[1] * green
+        + coefficients[2] * blue
+        + coefficients[3] * channel_max
+        + coefficients[4] * channel_min
+        + coefficients[5] * channel_mean
+        + coefficients[6] * srgb_luma
+        + coefficients[7] * saturation
+        + coefficients[8] * sqrt_channel_max
+        + coefficients[9]
+    )
 
 
 def _subsample_mask(mask: np.ndarray, *, max_pixels: int) -> np.ndarray:
@@ -271,42 +363,49 @@ def _subsample_mask(mask: np.ndarray, *, max_pixels: int) -> np.ndarray:
 
 
 def _ridge_fit_projector_luma(features: np.ndarray, target: np.ndarray) -> np.ndarray:
-    """Fit RGB projector colors to camera luma without chasing correlated colors."""
+    """Fit projector colors to camera luma without chasing correlated colors."""
 
-    feature_scale = np.maximum(np.std(features[:, :3], axis=0), 1.0)
+    feature_count = features.shape[1] - 1
+    feature_scale = np.maximum(np.std(features[:, :feature_count], axis=0), 1.0)
     centered = features.copy()
-    centered[:, :3] = centered[:, :3] / feature_scale
-    ridge = np.diag(np.array([6.0, 6.0, 6.0, 0.0], dtype=np.float32))
+    centered[:, :feature_count] = centered[:, :feature_count] / feature_scale
+    ridge_weights = np.full(features.shape[1], 10.0, dtype=np.float32)
+    ridge_weights[-1] = 0.0
+    ridge = np.diag(ridge_weights)
     try:
         coefficients = np.linalg.solve(centered.T @ centered + ridge, centered.T @ target)
     except np.linalg.LinAlgError:
         coefficients, *_rest = np.linalg.lstsq(centered, target, rcond=None)
-    coefficients[:3] = coefficients[:3] / feature_scale
+    coefficients[:feature_count] = coefficients[:feature_count] / feature_scale
     return coefficients.astype(np.float32)
 
 
-def _nonnegative_projector_coefficients(
+def _regularized_projector_coefficients(
     features: np.ndarray,
     target: np.ndarray,
     coefficients: np.ndarray,
 ) -> np.ndarray:
-    """Keep the fitted camera response physically plausible for mono/IR views."""
+    """Keep the fitted camera response bounded without breaking IR-like fits."""
 
-    output = coefficients.astype(np.float32, copy=True)
-    output[:3] = np.clip(output[:3], 0.0, 4.0)
-    output[3] = float(np.median(target - features[:, :3] @ output[:3]))
-    if float(output[:3].sum()) < 0.02:
+    raw = coefficients.astype(np.float32, copy=True)
+    raw[:-1] = np.clip(raw[:-1], -4.0, 4.0)
+    raw[-1] = float(np.median(target - features[:, :-1] @ raw[:-1]))
+    if float(np.abs(raw[:-1]).sum()) < 0.02:
         return _fit_grayscale_projector_coefficients(features, target)
-    return output.astype(np.float32)
+    return raw.astype(np.float32)
 
 
 def _fit_grayscale_projector_coefficients(features: np.ndarray, target: np.ndarray) -> np.ndarray:
-    luma = 0.299 * features[:, 0] + 0.587 * features[:, 1] + 0.114 * features[:, 2]
+    luma_index = PROJECTOR_RGB_FEATURE_NAMES.index("srgb_luma")
+    luma = features[:, luma_index]
     source_low, source_high = np.percentile(luma, [10, 90])
     target_low, target_high = np.percentile(target, [10, 90])
     scale = max(0.02, min(4.0, float(target_high - target_low) / max(1.0, float(source_high - source_low))))
     offset = float(np.median(target - scale * luma))
-    return np.array([0.299 * scale, 0.587 * scale, 0.114 * scale, offset], dtype=np.float32)
+    coefficients = np.zeros(features.shape[1], dtype=np.float32)
+    coefficients[luma_index] = scale
+    coefficients[-1] = offset
+    return coefficients
 
 
 def _projector_rgb_expected_luma(
@@ -320,13 +419,7 @@ def _projector_rgb_expected_luma(
         scale, offset = _robust_linear_match(warped_luma, camera_gray, fit_mask)
         return np.clip(scale * warped_luma.astype(np.float32) + offset, 0, 255)
 
-    rgb = warped_rgb.astype(np.float32)
-    expected = (
-        coefficients[0] * rgb[..., 0]
-        + coefficients[1] * rgb[..., 1]
-        + coefficients[2] * rgb[..., 2]
-        + coefficients[3]
-    )
+    expected = _predict_projector_rgb_luma(warped_rgb, coefficients)
     return np.clip(expected, 0, 255)
 
 

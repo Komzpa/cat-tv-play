@@ -113,7 +113,7 @@ def test_source_filter_rejects_projected_video_content_from_reference_frame() ->
     assert skipped[0]["best_reference_index"] == 1
 
 
-def test_source_filter_falls_back_to_physical_occluder_without_detector_person() -> None:
+def test_source_filter_does_not_create_eye_zone_from_residual_without_detector_person_by_default() -> None:
     source = Image.new("RGB", (1280, 720), "white")
     camera = source.copy()
     ImageDraw.Draw(camera).rectangle((520, 180, 760, 520), fill="black")
@@ -126,6 +126,26 @@ def test_source_filter_falls_back_to_physical_occluder_without_detector_person()
         residual_threshold=28.0,
         min_residual_area_px=1200,
         min_residual_fraction=0.10,
+    )
+
+    assert accepted == []
+    assert skipped == [{"reason": "residual_occluder_fallback_disabled"}]
+
+
+def test_source_filter_can_fall_back_to_physical_occluder_when_enabled() -> None:
+    source = Image.new("RGB", (1280, 720), "white")
+    camera = source.copy()
+    ImageDraw.Draw(camera).rectangle((520, 180, 760, 520), fill="black")
+
+    accepted, skipped = overlay_server._filter_source_projected_people(
+        [],
+        camera_image=camera,
+        source_frame=source,
+        projector_polygon=FULL_FRAME_PROJECTOR,
+        residual_threshold=28.0,
+        min_residual_area_px=1200,
+        min_residual_fraction=0.10,
+        enable_residual_occluder_fallback=True,
     )
 
     assert skipped == []
