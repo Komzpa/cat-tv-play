@@ -77,6 +77,32 @@ def test_source_filter_keeps_real_occluder_in_projector_beam() -> None:
     assert accepted[0].debug["source_subtracted_residual_area_px"] > 1200
 
 
+def test_source_filter_can_run_scaled_without_changing_detector_bbox() -> None:
+    source = Image.new("RGB", (1280, 720), "white")
+    camera = source.copy()
+    ImageDraw.Draw(camera).rectangle((500, 130, 790, 390), fill="black")
+    person = overlay_server.PersonDetection(
+        bbox_xyxy=(500.0, 130.0, 790.0, 390.0),
+        confidence=0.9,
+        source="test",
+    )
+
+    accepted, skipped = overlay_server._filter_source_projected_people(
+        [person],
+        camera_image=camera,
+        source_frame=source,
+        projector_polygon=FULL_FRAME_PROJECTOR,
+        residual_threshold=28.0,
+        min_residual_area_px=1200,
+        min_residual_fraction=0.10,
+        source_filter_scale=0.5,
+    )
+
+    assert skipped == []
+    assert accepted[0].bbox_xyxy == person.bbox_xyxy
+    assert accepted[0].debug["source_filter_scale"] == 0.5
+
+
 def test_source_filter_rejects_projected_video_content_from_reference_frame() -> None:
     current_source = Image.new("RGB", (1280, 720), "white")
     cat_intro_source = Image.new("RGB", (1280, 720), "white")
@@ -312,6 +338,7 @@ def test_runtime_defaults_prioritize_low_latency_camera_updates() -> None:
 
     assert args.fps == 20
     assert args.source_reference_frames == 3
+    assert args.source_filter_scale == 0.5
     assert args.camera_sample_interval == 0.06
     assert args.camera_snapshot_timeout == 0.8
     assert args.eye_safety_trail_seconds == 0.5

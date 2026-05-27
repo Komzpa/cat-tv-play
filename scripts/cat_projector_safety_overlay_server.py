@@ -415,6 +415,24 @@ def _fixed_rect_to_polygon(rect: tuple[int, int, int, int] | None) -> tuple[tupl
     return ((float(x0), float(y0)), (float(x1), float(y0)), (float(x1), float(y1)), (float(x0), float(y1)))
 
 
+def _scale_projector_polygon(
+    projector_polygon: tuple[tuple[float, float], ...],
+    scale: float,
+) -> tuple[tuple[float, float], ...]:
+    return tuple((float(x) * scale, float(y) * scale) for x, y in projector_polygon)
+
+
+def _scale_person_detection(person: PersonDetection, scale: float) -> PersonDetection:
+    x0, y0, x1, y1 = person.bbox_xyxy
+    return PersonDetection(
+        bbox_xyxy=(x0 * scale, y0 * scale, x1 * scale, y1 * scale),
+        confidence=person.confidence,
+        source=person.source,
+        mask=None,
+        debug=person.debug,
+    )
+
+
 def _detect_residual_occluder_people(
     residual_views: list[tuple[int, np.ndarray, np.ndarray]],
     *,
@@ -513,25 +531,39 @@ def _filter_source_projected_people(
     min_residual_area_px: int,
     min_residual_fraction: float,
     enable_residual_occluder_fallback: bool = False,
+    source_filter_scale: float = 1.0,
 ) -> tuple[list[PersonDetection], list[dict[str, Any]]]:
     if not people and not enable_residual_occluder_fallback and not ignored_source_polygons:
         return [], [{"reason": "residual_occluder_fallback_disabled"}]
 
+    scale = max(0.1, min(1.0, float(source_filter_scale)))
+    filter_camera_image = camera_image
+    filter_projector_polygon = projector_polygon
+    filter_people = people
+    filter_min_residual_area_px = min_residual_area_px
+    if scale < 1.0:
+        width, height = camera_image.size
+        filter_camera_image = camera_image.resize((max(1, int(width * scale)), max(1, int(height * scale))))
+        filter_projector_polygon = _scale_projector_polygon(projector_polygon, scale)
+        filter_people = [_scale_person_detection(person, scale) for person in people]
+        filter_min_residual_area_px = max(1, int(round(min_residual_area_px * scale * scale)))
+
     residual_views = _build_residual_views(
-        camera_image=camera_image,
+        camera_image=filter_camera_image,
         source_frame=source_frame,
         source_reference_frames=source_reference_frames,
-        projector_polygon=projector_polygon,
+        projector_polygon=filter_projector_polygon,
     )
     ignored_camera_mask = _source_polygons_to_camera_mask(
         source_polygons=ignored_source_polygons or [],
         source_size=source_size,
-        projector_polygon=projector_polygon,
-        camera_size=camera_image.size,
+        projector_polygon=filter_projector_polygon,
+        camera_size=filter_camera_image.size,
     )
     accepted: list[PersonDetection] = []
     skipped: list[dict[str, Any]] = []
-    for index, person in enumerate(people):
+    for index, person in enumerate(filter_people):
+        original_person = people[index]
         stats = [
             (
                 frame_index,
@@ -549,42 +581,55 @@ def _filter_source_projected_people(
             key=lambda item: (item[1], item[2]),
         )
         debug = {
-            **person.debug,
+            **original_person.debug,
             "source_subtracted_residual_area_px": residual_area,
             "source_subtracted_residual_fraction": residual_fraction,
             "source_subtracted_best_reference_index": best_frame_index,
             "source_subtracted_reference_count": len(residual_views),
+            "source_filter_scale": scale,
         }
         enriched = PersonDetection(
-            bbox_xyxy=person.bbox_xyxy,
-            confidence=person.confidence,
-            source=person.source,
-            mask=person.mask,
+            bbox_xyxy=original_person.bbox_xyxy,
+            confidence=original_person.confidence,
+            source=original_person.source,
+            mask=original_person.mask,
             debug=debug,
         )
-        if residual_area >= min_residual_area_px and residual_fraction >= min_residual_fraction:
+        if residual_area >= filter_min_residual_area_px and residual_fraction >= min_residual_fraction:
             accepted.append(enriched)
         else:
             skipped.append(
                 {
                     "index": index,
                     "reason": "matches_projected_source",
-                    "bbox_xyxy": person.bbox_xyxy,
-                    "confidence": person.confidence,
+                    "bbox_xyxy": original_person.bbox_xyxy,
+                    "confidence": original_person.confidence,
                     "residual_area_px": residual_area,
                     "residual_fraction": residual_fraction,
                     "best_reference_index": best_frame_index,
                     "reference_count": len(residual_views),
+                    "source_filter_scale": scale,
                 }
             )
     if not accepted and enable_residual_occluder_fallback:
         occluder_people, occluder_skipped = _detect_residual_occluder_people(
             residual_views,
             threshold=residual_threshold,
-            min_residual_area_px=min_residual_area_px,
+            min_residual_area_px=filter_min_residual_area_px,
             min_residual_fraction=min_residual_fraction,
             ignored_camera_mask=ignored_camera_mask,
         )
+        if scale < 1.0:
+            occluder_people = [
+                PersonDetection(
+                    bbox_xyxy=tuple(value / scale for value in person.bbox_xyxy),
+                    confidence=person.confidence,
+                    source=person.source,
+                    mask=person.mask,
+                    debug={**person.debug, "source_filter_scale": scale},
+                )
+                for person in occluder_people
+            ]
         accepted.extend(occluder_people)
         skipped.extend(occluder_skipped)
     elif not accepted and not people and not ignored_camera_mask.any():
@@ -786,6 +831,7 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
                     min_residual_area_px=args.person_min_residual_area_px,
                     min_residual_fraction=args.person_min_residual_fraction,
                     enable_residual_occluder_fallback=args.enable_residual_occluder_fallback,
+                    source_filter_scale=args.source_filter_scale,
                 )
                 last_source_filter_ms = (time.monotonic() - source_filter_started) * 1000.0
                 last_source_filter_skipped = detector_skipped + filter_skipped
@@ -996,6 +1042,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--person-residual-threshold", type=float, default=28.0)
     parser.add_argument("--person-min-residual-area-px", type=int, default=1200)
     parser.add_argument("--person-min-residual-fraction", type=float, default=0.10)
+    parser.add_argument("--source-filter-scale", type=float, default=0.5)
     parser.add_argument("--enable-residual-occluder-fallback", action="store_true")
     parser.add_argument("--source-reference-frames", type=int, default=3)
     parser.add_argument("--camera-sample-interval", type=float, default=0.06)
