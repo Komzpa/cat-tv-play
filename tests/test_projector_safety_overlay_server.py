@@ -152,3 +152,68 @@ def test_source_filter_ignores_own_fixed_black_rect_feedback() -> None:
 
     assert accepted == []
     assert skipped == []
+
+
+def test_eye_safety_hold_keeps_last_zone_during_short_detector_gap() -> None:
+    person = overlay_server.PersonDetection(
+        bbox_xyxy=(500.0, 130.0, 790.0, 390.0),
+        confidence=0.9,
+        source="test",
+    )
+    zone = overlay_server.projector_safety.SafetyOverlayZone(
+        polygon=((520.0, 160.0), (760.0, 160.0), (760.0, 260.0), (520.0, 260.0)),
+        camera_bbox_xyxy=person.bbox_xyxy,
+    )
+    active = overlay_server.SafetyOverlayResult("active", zones=(zone,), debug={"zone_count": 1})
+
+    result, held_result, held_people, held_at = overlay_server._apply_eye_safety_hold(
+        active,
+        current_people=[person],
+        held_result=None,
+        held_people=[],
+        held_at=0.0,
+        now=10.0,
+        hold_seconds=2.0,
+    )
+    assert result is active
+
+    gap = overlay_server.SafetyOverlayResult("no_person", debug={"person_count": 0})
+    held, held_result, held_people, held_at = overlay_server._apply_eye_safety_hold(
+        gap,
+        current_people=[],
+        held_result=held_result,
+        held_people=held_people,
+        held_at=held_at,
+        now=11.2,
+        hold_seconds=2.0,
+    )
+
+    assert held.status == "active"
+    assert held.zones == (zone,)
+    assert held.debug["held_after_last_detection"] is True
+    assert held.debug["held_source_status"] == "no_person"
+    assert held_people == [person]
+
+
+def test_eye_safety_hold_expires_after_timeout() -> None:
+    zone = overlay_server.projector_safety.SafetyOverlayZone(
+        polygon=((520.0, 160.0), (760.0, 160.0), (760.0, 260.0), (520.0, 260.0)),
+        camera_bbox_xyxy=(500.0, 130.0, 790.0, 390.0),
+    )
+    held_result = overlay_server.SafetyOverlayResult("active", zones=(zone,), debug={})
+    current = overlay_server.SafetyOverlayResult("no_person", debug={"person_count": 0})
+
+    result, next_held_result, held_people, held_at = overlay_server._apply_eye_safety_hold(
+        current,
+        current_people=[],
+        held_result=held_result,
+        held_people=[],
+        held_at=10.0,
+        now=12.1,
+        hold_seconds=2.0,
+    )
+
+    assert result is current
+    assert next_held_result is None
+    assert held_people == []
+    assert held_at == 0.0

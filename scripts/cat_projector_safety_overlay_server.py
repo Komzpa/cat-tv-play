@@ -688,6 +688,9 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
     last_source_filter_skipped: list[dict[str, Any]] = []
     last_camera_error: str | None = None
     last_blackout_polygons: list[tuple[tuple[float, float], ...]] = []
+    held_result: SafetyOverlayResult | None = None
+    held_people: list[PersonDetection] = []
+    held_at = 0.0
 
     while True:
         started = time.monotonic()
@@ -748,10 +751,19 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
                     zones=result.zones,
                     debug={**result.debug, "source_filter_skipped": last_source_filter_skipped},
                 )
+            result, held_result, held_people, held_at = _apply_eye_safety_hold(
+                result,
+                current_people=last_people,
+                held_result=held_result,
+                held_people=held_people,
+                held_at=held_at,
+                now=time.monotonic(),
+                hold_seconds=args.eye_safety_hold_seconds,
+            )
             last_blackout_polygons = [zone.polygon for zone in result.zones]
         state.update(
             result,
-            people=last_people,
+            people=held_people if result.debug.get("held_after_last_detection") else last_people,
             source_size=args.source_size,
             fixed_black_rect=args.fixed_black_rect,
             camera_image=last_camera,
@@ -768,6 +780,38 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
         elapsed = time.monotonic() - started
         if elapsed < frame_interval:
             time.sleep(frame_interval - elapsed)
+
+
+def _apply_eye_safety_hold(
+    result: SafetyOverlayResult,
+    *,
+    current_people: list[PersonDetection],
+    held_result: SafetyOverlayResult | None,
+    held_people: list[PersonDetection],
+    held_at: float,
+    now: float,
+    hold_seconds: float,
+) -> tuple[SafetyOverlayResult, SafetyOverlayResult | None, list[PersonDetection], float]:
+    if hold_seconds <= 0:
+        return result, None, [], 0.0
+    if result.status == "active" and result.zones:
+        return result, result, list(current_people), now
+    if held_result is None or now - held_at > hold_seconds:
+        return result, None, [], 0.0
+
+    held_debug = {
+        **result.debug,
+        "held_after_last_detection": True,
+        "held_for_seconds": round(now - held_at, 3),
+        "held_source_status": result.status,
+        "held_zone_count": len(held_result.zones),
+    }
+    return (
+        SafetyOverlayResult("active", zones=held_result.zones, debug=held_debug),
+        held_result,
+        held_people,
+        held_at,
+    )
 
 
 def serve(args: argparse.Namespace) -> int:
@@ -817,6 +861,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--person-min-residual-fraction", type=float, default=0.10)
     parser.add_argument("--source-reference-frames", type=int, default=36)
     parser.add_argument("--camera-sample-interval", type=float, default=0.35)
+    parser.add_argument("--eye-safety-hold-seconds", type=float, default=2.0)
     parser.add_argument("--person-min-confidence", type=float, default=0.35)
     parser.add_argument("--human-detector-prototxt", type=Path, default=DEFAULT_HUMAN_DETECTOR_PROTOTXT)
     parser.add_argument("--human-detector-model", type=Path, default=DEFAULT_HUMAN_DETECTOR_MODEL)
