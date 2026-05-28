@@ -798,9 +798,252 @@ class SafetyRuntime:
             return self._snapshot
 
 
+@dataclass(frozen=True)
+class SmoothedPersonTrack:
+    bbox_xyxy: tuple[float, float, float, float]
+    velocity_xy_px_s: tuple[float, float]
+    confidence: float
+    last_seen_at: float
+    last_update_at: float
+    source: str
+    debug: dict[str, Any] = field(default_factory=dict)
+
+
 def _bbox_center(bbox_xyxy: tuple[float, float, float, float]) -> tuple[float, float]:
     x0, y0, x1, y1 = bbox_xyxy
     return (float(x0) + float(x1)) / 2.0, (float(y0) + float(y1)) / 2.0
+
+
+def _bbox_lerp(
+    left: tuple[float, float, float, float],
+    right: tuple[float, float, float, float],
+    alpha: float,
+) -> tuple[float, float, float, float]:
+    return (
+        float(left[0]) * (1.0 - alpha) + float(right[0]) * alpha,
+        float(left[1]) * (1.0 - alpha) + float(right[1]) * alpha,
+        float(left[2]) * (1.0 - alpha) + float(right[2]) * alpha,
+        float(left[3]) * (1.0 - alpha) + float(right[3]) * alpha,
+    )
+
+
+def _shift_bbox(
+    bbox_xyxy: tuple[float, float, float, float],
+    offset_x: float,
+    offset_y: float,
+) -> tuple[float, float, float, float]:
+    x0, y0, x1, y1 = bbox_xyxy
+    return x0 + offset_x, y0 + offset_y, x1 + offset_x, y1 + offset_y
+
+
+def _clamp_server_bbox(
+    bbox_xyxy: tuple[float, float, float, float],
+    *,
+    camera_size: tuple[int, int],
+) -> tuple[float, float, float, float]:
+    width, height = camera_size
+    x0, y0, x1, y1 = bbox_xyxy
+    left = max(0.0, min(float(width - 1), min(x0, x1)))
+    top = max(0.0, min(float(height - 1), min(y0, y1)))
+    right = max(0.0, min(float(width), max(x0, x1)))
+    bottom = max(0.0, min(float(height), max(y0, y1)))
+    return left, top, right, bottom
+
+
+def _predict_track_bbox(
+    track: SmoothedPersonTrack,
+    *,
+    now: float,
+    camera_size: tuple[int, int],
+    max_speed_px_s: float,
+) -> tuple[float, float, float, float]:
+    elapsed = max(0.0, now - track.last_update_at)
+    velocity_x, velocity_y = _clamp_prediction_offset(
+        track.velocity_xy_px_s[0],
+        track.velocity_xy_px_s[1],
+        max_prediction_px=max_speed_px_s,
+    )
+    return _clamp_server_bbox(
+        _shift_bbox(track.bbox_xyxy, velocity_x * elapsed, velocity_y * elapsed),
+        camera_size=camera_size,
+    )
+
+
+def _track_to_detection(
+    track: SmoothedPersonTrack,
+    *,
+    now: float,
+    max_missing_seconds: float,
+    camera_size: tuple[int, int],
+    max_speed_px_s: float,
+) -> PersonDetection:
+    bbox = _predict_track_bbox(
+        track,
+        now=now,
+        camera_size=camera_size,
+        max_speed_px_s=max_speed_px_s,
+    )
+    missing_seconds = max(0.0, now - track.last_seen_at)
+    decay = 1.0 if max_missing_seconds <= 0 else max(0.2, 1.0 - missing_seconds / max_missing_seconds)
+    return PersonDetection(
+        bbox_xyxy=bbox,
+        confidence=float(track.confidence * decay),
+        source="physics_smoothed_person_track",
+        debug={
+            **track.debug,
+            "physics_smoothed": True,
+            "physics_predicted": True,
+            "track_missing_seconds": round(missing_seconds, 3),
+            "track_velocity_px_s": (round(track.velocity_xy_px_s[0], 2), round(track.velocity_xy_px_s[1], 2)),
+        },
+    )
+
+
+def _update_physical_person_tracks(
+    people: list[PersonDetection],
+    tracks: list[SmoothedPersonTrack],
+    *,
+    now: float,
+    camera_size: tuple[int, int],
+    max_missing_seconds: float,
+    max_speed_px_s: float,
+    smoothing_alpha: float,
+) -> tuple[list[PersonDetection], list[SmoothedPersonTrack], dict[str, Any]]:
+    if max_missing_seconds <= 0:
+        return people, [], {"physics_track_enabled": False}
+
+    alpha = max(0.05, min(1.0, smoothing_alpha))
+    active_tracks = [track for track in tracks if now - track.last_seen_at <= max_missing_seconds]
+    unmatched_tracks = list(active_tracks)
+    output_people: list[PersonDetection] = []
+    next_tracks: list[SmoothedPersonTrack] = []
+    matched_count = 0
+    predicted_count = 0
+
+    for person in people:
+        center_x, center_y = _bbox_center(person.bbox_xyxy)
+        match_index: int | None = None
+        match_distance: float | None = None
+        for index, track in enumerate(unmatched_tracks):
+            predicted_bbox = _predict_track_bbox(
+                track,
+                now=now,
+                camera_size=camera_size,
+                max_speed_px_s=max_speed_px_s,
+            )
+            predicted_x, predicted_y = _bbox_center(predicted_bbox)
+            distance = ((center_x - predicted_x) ** 2 + (center_y - predicted_y) ** 2) ** 0.5
+            elapsed = max(0.001, now - track.last_update_at)
+            gate = max(120.0, max_speed_px_s * elapsed * 1.25)
+            if distance <= gate and (match_distance is None or distance < match_distance):
+                match_index = index
+                match_distance = distance
+        if match_index is None:
+            bbox = _clamp_server_bbox(person.bbox_xyxy, camera_size=camera_size)
+            next_tracks.append(
+                SmoothedPersonTrack(
+                    bbox_xyxy=bbox,
+                    velocity_xy_px_s=(0.0, 0.0),
+                    confidence=person.confidence,
+                    last_seen_at=now,
+                    last_update_at=now,
+                    source=person.source,
+                    debug=dict(person.debug),
+                )
+            )
+            output_people.append(person)
+            continue
+
+        matched_count += 1
+        track = unmatched_tracks.pop(match_index)
+        predicted_bbox = _predict_track_bbox(
+            track,
+            now=now,
+            camera_size=camera_size,
+            max_speed_px_s=max_speed_px_s,
+        )
+        smoothed_bbox = _clamp_server_bbox(
+            _bbox_lerp(predicted_bbox, person.bbox_xyxy, alpha),
+            camera_size=camera_size,
+        )
+        elapsed = max(0.001, now - track.last_update_at)
+        previous_x, previous_y = _bbox_center(track.bbox_xyxy)
+        current_x, current_y = _bbox_center(person.bbox_xyxy)
+        measured_vx, measured_vy = _clamp_prediction_offset(
+            (current_x - previous_x) / elapsed,
+            (current_y - previous_y) / elapsed,
+            max_prediction_px=max_speed_px_s,
+        )
+        velocity_x = track.velocity_xy_px_s[0] * (1.0 - alpha) + measured_vx * alpha
+        velocity_y = track.velocity_xy_px_s[1] * (1.0 - alpha) + measured_vy * alpha
+        velocity_x, velocity_y = _clamp_prediction_offset(
+            velocity_x,
+            velocity_y,
+            max_prediction_px=max_speed_px_s,
+        )
+        debug = {
+            **person.debug,
+            "physics_smoothed": True,
+            "physics_predicted": False,
+            "track_match_distance_px": round(match_distance or 0.0, 2),
+            "track_velocity_px_s": (round(velocity_x, 2), round(velocity_y, 2)),
+        }
+        smoothed = PersonDetection(
+            bbox_xyxy=smoothed_bbox,
+            confidence=person.confidence,
+            source=person.source,
+            mask=person.mask,
+            debug=debug,
+        )
+        next_tracks.append(
+            SmoothedPersonTrack(
+                bbox_xyxy=smoothed_bbox,
+                velocity_xy_px_s=(velocity_x, velocity_y),
+                confidence=person.confidence,
+                last_seen_at=now,
+                last_update_at=now,
+                source=person.source,
+                debug=debug,
+            )
+        )
+        output_people.append(smoothed)
+
+    for track in unmatched_tracks:
+        missing_seconds = now - track.last_seen_at
+        if missing_seconds > max_missing_seconds:
+            continue
+        predicted_count += 1
+        predicted = _track_to_detection(
+            track,
+            now=now,
+            max_missing_seconds=max_missing_seconds,
+            camera_size=camera_size,
+            max_speed_px_s=max_speed_px_s,
+        )
+        output_people.append(predicted)
+        next_tracks.append(
+            SmoothedPersonTrack(
+                bbox_xyxy=predicted.bbox_xyxy,
+                velocity_xy_px_s=track.velocity_xy_px_s,
+                confidence=track.confidence,
+                last_seen_at=track.last_seen_at,
+                last_update_at=now,
+                source=track.source,
+                debug=track.debug,
+            )
+        )
+
+    return (
+        output_people,
+        next_tracks,
+        {
+            "physics_track_enabled": True,
+            "physics_track_count": len(next_tracks),
+            "physics_track_matched_count": matched_count,
+            "physics_track_predicted_count": predicted_count,
+            "physics_track_max_missing_seconds": max_missing_seconds,
+        },
+    )
 
 
 def _clamp_prediction_offset(
@@ -926,6 +1169,7 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
     held_at = 0.0
     previous_people: list[PersonDetection] = []
     previous_people_at: float | None = None
+    physics_tracks: list[SmoothedPersonTrack] = []
     last_blackout_polygons: list[tuple[tuple[float, float], ...]] = []
     sample_index = 0
 
@@ -990,6 +1234,17 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
             worker_loop_ms=worker_loop_ms_so_far,
             video_frame_interval=1.0 / max(1, args.fps),
         )
+        physics_debug: dict[str, Any] = {"physics_track_enabled": False}
+        if camera_image is not None and not camera_error:
+            people, physics_tracks, physics_debug = _update_physical_person_tracks(
+                people,
+                physics_tracks,
+                now=now,
+                camera_size=camera_image.size,
+                max_missing_seconds=args.person_track_max_missing_seconds,
+                max_speed_px_s=args.person_track_max_speed_px_s,
+                smoothing_alpha=args.person_track_smoothing_alpha,
+            )
         people = _annotate_motion_prediction(
             people,
             previous_people=previous_people,
@@ -1028,6 +1283,7 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
                     "prediction_horizon_seconds": round(horizon_seconds, 3),
                     "prediction_padding_px": args.eye_safety_prediction_padding_px,
                     "max_prediction_px": args.eye_safety_max_prediction_px,
+                    **physics_debug,
                 },
             )
             result, recent_eye_zone_results = _apply_eye_safety_trail(
@@ -1065,6 +1321,10 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
             "eye_safety_prediction_horizon_ms": round(horizon_seconds * 1000.0, 1),
             "eye_safety_prediction_padding_px": args.eye_safety_prediction_padding_px,
             "eye_safety_max_prediction_px": args.eye_safety_max_prediction_px,
+            "person_track_max_missing_seconds": args.person_track_max_missing_seconds,
+            "person_track_max_speed_px_s": args.person_track_max_speed_px_s,
+            "person_track_smoothing_alpha": args.person_track_smoothing_alpha,
+            **physics_debug,
         }
         runtime.update_snapshot(
             SafetyComputationSnapshot(
@@ -1388,11 +1648,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--camera-sample-interval", type=float, default=0.06)
     parser.add_argument("--camera-snapshot-timeout", type=float, default=0.8)
     parser.add_argument("--eye-safety-trail-seconds", type=float, default=0.15)
-    parser.add_argument("--eye-safety-hold-seconds", type=float, default=0.25)
+    parser.add_argument("--eye-safety-hold-seconds", type=float, default=0.0)
     parser.add_argument("--eye-safety-prediction-seconds", type=float, default=0.25)
     parser.add_argument("--eye-safety-prediction-padding-px", type=float, default=16.0)
     parser.add_argument("--eye-safety-max-prediction-px", type=float, default=220.0)
-    parser.add_argument("--max-active-overlay-age", type=float, default=0.35)
+    parser.add_argument("--max-active-overlay-age", type=float, default=0.9)
+    parser.add_argument("--person-track-max-missing-seconds", type=float, default=1.0)
+    parser.add_argument("--person-track-max-speed-px-s", type=float, default=1800.0)
+    parser.add_argument("--person-track-smoothing-alpha", type=float, default=0.65)
     parser.add_argument("--person-min-confidence", type=float, default=0.35)
     parser.add_argument("--human-detector-prototxt", type=Path, default=DEFAULT_HUMAN_DETECTOR_PROTOTXT)
     parser.add_argument("--human-detector-model", type=Path, default=DEFAULT_HUMAN_DETECTOR_MODEL)

@@ -242,6 +242,12 @@ covers the face area. If the detector, camera, or geometry is unavailable, the
 server reports `safety_overlay_unavailable`; production deployments must keep
 the independent lamp watchdog active instead of trusting the player alone.
 
+The live path also keeps a short physical person track. A detected person is
+not allowed to disappear between adjacent camera samples: the server carries the
+box forward for a bounded missing window using the measured velocity, then lets
+it expire. This smooths detector dropouts without returning to a long static
+black-square hold.
+
 ## Jump Tracking
 
 Review tooling should transform measurement points into wall centimeters before

@@ -388,6 +388,79 @@ def test_motion_prediction_clamps_large_offset() -> None:
     assert offset_y == 0.0
 
 
+def test_physical_track_predicts_person_through_short_detector_gap() -> None:
+    first = overlay_server.PersonDetection(
+        bbox_xyxy=(100.0, 100.0, 180.0, 260.0),
+        confidence=0.9,
+        source="test",
+    )
+    second = overlay_server.PersonDetection(
+        bbox_xyxy=(140.0, 100.0, 220.0, 260.0),
+        confidence=0.9,
+        source="test",
+    )
+
+    people, tracks, debug = overlay_server._update_physical_person_tracks(
+        [first],
+        [],
+        now=10.0,
+        camera_size=(640, 480),
+        max_missing_seconds=1.0,
+        max_speed_px_s=1800.0,
+        smoothing_alpha=1.0,
+    )
+    people, tracks, debug = overlay_server._update_physical_person_tracks(
+        [second],
+        tracks,
+        now=10.2,
+        camera_size=(640, 480),
+        max_missing_seconds=1.0,
+        max_speed_px_s=1800.0,
+        smoothing_alpha=1.0,
+    )
+    predicted, tracks, debug = overlay_server._update_physical_person_tracks(
+        [],
+        tracks,
+        now=10.4,
+        camera_size=(640, 480),
+        max_missing_seconds=1.0,
+        max_speed_px_s=1800.0,
+        smoothing_alpha=1.0,
+    )
+
+    assert people[0].bbox_xyxy == second.bbox_xyxy
+    assert len(predicted) == 1
+    assert predicted[0].source == "physics_smoothed_person_track"
+    assert predicted[0].bbox_xyxy[0] > second.bbox_xyxy[0]
+    assert predicted[0].debug["physics_predicted"] is True
+    assert debug["physics_track_predicted_count"] == 1
+
+
+def test_physical_track_expires_after_missing_window() -> None:
+    track = overlay_server.SmoothedPersonTrack(
+        bbox_xyxy=(100.0, 100.0, 180.0, 260.0),
+        velocity_xy_px_s=(200.0, 0.0),
+        confidence=0.9,
+        last_seen_at=10.0,
+        last_update_at=10.0,
+        source="test",
+    )
+
+    predicted, tracks, debug = overlay_server._update_physical_person_tracks(
+        [],
+        [track],
+        now=11.2,
+        camera_size=(640, 480),
+        max_missing_seconds=1.0,
+        max_speed_px_s=1800.0,
+        smoothing_alpha=0.65,
+    )
+
+    assert predicted == []
+    assert tracks == []
+    assert debug["physics_track_count"] == 0
+
+
 def test_stale_active_result_expires_to_clear_overlay() -> None:
     zone = overlay_server.projector_safety.SafetyOverlayZone(
         polygon=((520.0, 160.0), (760.0, 160.0), (760.0, 260.0), (520.0, 260.0)),
@@ -429,10 +502,13 @@ def test_runtime_defaults_prioritize_low_latency_camera_updates() -> None:
     assert args.camera_sample_interval == 0.06
     assert args.camera_snapshot_timeout == 0.8
     assert args.eye_safety_trail_seconds == 0.15
-    assert args.eye_safety_hold_seconds == 0.25
+    assert args.eye_safety_hold_seconds == 0.0
     assert args.eye_safety_prediction_seconds == 0.25
     assert args.eye_safety_prediction_padding_px == 16.0
     assert args.eye_safety_max_prediction_px == 220.0
-    assert args.max_active_overlay_age == 0.35
+    assert args.max_active_overlay_age == 0.9
+    assert args.person_track_max_missing_seconds == 1.0
+    assert args.person_track_max_speed_px_s == 1800.0
+    assert args.person_track_smoothing_alpha == 0.65
     assert args.status_only is False
     assert args.source_tracking_fps == 5
