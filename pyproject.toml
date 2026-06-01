@@ -16,6 +16,9 @@ dependencies = [
 review = [
   "opencv-python-headless",
 ]
+segmentation = [
+  "ultralytics",
+]
 sam = [
   "opencv-python-headless",
   "segment-anything",

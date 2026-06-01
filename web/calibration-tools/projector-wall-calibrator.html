@@ -146,10 +146,37 @@
       white-space: nowrap;
     }
 
-    .review-item-meta, #reviewStatus, #reviewDetail, #reviewActionLog {
+    .review-item-meta, #reviewStatus, #reviewDetail {
       color: var(--muted);
       font-size: 12px;
       line-height: 1.35;
+    }
+
+    #reviewActionLog {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: rgba(103,215,255,0.08);
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.4;
+      min-height: 46px;
+      padding: 8px;
+      white-space: pre-wrap;
+    }
+
+    #reviewActionLog.warn {
+      border-color: rgba(255,177,66,0.65);
+      background: rgba(255,177,66,0.12);
+    }
+
+    #reviewActionLog.ok {
+      border-color: rgba(62,212,132,0.65);
+      background: rgba(62,212,132,0.10);
+    }
+
+    #reviewActionLog.bad {
+      border-color: rgba(255,91,91,0.70);
+      background: rgba(255,91,91,0.12);
     }
 
     #reviewDetail {
@@ -495,15 +522,89 @@
 
     body.review-mode main {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(340px, 0.72fr);
-      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr) auto;
       gap: 10px;
       padding: 10px;
+      overflow: hidden;
     }
 
     body.review-mode .review-player-toolbar {
-      grid-column: 1 / span 2;
+      grid-column: 1;
       grid-row: 1;
+    }
+
+    .review-playback-controls {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    #reviewTimeline {
+      grid-column: 1;
+      grid-row: 3;
+      min-height: 92px;
+      border: 1px solid var(--line);
+      background: #101419;
+      border-radius: 6px;
+      padding: 8px;
+      display: grid;
+      grid-template-rows: 18px 1fr;
+      gap: 6px;
+    }
+
+    #reviewTimelineTrack {
+      position: relative;
+      min-height: 54px;
+      border-radius: 6px;
+      background: #050607;
+      overflow: hidden;
+      cursor: pointer;
+    }
+
+    .timeline-height-bar {
+      position: absolute;
+      bottom: 0;
+      min-width: 2px;
+      padding: 0;
+      border: 0;
+      border-radius: 2px 2px 0 0;
+      background: linear-gradient(to top, rgba(126, 231, 135, 0.28), rgba(126, 231, 135, 0.9));
+      opacity: 0.78;
+    }
+
+    .timeline-height-bar.legacy {
+      background: linear-gradient(to top, rgba(255, 166, 87, 0.24), rgba(255, 166, 87, 0.85));
+    }
+
+    .timeline-height-bar.rejected {
+      background: linear-gradient(to top, rgba(255, 123, 114, 0.22), rgba(255, 123, 114, 0.8));
+    }
+
+    .timeline-mark {
+      position: absolute;
+      top: 0;
+      min-width: 3px;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: var(--warn);
+      opacity: 0.95;
+      z-index: 1;
+    }
+
+    .timeline-mark.reviewed {
+      background: var(--ok);
+      opacity: 0.7;
+    }
+
+    .timeline-mark.active {
+      width: 4px;
+      background: var(--accent);
+      box-shadow: 0 0 0 2px rgba(103,215,255,0.35);
+      z-index: 3;
     }
 
     .review-output-pane {
@@ -514,12 +615,21 @@
       display: none;
       grid-template-rows: auto minmax(0, 1fr);
       overflow: hidden;
+      position: absolute;
+      right: 12px;
+      bottom: 12px;
+      width: min(28vw, 360px);
+      height: min(24vh, 220px);
+      z-index: 4;
+      box-shadow: 0 14px 36px rgba(0,0,0,0.45);
     }
 
     body.review-mode .review-output-pane {
+      display: none;
+    }
+
+    body.review-mode.compare-output .review-output-pane {
       display: grid;
-      grid-column: 2;
-      grid-row: 2;
     }
 
     .review-pane-title {
@@ -560,10 +670,15 @@
 
     body.review-mode .canvas-wrap {
       margin: 0;
-      align-self: start;
-      justify-self: start;
+      align-self: stretch;
+      justify-self: stretch;
       grid-column: 1;
       grid-row: 2;
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      display: grid;
+      place-items: center;
     }
 
     canvas {
@@ -724,20 +839,24 @@
         <div id="reviewVideos"></div>
 
         <div class="playlist-header">
-          <h2>Timeline</h2>
+          <h2>Next suspect</h2>
           <span id="frameStatus" class="muted">open a video</span>
         </div>
         <div class="row">
-          <button id="prevFrameBtn">Prev</button>
-          <button id="nextFrameBtn">Next</button>
+          <select id="reviewSuspectMode">
+            <option value="unreviewed">unreviewed first</option>
+            <option value="reviewed">reviewed suspects</option>
+            <option value="all">all suspicious</option>
+          </select>
+          <button id="nextSuspectBtn">Next suspect</button>
         </div>
         <div id="reviewFrames"></div>
 
-        <div class="playlist-header">
+        <div class="playlist-header calibration-only">
           <h2>Unsorted frames</h2>
           <button id="refreshReviewBtn">Refresh</button>
         </div>
-        <div class="row">
+        <div class="row calibration-only">
           <select id="reviewFilter">
             <option value="unreviewed">unreviewed</option>
             <option value="all">all</option>
@@ -747,8 +866,8 @@
             <option value="unsure">unsure</option>
           </select>
         </div>
-        <div id="reviewStatus">backend not loaded</div>
-        <div id="reviewQueue"></div>
+        <div id="reviewStatus" class="calibration-only">backend not loaded</div>
+        <div id="reviewQueue" class="calibration-only"></div>
       </div>
     </aside>
 
@@ -762,9 +881,28 @@
           <span id="reviewPlayerLabelChip" class="review-status-chip">unreviewed</span>
           <span id="reviewPlayerOutputChip" class="review-status-chip">no output</span>
         </div>
+        <div class="review-playback-controls">
+          <button id="playPauseBtn">Play</button>
+          <button id="prevFrameBtn">Prev</button>
+          <button id="nextFrameBtn">Next</button>
+          <label class="pill">Speed
+            <select id="playbackSpeed">
+              <option value="0">step</option>
+              <option value="0.25">0.25x</option>
+              <option value="0.5">0.5x</option>
+              <option value="1" selected>1x</option>
+              <option value="2">2x</option>
+            </select>
+          </label>
+          <label class="pill"><input id="compareOutputToggle" type="checkbox"> compare</label>
+        </div>
       </div>
       <div class="canvas-wrap">
         <canvas id="canvas" width="1280" height="720"></canvas>
+      </div>
+      <div id="reviewTimeline" class="review-only">
+        <div id="reviewTimelineLabel" class="muted">timeline waits for a video</div>
+        <div id="reviewTimelineTrack"></div>
       </div>
       <div class="review-output-pane review-only">
         <div id="modelOutputTitle" class="review-pane-title">previous model output</div>
@@ -805,18 +943,20 @@
         <h2>Frame inspector</h2>
         <div id="reviewDetail">open a frame from the review queue</div>
         <div class="row review-actions">
-          <button id="labelCatBtn">Cat</button>
-          <button id="labelNotCatBtn">Not cat</button>
+          <button id="labelCatBtn">Mask OK</button>
+          <button id="labelNotCatBtn">No cat / false jump</button>
+          <button id="missedCatBtn">Cat missed</button>
+          <button id="badGeometryBtn">Fix mask</button>
           <button id="labelUnsureBtn">Unsure</button>
-          <button id="saveReviewBtn">Save</button>
+          <button id="saveReviewBtn">Save and next</button>
         </div>
         <textarea id="reviewNotes" spellcheck="false" placeholder="notes"></textarea>
         <div class="row">
           <button id="markVideoOkBtn">Relabeled / OK</button>
           <button id="retrainModelBtn">Retrain model</button>
-          <button id="rescoreRecordingBtn">Rescore video</button>
+          <button id="rescoreRecordingBtn">Record rescore</button>
         </div>
-        <div id="reviewActionLog">actions are explicit queue records; nothing retrains silently</div>
+        <div id="reviewActionLog">No retrain/rescore requested yet.</div>
       </div>
 
       <div class="section mask-tools">
@@ -824,6 +964,8 @@
         <div class="row">
           <button id="addCatBtn">New mask</button>
           <button id="autoCatBtn">Auto contour</button>
+          <button id="clearGeometryBtn">Clear geometry</button>
+          <button id="undoGeometryBtn">Undo</button>
           <button id="duplicateCatBtn">Duplicate</button>
           <button id="deleteCatBtn">Delete</button>
         </div>
@@ -984,6 +1126,8 @@
     const catMaskStatus = document.getElementById("catMaskStatus");
     const addCatBtn = document.getElementById("addCatBtn");
     const autoCatBtn = document.getElementById("autoCatBtn");
+    const clearGeometryBtn = document.getElementById("clearGeometryBtn");
+    const undoGeometryBtn = document.getElementById("undoGeometryBtn");
     const duplicateCatBtn = document.getElementById("duplicateCatBtn");
     const deleteCatBtn = document.getElementById("deleteCatBtn");
     const catLabel = document.getElementById("catLabel");
@@ -998,19 +1142,28 @@
     const markVideoOkBtn = document.getElementById("markVideoOkBtn");
     const prevFrameBtn = document.getElementById("prevFrameBtn");
     const nextFrameBtn = document.getElementById("nextFrameBtn");
+    const nextSuspectBtn = document.getElementById("nextSuspectBtn");
+    const playPauseBtn = document.getElementById("playPauseBtn");
+    const playbackSpeed = document.getElementById("playbackSpeed");
+    const compareOutputToggle = document.getElementById("compareOutputToggle");
     const reviewVideoStatus = document.getElementById("reviewVideoStatus");
     const reviewVideosEl = document.getElementById("reviewVideos");
     const reviewFramesEl = document.getElementById("reviewFrames");
+    const reviewSuspectMode = document.getElementById("reviewSuspectMode");
     const frameStatus = document.getElementById("frameStatus");
     const modelOutputTitle = document.getElementById("modelOutputTitle");
     const modelOutputImage = document.getElementById("modelOutputImage");
     const modelOutputEmpty = document.getElementById("modelOutputEmpty");
+    const reviewTimelineLabel = document.getElementById("reviewTimelineLabel");
+    const reviewTimelineTrack = document.getElementById("reviewTimelineTrack");
     const reviewStatus = document.getElementById("reviewStatus");
     const reviewQueue = document.getElementById("reviewQueue");
     const reviewDetail = document.getElementById("reviewDetail");
     const reviewNotes = document.getElementById("reviewNotes");
     const labelCatBtn = document.getElementById("labelCatBtn");
     const labelNotCatBtn = document.getElementById("labelNotCatBtn");
+    const missedCatBtn = document.getElementById("missedCatBtn");
+    const badGeometryBtn = document.getElementById("badGeometryBtn");
     const labelUnsureBtn = document.getElementById("labelUnsureBtn");
     const saveReviewBtn = document.getElementById("saveReviewBtn");
     const retrainModelBtn = document.getElementById("retrainModelBtn");
@@ -1029,10 +1182,23 @@
     let reviewVideos = [];
     let reviewFrames = [];
     let reviewCases = [];
+    let suspectQueue = [];
+    let reviewedSuspectQueue = [];
     let activeReviewVideoId = null;
     let activeReviewFrameIndex = -1;
     let activeReviewCaseId = null;
     let activeReviewLabel = "unsure";
+    let activeReviewDecision = "unsure";
+    let playbackTimer = null;
+    let playbackBaseFps = 15;
+    let reviewVideoRequestSerial = 0;
+    let reviewVideoAbortController = null;
+    let reviewFrameRequestSerial = 0;
+    let reviewCaseRequestSerial = 0;
+    let activeReviewJobId = null;
+    let reviewJobPollTimer = null;
+    const SAVE_NEXT_SKIP_SECONDS = 1.5;
+    let geometryUndoStack = [];
     let calibrationCases = [];
     let activeCaseId = null;
     let selectedId = null;
@@ -1242,16 +1408,34 @@
       };
     }
 
-    function storedCatAnnotationsFrom(items) {
+    function rawImagePoint(point) {
+      if (Array.isArray(point)) {
+        point = { x: point[0], y: point[1] };
+      }
+      return {
+        x: Number(point.x),
+        y: Number(point.y)
+      };
+    }
+
+    function storedCatAnnotationsFrom(items, options = {}) {
+      const clamp = options.clamp !== false;
+      const normalise = point => clamp ? clampImagePoint(point) : rawImagePoint(point);
       return (items || []).map((item, index) => {
-        const polygon = (item.polygon || item.contour || []).map(clampImagePoint);
+        const polygon = (item.polygon || item.contour || []).map(normalise).filter(point =>
+          Number.isFinite(point.x) && Number.isFinite(point.y)
+        );
         return {
           id: item.id || `cat.imported${index + 1}`,
           label: item.label || "Sher",
           kind: item.kind || "cat",
           source: item.source || "manual_polygon",
-          positive_points: (item.positive_points || []).map(clampImagePoint),
-          negative_points: (item.negative_points || []).map(clampImagePoint),
+          positive_points: (item.positive_points || []).map(normalise).filter(point =>
+            Number.isFinite(point.x) && Number.isFinite(point.y)
+          ),
+          negative_points: (item.negative_points || []).map(normalise).filter(point =>
+            Number.isFinite(point.x) && Number.isFinite(point.y)
+          ),
           polygon,
           bbox_xywh: item.bbox_xywh || catBBox({ polygon }),
           score: typeof item.score === "number" ? item.score : null,
@@ -2131,6 +2315,137 @@
       return "unsure";
     }
 
+    function yesNoStatus(value) {
+      if (value === true || value === "true" || value === "yes" || value === "cat") return "cat";
+      if (value === false || value === "false" || value === "no" || value === "not_cat") return "not cat";
+      return "unknown";
+    }
+
+    function frameCandidateStatus(item) {
+      const explicit = yesNoStatus(item?.candidate_is_cat);
+      if (explicit !== "unknown") return explicit;
+      const legacy = yesNoStatus(item?.label_candidate_is_cat);
+      if (legacy !== "unknown") return legacy;
+      const label = normaliseReviewLabel(item?.human_label);
+      if (label === "cat") return "cat";
+      if (label === "not_cat") return "not cat";
+      return "unknown";
+    }
+
+    function framePresenceStatus(item) {
+      const explicit = yesNoStatus(item?.cat_present);
+      if (explicit !== "unknown") return explicit;
+      const legacy = yesNoStatus(item?.label_cat_present);
+      if (legacy !== "unknown") return legacy;
+      return frameCandidateStatus(item);
+    }
+
+    function frameStatusText(item) {
+      if (!item) return "no frame";
+      const reviewed = item.review_status || "unreviewed";
+      const presence = framePresenceStatus(item);
+      const candidate = frameCandidateStatus(item);
+      if (presence === "unknown" && candidate === "unknown") return `${reviewed} · unknown`;
+      if (presence === candidate) return `${reviewed} · ${presence}`;
+      return `${reviewed} · frame ${presence} · candidate ${candidate}`;
+    }
+
+    function decisionToLabel(decision, item = activeReviewCase()) {
+      if (decision === "false_positive") return "not_cat";
+      if (decision === "missed_cat" || decision === "bad_geometry") return "cat";
+      if (decision === "good") return "cat";
+      return "unsure";
+    }
+
+    function reviewActionHint(item = activeReviewCase()) {
+      const status = frameCandidateStatus(item);
+      const height = typeof item?.best_top_height_cm === "number" ? ` ${item.best_top_height_cm.toFixed(1)} cm` : "";
+      if (status === "cat") return `Sher mask/height${height} looks right? Press Mask OK (G). No Sher here? Press No cat / false jump (F).`;
+      if (status === "not cat") return "No Sher here? Press No cat / false jump (F). Sher visible? Press Cat missed (M).";
+      return "Review the frame, not the old candidate: Mask OK (G), No cat / false jump (F), Cat missed (M), Fix mask (B).";
+    }
+
+    function setSaveState(text, className = "") {
+      reviewActionLog.textContent = text;
+      reviewActionLog.className = className;
+    }
+
+    function actionLabel(action) {
+      if (action === "retrain_model") return "Retrain model";
+      if (action === "rescore_recording") return "Rescore recording";
+      if (action === "rerender_overlay") return "Rerender overlay";
+      return action || "Review action";
+    }
+
+    function summarizeReviewAction(payload) {
+      const lines = [];
+      const action = actionLabel(payload.action);
+      const status = payload.status || "queued";
+      const data = payload.payload || {};
+      const isLiveJob = String(payload.kind || "").endsWith("_job_v1");
+      const logText = (payload.log || []).join("\n");
+      const isLegacyMock = /\bmock\b/i.test(logText) && !payload.result;
+      lines.push(`${action}: ${status}`);
+      if (!isLiveJob && (data.job_mode === "recorded_without_live_jobs" || data.job_mode === "queued_without_live_jobs")) {
+        lines.push("Recorded only; live jobs are disabled, so nothing will run automatically.");
+      } else if (!isLiveJob) {
+        lines.push("Queued as a local action record.");
+      } else if (isLegacyMock) {
+        lines.push("Old status-only job record. Press Rescore now to run active-learning.");
+      } else if (status === "running") {
+        lines.push("Running locally; the browser can stay open.");
+      } else if (status === "done") {
+        lines.push("Finished locally. Timeline will refresh.");
+      }
+      if (data.job_scope === "full_active_learning_iteration") {
+        lines.push("scope: retrain, rescore, re-measure heights, reorder review queue");
+      }
+      const trainingPackage = data.training_package;
+      if (trainingPackage) {
+        const copiedCount = Array.isArray(trainingPackage.copied) ? trainingPackage.copied.length : 0;
+        const skippedCount = Array.isArray(trainingPackage.skipped) ? trainingPackage.skipped.length : 0;
+        lines.push(`training package: ${copiedCount} labels, ${skippedCount} skipped`);
+      }
+      const frameCount = payload.result?.frame_count;
+      if (frameCount !== undefined) lines.push(`rescored frames: ${frameCount}`);
+      if (status === "failed") {
+        const tail = (payload.log || []).slice(-2);
+        for (const entry of tail) lines.push(entry);
+      }
+      return lines.join("\n");
+    }
+
+    function setReviewActionStatus(payload) {
+      if (!payload) {
+        setSaveState("No retrain/rescore requested yet.");
+        return;
+      }
+      const status = payload.status || "queued";
+      const isRecordedWithoutLive = ["recorded_without_live_jobs", "queued_without_live_jobs"].includes(payload.payload?.job_mode);
+      const className = status === "failed" ? "bad" : isRecordedWithoutLive || status === "queued" || status === "recorded" ? "warn" : status === "done" ? "ok" : "";
+      setSaveState(summarizeReviewAction(payload), className);
+    }
+
+    async function refreshReviewActionStatus() {
+      const response = await fetch(`${LABEL_REVIEW_API}/jobs?limit=1`);
+      if (!response.ok) return;
+      const payload = await response.json();
+      const latestJob = Array.isArray(payload.jobs) ? payload.jobs[0] : null;
+      const latestAction = Array.isArray(payload.actions) ? payload.actions[0] : null;
+      const latest = latestJob || latestAction;
+      retrainModelBtn.textContent = payload.allow_live_jobs === false ? "Record retrain" : "Retrain now";
+      rescoreRecordingBtn.textContent = payload.allow_live_jobs === false ? "Record rescore" : "Rescore now";
+      if (latest) setReviewActionStatus(latest);
+      else if (payload.allow_live_jobs === false) {
+        setSaveState("Live jobs are disabled. Rescore/retrain clicks only record local action requests.", "warn");
+      }
+    }
+
+    function pushGeometryUndo() {
+      geometryUndoStack.push(structuredClone(catAnnotations));
+      if (geometryUndoStack.length > 20) geometryUndoStack.shift();
+    }
+
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, character => ({
         "&": "&amp;",
@@ -2158,12 +2473,53 @@
       return reviewFrames[activeReviewFrameIndex] || null;
     }
 
+    function reviewArrayIndexForFrameIndex(frameIndex) {
+      return reviewFrames.findIndex(frame => Number(frame.frame_index) === Number(frameIndex));
+    }
+
     function reviewVideoModelOutputCount(video) {
       return Number(video?.output_frame_count || 0) + Number(video?.output_artifact_count || 0);
     }
 
+    function optionalFiniteNumber(value) {
+      if (value === null || value === undefined || value === "") return null;
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    }
+
+    function isAbortError(error) {
+      return error?.name === "AbortError" || /aborted/i.test(String(error?.message || error || ""));
+    }
+
     function primaryReviewVideoArtifact(video) {
       return (video?.output_artifacts || [])[0] || null;
+    }
+
+    function activeSuspectQueue() {
+      const mode = reviewSuspectMode.value;
+      if (mode === "reviewed") return reviewedSuspectQueue;
+      if (mode === "all") return suspectQueue.concat(reviewedSuspectQueue);
+      return suspectQueue.filter(item => !reviewFrames[reviewArrayIndexForFrameIndex(item.frame_index)]?.reviewed);
+    }
+
+    function suspectItemForFrame(index) {
+      return suspectQueue.find(item => Number(item.frame_index) === Number(index)) || null;
+    }
+
+    function saveNextSkipRange(index) {
+      const frameIndex = activeReviewFrame()?.frame_index ?? index;
+      const suspect = suspectItemForFrame(frameIndex);
+      if (suspect?.neighborhood) {
+        return {
+          start: Number(suspect.neighborhood.start_frame ?? frameIndex),
+          end: Number(suspect.neighborhood.end_frame ?? frameIndex)
+        };
+      }
+      const radius = Math.max(1, Math.round(playbackBaseFps * SAVE_NEXT_SKIP_SECONDS));
+      return {
+        start: Math.max(0, Number(frameIndex) - radius),
+        end: Number(frameIndex) + radius
+      };
     }
 
     function updateReviewPlayerBar() {
@@ -2173,11 +2529,15 @@
       const status = frame?.review_status || video?.review_status || "unreviewed";
       const outputArtifact = primaryReviewVideoArtifact(video);
       const output = frame?.model_output_url ? "frame output" : outputArtifact ? "session output" : "no output";
+      const reason = frame?.suspicion_reason || "no suspect reason";
+      const measurement = frame?.best_top_height_cm ? ` · ${frame.best_top_height_cm.toFixed(1)} cm ${frame.measurement_source || "measurement"}` : "";
+      const backend = frame?.detector_backend ? ` · ${frame.detector_backend}` : "";
+      const tracker = frame?.tracker_status ? ` · tracker ${frame.tracker_status}${frame.tracker_reason ? ` (${frame.tracker_reason})` : ""}` : "";
       reviewPlayerTitle.textContent = frame
-        ? `${video?.label || "Review video"} · frame ${frame.frame_index}`
+        ? `${video?.label || "Review video"} · frame ${frame.frame_index} / ${Math.max(0, reviewFrames.length - 1)}`
         : (video?.label || "Open a review video");
       reviewPlayerMeta.textContent = frame
-        ? `${frame.image_path || frame.label || frame.id}`
+        ? `frame: ${frameStatusText(frame)} · ${reason}${measurement}${backend}${tracker}`
         : (video ? `${Number(video.frame_count || 0)} frames · ${reviewVideoModelOutputCount(video)} outputs` : "Playlist, frame timeline, labels, and previous model output stay in one place.");
       reviewPlayerLabelChip.textContent = `${status} · ${label}`;
       reviewPlayerLabelChip.className = "review-status-chip" + (label === "cat" ? " ok" : label === "unsure" ? " warn" : "");
@@ -2185,25 +2545,32 @@
       reviewPlayerOutputChip.className = "review-status-chip" + (frame?.model_output_url || outputArtifact ? " ok" : "");
     }
 
-    function renderReviewVideos() {
-      reviewVideosEl.innerHTML = "";
-      reviewVideoStatus.textContent = `${reviewVideos.length} videos`;
+	    function renderReviewVideos() {
+	      reviewVideosEl.innerHTML = "";
+	      reviewVideoStatus.textContent = `${reviewVideos.length} videos`;
       if (!reviewVideos.length) {
         const empty = document.createElement("div");
         empty.className = "muted";
         empty.textContent = "no videos or frame groups found";
         reviewVideosEl.appendChild(empty);
         return;
-      }
-      for (const item of reviewVideos) {
-        const row = document.createElement("div");
-        row.className = "review-item" + (item.id === activeReviewVideoId ? " active" : "");
-        row.innerHTML = `
-          <div class="review-item-title" title="${escapeHtml(item.source_recording_dir || item.source_video_path || item.id)}">${escapeHtml(item.label || item.id)}</div>
-          <div class="review-item-meta">${escapeHtml(item.review_status || "unreviewed")} · ${Number(item.frame_count || 0)} frames · ${reviewVideoModelOutputCount(item)} model outputs</div>
-          <div class="review-item-meta">${escapeHtml(item.source_recording_dir ? "full recording" : item.source || "corpus")}</div>
-        `;
+	      }
+	      for (const item of reviewVideos) {
+	        const row = document.createElement("div");
+	        row.className = "review-item" + (item.id === activeReviewVideoId ? " active" : "");
+		        const height = optionalFiniteNumber(item.max_jump_height_cm);
+		        const heightText = height !== null ? ` · jump ${height.toFixed(1)} cm` : "";
+	        const heightSource = item.max_jump_height_source ? " · measured index" : "";
+	        const frameCount = Number(item.frame_count || 0);
+	        const frameText = `${frameCount} review frame${frameCount === 1 ? "" : "s"}`;
+	        const sourceText = item.source_recording_dir ? `recording · extracted review frames` : item.source || "corpus";
+	        row.innerHTML = `
+	          <div class="review-item-title" title="${escapeHtml(item.source_recording_dir || item.source_video_path || item.id)}">${escapeHtml(item.label || item.id)}</div>
+	          <div class="review-item-meta">${escapeHtml(item.review_status || "unreviewed")}${escapeHtml(heightText)}${escapeHtml(heightSource)} · ${escapeHtml(frameText)} · ${reviewVideoModelOutputCount(item)} model outputs</div>
+	          <div class="review-item-meta">${escapeHtml(sourceText)}</div>
+	        `;
         row.addEventListener("click", () => openReviewVideo(item.id).catch(error => {
+          if (isAbortError(error)) return;
           reviewVideoStatus.textContent = error.message;
         }));
         reviewVideosEl.appendChild(row);
@@ -2218,15 +2585,27 @@
         updateReviewPlayerBar();
         return;
       }
-      frameStatus.textContent = `${activeReviewFrameIndex + 1}/${reviewFrames.length} loaded · ${video.frame_count || 0} total`;
-      for (const [index, item] of reviewFrames.entries()) {
+      const queue = activeSuspectQueue();
+      const mode = reviewSuspectMode.value === "reviewed" ? "reviewed suspects" : reviewSuspectMode.value === "all" ? "all suspects" : "unreviewed suspects";
+      frameStatus.textContent = `${queue.length} ${mode} · ${activeReviewFrameIndex + 1}/${reviewFrames.length}`;
+      const rows = queue.length ? queue.slice(0, 80) : reviewFrames.map(frame => ({
+        frame_id: frame.id,
+        frame_index: frame.frame_index,
+        reason: frame.suspicion_reason || "frame",
+        score: frame.suspicion_score || 0
+      }));
+      for (const suspect of rows) {
+        const index = reviewArrayIndexForFrameIndex(suspect.frame_index);
+        const item = reviewFrames[index];
+        if (!item) continue;
         const row = document.createElement("div");
         row.className = "review-item" + (index === activeReviewFrameIndex ? " active" : "");
         const label = normaliseReviewLabel(item.human_label);
         const output = item.model_output_url ? "output" : "no output";
+        const measurement = typeof item.best_top_height_cm === "number" ? ` · ${item.best_top_height_cm.toFixed(1)} cm` : "";
         row.innerHTML = `
-          <div class="review-item-title" title="${escapeHtml(item.image_path)}">#${item.frame_index} ${escapeHtml(item.label || item.id)}</div>
-          <div class="review-item-meta">${escapeHtml(item.review_status || "unreviewed")} · ${escapeHtml(label)} · ${output}</div>
+          <div class="review-item-title">#${item.frame_index} ${escapeHtml(suspect.reason || item.suspicion_reason || item.label || item.id)}</div>
+          <div class="review-item-meta">${escapeHtml(frameStatusText(item))}${escapeHtml(measurement)} · ${escapeHtml(label)} · ${output}</div>
         `;
         row.addEventListener("click", () => openReviewFrame(index).catch(error => {
           frameStatus.textContent = error.message;
@@ -2236,12 +2615,74 @@
       updateReviewPlayerBar();
     }
 
+    function renderReviewTimeline() {
+      reviewTimelineTrack.innerHTML = "";
+      if (!reviewFrames.length) {
+        reviewTimelineLabel.textContent = "timeline waits for a video";
+        return;
+      }
+      const frame = activeReviewFrame();
+      const heights = reviewFrames
+        .map(item => Number(item.best_top_height_cm))
+        .filter(value => Number.isFinite(value) && value > 0);
+      const maxHeight = Math.max(1, ...heights);
+      reviewTimelineLabel.textContent = frame
+        ? `frame ${frame.frame_index} · ${frame.suspicion_reason || "no suspect reason"}${Number.isFinite(Number(frame.best_top_height_cm)) ? ` · ${Number(frame.best_top_height_cm).toFixed(1)} cm` : ""}`
+        : `${reviewFrames.length} frames`;
+      const lastIndex = Math.max(1, reviewFrames.length - 1);
+      for (const item of reviewFrames) {
+        const x = Math.max(0, Math.min(100, item.frame_index / lastIndex * 100));
+        const heightCm = Number(item.best_top_height_cm);
+        const isActiveFrame = reviewFrames[activeReviewFrameIndex]?.id === item.id;
+        if (Number.isFinite(heightCm) && heightCm > 0) {
+          const bar = document.createElement("button");
+          bar.type = "button";
+          bar.className = "timeline-height-bar"
+            + (item.measurement_source === "legacy_bbox_top" ? " legacy" : "")
+            + (item.tracker_status === "rejected" ? " rejected" : "");
+          bar.style.left = `${x}%`;
+          bar.style.height = `${Math.max(4, Math.min(100, heightCm / maxHeight * 100))}%`;
+          bar.title = `#${item.frame_index} ${heightCm.toFixed(1)} cm ${item.measurement_source || "height"}`;
+          bar.addEventListener("click", event => {
+            event.stopPropagation();
+            openReviewFrameByFrameIndex(item.frame_index).catch(error => {
+              frameStatus.textContent = error.message;
+            });
+          });
+          reviewTimelineTrack.appendChild(bar);
+        }
+        if (!item.suspicion_score && !item.reviewed && !isActiveFrame) continue;
+        const mark = document.createElement("button");
+        mark.type = "button";
+        mark.className = "timeline-mark" + (item.reviewed ? " reviewed" : "") + (isActiveFrame ? " active" : "");
+        mark.style.left = `${x}%`;
+        mark.style.height = `${Math.max(35, Math.min(100, Number(item.suspicion_score || 10)))}%`;
+        mark.title = `#${item.frame_index} ${item.suspicion_reason || ""}${Number.isFinite(heightCm) ? ` · ${heightCm.toFixed(1)} cm` : ""}`;
+        mark.addEventListener("click", event => {
+          event.stopPropagation();
+          openReviewFrameByFrameIndex(item.frame_index).catch(error => {
+            frameStatus.textContent = error.message;
+          });
+        });
+        reviewTimelineTrack.appendChild(mark);
+      }
+    }
+
     async function refreshReviewVideos() {
       reviewVideoStatus.textContent = "loading videos...";
       const response = await fetch(`${LABEL_REVIEW_API}/videos?limit=1000`);
       if (!response.ok) throw new Error(`videos backend ${response.status}`);
-      const payload = await response.json();
-      reviewVideos = payload.videos || [];
+	      const payload = await response.json();
+	      reviewVideos = payload.videos || [];
+	      reviewVideos.sort((a, b) => {
+		        const aHeight = optionalFiniteNumber(a.max_jump_height_cm) ?? -Infinity;
+		        const bHeight = optionalFiniteNumber(b.max_jump_height_cm) ?? -Infinity;
+	        if (aHeight !== bHeight) return bHeight - aHeight;
+	        const aDone = ["relabeled_ok", "reviewed", "ok"].includes(a.review_status || "");
+	        const bDone = ["relabeled_ok", "reviewed", "ok"].includes(b.review_status || "");
+        if (aDone !== bDone) return aDone ? 1 : -1;
+        return Number(b.frame_count || 0) - Number(a.frame_count || 0);
+      });
       renderReviewVideos();
       if (!activeReviewVideoId && reviewVideos.length) {
         await openReviewVideo(reviewVideos[0].id);
@@ -2249,21 +2690,53 @@
     }
 
     async function openReviewVideo(videoId) {
+      stopPlayback();
+      const requestSerial = ++reviewVideoRequestSerial;
+      if (reviewVideoAbortController) {
+        reviewVideoAbortController.abort(new DOMException("superseded timeline request", "AbortError"));
+      }
+      reviewVideoAbortController = new AbortController();
       activeReviewVideoId = videoId;
-      const response = await fetch(`${LABEL_REVIEW_API}/videos/${encodeURIComponent(videoId)}/frames?offset=0&limit=300`);
-      if (!response.ok) throw new Error(`video frames ${response.status}`);
+      reviewFrameRequestSerial += 1;
+      reviewCaseRequestSerial += 1;
+      frameStatus.textContent = "loading timeline...";
+      let response;
+      try {
+        response = await fetch(`${LABEL_REVIEW_API}/videos/${encodeURIComponent(videoId)}/timeline`, {
+          signal: reviewVideoAbortController.signal
+        });
+      } catch (error) {
+        if (isAbortError(error)) return;
+        throw error;
+      }
+      if (!response.ok) throw new Error(`video timeline ${response.status}`);
       const payload = await response.json();
+      if (requestSerial !== reviewVideoRequestSerial || videoId !== activeReviewVideoId) return;
       reviewFrames = payload.frames || [];
+      suspectQueue = payload.suspect_queue || [];
+      reviewedSuspectQueue = payload.reviewed_suspect_queue || [];
+      playbackBaseFps = Number(payload.playback?.default_fps || 15);
       activeReviewFrameIndex = reviewFrames.length ? 0 : -1;
       renderReviewVideos();
       renderReviewFrames();
+      renderReviewTimeline();
       if (reviewFrames.length) {
-        await openReviewFrame(0);
+        const firstSuspect = suspectQueue[0]?.frame_index ?? 0;
+        await openReviewFrameByFrameIndex(firstSuspect);
+      } else {
+        frameStatus.textContent = "timeline has no review frames";
       }
+    }
+
+    async function openReviewFrameByFrameIndex(frameIndex) {
+      const index = reviewArrayIndexForFrameIndex(frameIndex);
+      if (index < 0) return;
+      await openReviewFrame(index);
     }
 
     async function openReviewFrame(index) {
       if (index < 0 || index >= reviewFrames.length) return;
+      const frameRequestSerial = ++reviewFrameRequestSerial;
       activeReviewFrameIndex = index;
       const frame = reviewFrames[index];
       if (!reviewCases.find(item => item.id === frame.id)) {
@@ -2274,7 +2747,9 @@
       renderReviewFrames();
       setModelOutput(frame);
       await openReviewCase(frame.id);
+      if (frameRequestSerial !== reviewFrameRequestSerial || reviewFrames[activeReviewFrameIndex]?.id !== frame.id) return;
       updateReviewPlayerBar();
+      renderReviewTimeline();
     }
 
     function setModelOutput(frame) {
@@ -2369,6 +2844,7 @@
     }
 
     async function openReviewCase(caseId) {
+      const caseRequestSerial = ++reviewCaseRequestSerial;
       captureActiveCase();
       const item = reviewCases.find(row => row.id === caseId);
       if (!item) return;
@@ -2410,12 +2886,15 @@
       setMode("review");
 
       const saved = await loadReviewLabel(item.id);
+      if (caseRequestSerial !== reviewCaseRequestSerial || activeReviewCaseId !== item.id) return;
       reviewNotes.value = saved?.notes || item.notes || "";
       activeReviewLabel = normaliseReviewLabel(saved?.label || item.human_label);
+      activeReviewDecision = saved?.review_decision || (item.review_decision || "unsure");
       if (Array.isArray(saved?.masks)) {
-        catAnnotations = storedCatAnnotationsFrom(saved.masks);
+        catAnnotations = storedCatAnnotationsFrom(saved.masks, { clamp: false });
         activeCatId = catAnnotations[0]?.id || null;
       }
+      geometryUndoStack = [];
       renderReviewDetail();
       update();
       renderReviewQueue();
@@ -2429,30 +2908,41 @@
         return;
       }
       const probability = typeof item.detector_probability === "number" ? item.detector_probability.toFixed(3) : "?";
-      const video = item.source_video_path ? `video: ${item.source_video_path}` : "";
       const videoLink = item.source_video_url ? `<a href="${escapeHtml(item.source_video_url)}" target="_blank" rel="noopener">open video context</a>` : "";
       const outputLink = item.model_output_url ? `<a href="${escapeHtml(item.model_output_url)}" target="_blank" rel="noopener">open previous output</a>` : "previous output: none";
+      const measurement = typeof item.best_top_height_cm === "number" ? `${item.best_top_height_cm.toFixed(1)} cm · ${item.measurement_source || "measurement"}` : "no wall measurement";
+      const tracker = item.tracker_status ? `${item.tracker_status}${item.tracker_reason ? ` · ${item.tracker_reason}` : ""}${item.tracker_confirmed ? " · confirmed" : ""}` : "not tracked";
       reviewDetail.innerHTML = `
-        <div class="review-detail-title">${escapeHtml(activeReviewLabel)} · p=${escapeHtml(probability)} · ${escapeHtml(item.review_status || "unreviewed")}</div>
-        <div class="review-detail-path">${escapeHtml(item.image_path)}</div>
-        <div class="review-detail-path">${outputLink}</div>
-        ${video ? `<div class="review-detail-path">${escapeHtml(video)} ${videoLink}</div>` : ""}
+        <div class="review-detail-title">frame ${escapeHtml(frameStatusText(item))} · p=${escapeHtml(probability)}</div>
+        <div class="review-item-meta">reason: ${escapeHtml(item.suspicion_reason || "none")}</div>
+        <div class="review-item-meta">detector: ${escapeHtml(item.detector_backend || "unknown")} · ${escapeHtml(measurement)}</div>
+        <div class="review-item-meta">tracker: ${escapeHtml(tracker)}</div>
+        <div class="review-item-meta">${escapeHtml(reviewActionHint(item))}</div>
+        <div class="review-item-meta">decision: ${escapeHtml(activeReviewDecision)}</div>
+        <div class="review-detail-path">${outputLink}${videoLink ? ` · ${videoLink}` : ""}</div>
+        <details>
+          <summary>details</summary>
+          <div class="review-detail-path">${escapeHtml(item.image_path)}</div>
+          ${item.source_video_path ? `<div class="review-detail-path">${escapeHtml(item.source_video_path)}</div>` : ""}
+        </details>
       `;
       updateReviewLabelButtons();
     }
 
-    function setReviewLabel(label) {
-      activeReviewLabel = label;
-      if (label === "cat" && !catAnnotations.length) {
+    function setReviewDecision(decision) {
+      activeReviewDecision = decision;
+      activeReviewLabel = decisionToLabel(decision);
+      if ((decision === "missed_cat" || decision === "bad_geometry") && !catAnnotations.length) {
         const annotation = makeCatAnnotation();
         annotation.kind = "cat";
         catAnnotations.push(annotation);
         activeCatId = annotation.id;
       }
-      if (label === "not_cat") {
+      if (decision === "false_positive") {
         for (const annotation of catAnnotations) annotation.kind = "not_cat";
       }
       renderReviewDetail();
+      updateReviewPlayerBar();
       update();
     }
 
@@ -2460,7 +2950,9 @@
       const item = activeReviewCase();
       if (!item) return;
       captureActiveCase();
-      const response = await fetch(`${LABEL_REVIEW_API}/labels`, {
+      activeReviewLabel = decisionToLabel(activeReviewDecision, item);
+      setSaveState("saving...");
+      const response = await fetch(`${LABEL_REVIEW_API}/frames/${encodeURIComponent(item.id)}/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2473,10 +2965,15 @@
           source_video_path: item.source_video_path,
           source_recording_dir: item.source_recording_dir,
           label: activeReviewLabel,
+          review_decision: activeReviewDecision,
+          cat_present: activeReviewDecision === "false_positive" ? false : activeReviewDecision === "unsure" ? null : activeReviewLabel === "cat",
+          candidate_is_cat: activeReviewDecision === "false_positive" ? false : activeReviewDecision === "missed_cat" ? false : activeReviewLabel === "cat",
+          geometry_status: activeReviewDecision === "bad_geometry" ? (catAnnotations.length ? "corrected" : "bad") : activeReviewDecision === "missed_cat" ? (catAnnotations.length ? "corrected" : "missing") : activeReviewDecision === "good" && activeReviewLabel === "cat" ? "ok" : null,
           review_status: "saved",
           detector_probability: item.detector_probability,
           candidate_bbox_xywh: item.candidate_bbox_xywh,
           notes: reviewNotes.value,
+          review_notes: reviewNotes.value,
           masks: storedCatAnnotationsFrom(catAnnotations)
         })
       });
@@ -2484,40 +2981,141 @@
       const saved = await response.json();
       item.review_status = saved.review_status || "saved";
       item.human_label = saved.label || activeReviewLabel;
+      item.review_decision = saved.review_decision || activeReviewDecision;
+      item.reviewed = true;
       item.notes = saved.notes || "";
       const frame = activeReviewFrame();
       if (frame && frame.id === item.id) {
         frame.review_status = item.review_status;
         frame.human_label = item.human_label;
+        frame.review_decision = item.review_decision;
+        frame.reviewed = true;
         frame.notes = item.notes;
       }
-      reviewActionLog.textContent = `saved ${saved.label} · ${saved.mask_refs?.length || 0} mask(s)`;
+      setSaveState(`saved ${saved.review_decision || saved.label} · ${saved.mask_refs?.length || 0} mask(s)`);
       renderReviewDetail();
       renderReviewQueue();
       renderReviewFrames();
+      renderReviewTimeline();
       updateReviewPlayerBar();
+    }
+
+    async function saveReviewAndNext() {
+      const savedFrameIndex = activeReviewFrameIndex;
+      await saveReviewLabel();
+      await openNextSuspect({ skipRange: saveNextSkipRange(savedFrameIndex) });
+    }
+
+    async function openNextSuspect(options = {}) {
+      if (!reviewFrames.length) return;
+      const queue = activeSuspectQueue();
+      const skipRange = options.skipRange || null;
+      const activeFrameIndex = Number(activeReviewFrame()?.frame_index ?? activeReviewFrameIndex);
+      const isSkipped = item => {
+        if (!skipRange) return false;
+        const index = Number(item.frame_index);
+        return index >= Number(skipRange.start) && index <= Number(skipRange.end);
+      };
+      const next = queue.find(item => Number(item.frame_index) > activeFrameIndex && !isSkipped(item))
+        || queue.find(item => !isSkipped(item))
+        || queue[0];
+      if (next) {
+        await openReviewFrameByFrameIndex(Number(next.neighborhood?.start_frame ?? next.frame_index));
+        await openReviewFrameByFrameIndex(Number(next.frame_index));
+      }
+    }
+
+    function stopPlayback() {
+      if (playbackTimer) clearInterval(playbackTimer);
+      playbackTimer = null;
+      playPauseBtn.textContent = "Play";
+    }
+
+    function startPlayback() {
+      const speed = Number(playbackSpeed.value || 1);
+      if (!speed || !reviewFrames.length) return;
+      stopPlayback();
+      playPauseBtn.textContent = "Pause";
+      const delay = Math.max(20, 1000 / (playbackBaseFps * speed));
+      playbackTimer = setInterval(() => {
+        if (activeReviewFrameIndex >= reviewFrames.length - 1) {
+          stopPlayback();
+          return;
+        }
+        openReviewFrame(activeReviewFrameIndex + 1).catch(error => {
+          stopPlayback();
+          frameStatus.textContent = error.message;
+        });
+      }, delay);
+    }
+
+    function togglePlayback() {
+      if (playbackTimer) stopPlayback();
+      else startPlayback();
     }
 
     async function queueReviewAction(action) {
       const item = activeReviewCase();
-      const response = await fetch(`${LABEL_REVIEW_API}/actions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action,
-          case_id: item?.id || null,
-          video_id: item?.video_id || activeReviewVideoId,
-          frame_index: item?.frame_index ?? activeReviewFrameIndex,
-          image_path: item?.image_path || imagePath,
-          model_output_path: item?.model_output_path || null,
-          source_recording_dir: item?.source_recording_dir || null,
-          source_video_path: item?.source_video_path || null,
-          created_from: "projector-wall-calibrator-review-mode"
-        })
-      });
-      if (!response.ok) throw new Error(`action ${response.status}`);
+      const isJob = action === "retrain_model" || action === "rescore_recording" || action === "rerender_overlay";
+      setSaveState(`${actionLabel(action)}: sending request...`);
+      if (isJob) {
+        retrainModelBtn.disabled = true;
+        rescoreRecordingBtn.disabled = true;
+      }
+      try {
+        const response = await fetch(`${LABEL_REVIEW_API}/${isJob ? "jobs" : "actions"}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action,
+            case_id: item?.id || null,
+            video_id: item?.video_id || activeReviewVideoId,
+            frame_index: item?.frame_index ?? activeReviewFrameIndex,
+            image_path: item?.image_path || imagePath,
+            model_output_path: item?.model_output_path || null,
+            source_recording_dir: item?.source_recording_dir || null,
+            source_video_path: item?.source_video_path || null,
+            created_from: "projector-wall-calibrator-review-mode"
+          })
+        });
+        if (!response.ok) throw new Error(`action ${response.status}`);
+        const payload = await response.json();
+        setReviewActionStatus(payload);
+        if (payload.kind?.endsWith("_job_v1")) {
+          activeReviewJobId = payload.id;
+          if (reviewJobPollTimer) clearTimeout(reviewJobPollTimer);
+          pollReviewJob(payload.id);
+        } else if (isJob) {
+          retrainModelBtn.disabled = false;
+          rescoreRecordingBtn.disabled = false;
+        }
+      } catch (error) {
+        if (isJob) {
+          retrainModelBtn.disabled = false;
+          rescoreRecordingBtn.disabled = false;
+        }
+        throw error;
+      }
+    }
+
+    async function pollReviewJob(jobId) {
+      const response = await fetch(`${LABEL_REVIEW_API}/jobs/${encodeURIComponent(jobId)}`);
+      if (!response.ok) return;
       const payload = await response.json();
-      reviewActionLog.textContent = `${payload.action} queued · ${payload.id}`;
+      if (activeReviewJobId && jobId !== activeReviewJobId) return;
+      setReviewActionStatus(payload);
+      if (payload.status === "running" || payload.status === "queued") {
+        reviewJobPollTimer = setTimeout(() => pollReviewJob(jobId), 750);
+        return;
+      }
+      reviewJobPollTimer = null;
+      retrainModelBtn.disabled = false;
+      rescoreRecordingBtn.disabled = false;
+      if (payload.status === "done" && activeReviewVideoId) {
+        await openReviewVideo(activeReviewVideoId).catch(error => {
+          if (!isAbortError(error)) throw error;
+        });
+      }
     }
 
     function setMode(mode) {
@@ -2543,13 +3141,26 @@
       refreshReviewVideos().catch(error => {
         reviewVideoStatus.textContent = error.message;
       });
+      refreshReviewActionStatus().catch(error => {
+        setSaveState(`Could not load job status: ${error.message}`, "bad");
+      });
       reviewStatus.textContent = "loose frames load on Refresh";
     }
 
     function updateReviewLabelButtons() {
-      labelCatBtn.classList.toggle("active", activeReviewLabel === "cat");
-      labelNotCatBtn.classList.toggle("active", activeReviewLabel === "not_cat");
-      labelUnsureBtn.classList.toggle("active", activeReviewLabel === "unsure");
+      labelCatBtn.textContent = "Mask OK";
+      labelCatBtn.title = reviewActionHint(activeReviewCase());
+      labelNotCatBtn.textContent = "No cat / false jump";
+      labelNotCatBtn.title = "There is no Sher in this frame; this detection/height must become not-cat.";
+      missedCatBtn.textContent = "Cat missed";
+      missedCatBtn.title = "Sher is visible, but the detector missed the real cat.";
+      badGeometryBtn.textContent = "Fix mask";
+      badGeometryBtn.title = "Sher is detected, but the mask/top point/box needs correction.";
+      labelCatBtn.classList.toggle("active", activeReviewDecision === "good");
+      labelNotCatBtn.classList.toggle("active", activeReviewDecision === "false_positive");
+      missedCatBtn.classList.toggle("active", activeReviewDecision === "missed_cat");
+      badGeometryBtn.classList.toggle("active", activeReviewDecision === "bad_geometry");
+      labelUnsureBtn.classList.toggle("active", activeReviewDecision === "unsure");
     }
 
     function renderPointsList() {
@@ -2904,6 +3515,67 @@
       ctx.restore();
     }
 
+    function activeMaskTopMeasurementPoint() {
+      const annotation = catAnnotations.find(item => (item.kind || "cat") === "cat" && (item.polygon || []).length);
+      if (!annotation) return null;
+      const polygon = (annotation.polygon || []).map(clampImagePoint).filter(point =>
+        Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y))
+      );
+      if (!polygon.length) return null;
+      const sorted = [...polygon].sort((a, b) => Number(a.y) - Number(b.y));
+      const bandCount = Math.max(1, Math.ceil(sorted.length * 0.12));
+      const topBand = sorted.slice(0, bandCount);
+      const x = topBand.reduce((sum, point) => sum + Number(point.x), 0) / topBand.length;
+      const y = topBand.reduce((sum, point) => sum + Number(point.y), 0) / topBand.length;
+      let heightCm = null;
+      try {
+        const fit = computeFit();
+        if (fit) heightCm = Number(fit.heightAt(x, y)) / 10;
+      } catch (_error) {
+        heightCm = null;
+      }
+      return {
+        image_x: x,
+        image_y: y,
+        wall_y_cm: Number.isFinite(heightCm) ? heightCm : null,
+        point_type: "corrected_mask_top",
+        source: annotation.source || "manual_mask"
+      };
+    }
+
+    function drawMeasurementPoint(ui) {
+      const item = activeReviewCase();
+      const point = activeMaskTopMeasurementPoint() || item?.measurement_point;
+      if (!point || !Number.isFinite(Number(point.image_x)) || !Number.isFinite(Number(point.image_y))) return;
+      const x = Number(point.image_x);
+      const y = Number(point.image_y);
+      const source = point.point_type === "corrected_mask_top" ? "corrected mask top" : item.measurement_source || point.point_type || "measurement";
+      const height = point.point_type === "corrected_mask_top" ? Number(point.wall_y_cm) : Number(item.best_top_height_cm ?? point.wall_y_cm);
+      const label = Number.isFinite(height) ? `${height.toFixed(1)} cm ${source}` : source;
+      ctx.save();
+      const color = source.includes("mask") ? "#7ee787" : "#ffa657";
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = 3 * ui;
+      ctx.beginPath();
+      ctx.arc(x, y, 7 * ui, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - 10 * ui, y);
+      ctx.lineTo(x + 10 * ui, y);
+      ctx.moveTo(x, y - 10 * ui);
+      ctx.lineTo(x, y + 10 * ui);
+      ctx.stroke();
+      ctx.font = `${16 * ui}px system-ui`;
+      const w = Math.max(120 * ui, ctx.measureText(label).width + 14 * ui);
+      ctx.fillStyle = "rgba(0,0,0,0.76)";
+      ctx.fillRect(x + 10 * ui, Math.max(0, y - 26 * ui), w, 24 * ui);
+      ctx.fillStyle = color;
+      ctx.textBaseline = "bottom";
+      ctx.fillText(label, x + 17 * ui, Math.max(20 * ui, y - 6 * ui));
+      ctx.restore();
+    }
+
     function drawCalibrationOverlay(ui) {
       const poly = projectionPolygon();
       if (poly.length !== 4) return;
@@ -3049,6 +3721,7 @@
       ctx.drawImage(image, 0, 0);
       if (activeMode === "wall") drawCalibrationOverlay(ui);
       drawCandidateBBox(ui);
+      drawMeasurementPoint(ui);
       drawCatAnnotations(ui);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
@@ -3145,6 +3818,7 @@
         if (annotation) {
           const vertex = nearestCatVertex(pt);
           if (vertex !== null) {
+            pushGeometryUndo();
             activeCatVertex = vertex;
             draggingCatVertex = true;
             canvas.setPointerCapture(event.pointerId);
@@ -3156,6 +3830,7 @@
         if (event.shiftKey || event.altKey) {
           const active = activeCatAnnotation();
           if (active) {
+            pushGeometryUndo();
             active.negative_points = active.negative_points || [];
             active.negative_points.push(clampImagePoint(pt));
             active.updated_at = new Date().toISOString();
@@ -3164,6 +3839,7 @@
           return;
         }
         if (annotation) {
+          pushGeometryUndo();
           annotation.positive_points = annotation.positive_points || [];
           annotation.positive_points.push(clampImagePoint(pt));
           activeCatVertex = null;
@@ -3364,27 +4040,54 @@
         frameStatus.textContent = error.message;
       });
     });
+    nextSuspectBtn.addEventListener("click", () => {
+      openNextSuspect().catch(error => {
+        frameStatus.textContent = error.message;
+      });
+    });
+    reviewSuspectMode.addEventListener("change", () => {
+      renderReviewFrames();
+      renderReviewTimeline();
+    });
+    playPauseBtn.addEventListener("click", togglePlayback);
+    playbackSpeed.addEventListener("change", () => {
+      if (playbackTimer) startPlayback();
+    });
+    compareOutputToggle.addEventListener("change", () => {
+      document.body.classList.toggle("compare-output", compareOutputToggle.checked);
+    });
+    reviewTimelineTrack.addEventListener("click", event => {
+      if (!reviewFrames.length) return;
+      const rect = reviewTimelineTrack.getBoundingClientRect();
+      const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+      openReviewFrame(Math.round(fraction * (reviewFrames.length - 1))).catch(error => {
+        frameStatus.textContent = error.message;
+      });
+    });
     reviewFilter.addEventListener("change", renderReviewQueue);
-    labelCatBtn.addEventListener("click", () => setReviewLabel("cat"));
-    labelNotCatBtn.addEventListener("click", () => setReviewLabel("not_cat"));
-    labelUnsureBtn.addEventListener("click", () => setReviewLabel("unsure"));
+    labelCatBtn.addEventListener("click", () => setReviewDecision("good"));
+    labelNotCatBtn.addEventListener("click", () => setReviewDecision("false_positive"));
+    missedCatBtn.addEventListener("click", () => setReviewDecision("missed_cat"));
+    badGeometryBtn.addEventListener("click", () => setReviewDecision("bad_geometry"));
+    labelUnsureBtn.addEventListener("click", () => setReviewDecision("unsure"));
     saveReviewBtn.addEventListener("click", () => {
-      saveReviewLabel().catch(error => {
+      saveReviewAndNext().catch(error => {
         reviewActionLog.textContent = error.message;
       });
     });
     retrainModelBtn.addEventListener("click", () => {
       queueReviewAction("retrain_model").catch(error => {
-        reviewActionLog.textContent = error.message;
+        setSaveState(error.message, "bad");
       });
     });
     rescoreRecordingBtn.addEventListener("click", () => {
       queueReviewAction("rescore_recording").catch(error => {
-        reviewActionLog.textContent = error.message;
+        setSaveState(error.message, "bad");
       });
     });
 
     addCatBtn.addEventListener("click", () => {
+      pushGeometryUndo();
       const annotation = makeCatAnnotation();
       catAnnotations.push(annotation);
       activeCatId = annotation.id;
@@ -3394,14 +4097,31 @@
     });
 
     autoCatBtn.addEventListener("click", () => {
+      pushGeometryUndo();
       refineActiveCatFromHints().catch(error => {
         catMaskStatus.textContent = error.message;
       });
+    });
+    clearGeometryBtn.addEventListener("click", () => {
+      pushGeometryUndo();
+      catAnnotations = [];
+      activeCatId = null;
+      activeCatVertex = null;
+      update();
+    });
+    undoGeometryBtn.addEventListener("click", () => {
+      const previous = geometryUndoStack.pop();
+      if (!previous) return;
+      catAnnotations = previous;
+      activeCatId = catAnnotations[0]?.id || null;
+      activeCatVertex = null;
+      update();
     });
 
     duplicateCatBtn.addEventListener("click", () => {
       const annotation = activeCatAnnotation();
       if (!annotation) return;
+      pushGeometryUndo();
       const copy = structuredClone(annotation);
       copy.id = makeUniqueCatId();
       copy.label = `${annotation.label || "Sher"} copy`;
@@ -3419,6 +4139,7 @@
     deleteCatBtn.addEventListener("click", () => {
       const annotation = activeCatAnnotation();
       if (!annotation) return;
+      pushGeometryUndo();
       const index = catAnnotations.indexOf(annotation);
       catAnnotations.splice(index, 1);
       activeCatId = catAnnotations[Math.min(index, catAnnotations.length - 1)]?.id || null;
@@ -3445,6 +4166,7 @@
     addCatVertexBtn.addEventListener("click", () => {
       const annotation = activeCatAnnotation();
       if (!annotation?.polygon?.length) return;
+      pushGeometryUndo();
       const insertAfter = activeCatVertex === null ? annotation.polygon.length - 1 : activeCatVertex;
       const a = annotation.polygon[insertAfter];
       const b = annotation.polygon[(insertAfter + 1) % annotation.polygon.length];
@@ -3457,6 +4179,7 @@
     deleteCatVertexBtn.addEventListener("click", () => {
       const annotation = activeCatAnnotation();
       if (!annotation?.polygon || activeCatVertex === null || annotation.polygon.length <= 3) return;
+      pushGeometryUndo();
       annotation.polygon.splice(activeCatVertex, 1);
       activeCatVertex = Math.min(activeCatVertex, annotation.polygon.length - 1);
       setCatPolygon(annotation, annotation.polygon, "manual_polygon");
@@ -3485,6 +4208,41 @@
     }, { passive: false });
     showLines.addEventListener("change", draw);
     showResiduals.addEventListener("change", draw);
+
+    document.addEventListener("keydown", event => {
+      if (activeMode !== "review") return;
+      const tag = event.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      const jump = Math.max(1, Math.round(playbackBaseFps));
+      if (event.code === "Space") {
+        event.preventDefault();
+        togglePlayback();
+      } else if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        openReviewFrame(activeReviewFrameIndex - (event.shiftKey ? jump : 1)).catch(error => { frameStatus.textContent = error.message; });
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        openReviewFrame(activeReviewFrameIndex + (event.shiftKey ? jump : 1)).catch(error => { frameStatus.textContent = error.message; });
+      } else if (event.key.toLowerCase() === "n") {
+        event.preventDefault();
+        openNextSuspect().catch(error => { frameStatus.textContent = error.message; });
+      } else if (event.key.toLowerCase() === "g") {
+        setReviewDecision("good");
+      } else if (event.key.toLowerCase() === "f") {
+        setReviewDecision("false_positive");
+      } else if (event.key.toLowerCase() === "m") {
+        setReviewDecision("missed_cat");
+      } else if (event.key.toLowerCase() === "b") {
+        setReviewDecision("bad_geometry");
+      } else if (event.key.toLowerCase() === "u") {
+        setReviewDecision("unsure");
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        saveReviewAndNext().catch(error => { reviewActionLog.textContent = error.message; });
+      } else if (event.key.toLowerCase() === "r") {
+        queueReviewAction("rescore_recording").catch(error => { reviewActionLog.textContent = error.message; });
+      }
+    });
 
     document.getElementById("resetViewBtn").addEventListener("click", () => {
       fitImageToView();

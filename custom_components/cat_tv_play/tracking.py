@@ -45,6 +45,29 @@ class AcceptedJumpPoint:
     confidence: float
 
 
+def wall_detection_from_measurement(
+    measurement: object,
+    *,
+    t: float,
+    area_px: int = 0,
+    source: str = "measurement",
+) -> WallDetection:
+    """Adapt a wall-centimeter measurement point into tracker input."""
+
+    wall_x_cm = getattr(measurement, "wall_x_cm", None)
+    wall_y_cm = getattr(measurement, "wall_y_cm", None)
+    if wall_x_cm is None or wall_y_cm is None:
+        raise ValueError("measurement must have wall_x_cm and wall_y_cm before tracking")
+    return WallDetection(
+        t=t,
+        x_cm=float(wall_x_cm),
+        y_cm=float(wall_y_cm),
+        confidence=float(getattr(measurement, "confidence", 0.0) or 0.0),
+        area_px=area_px,
+        source=str(getattr(measurement, "source", None) or source),
+    )
+
+
 class CatWallKalmanTracker:
     """2D wall-plane tracker with outlier gates before Kalman updates.
 
@@ -198,8 +221,7 @@ class CatWallKalmanTracker:
         plausible = [
             detection
             for detection in detections
-            if self.min_y_cm <= detection.y_cm <= self.max_y_cm
-            and detection.confidence >= self.min_init_confidence
+            if self.min_y_cm <= detection.y_cm <= self.max_y_cm and detection.confidence >= self.min_init_confidence
         ]
         if not plausible:
             return None

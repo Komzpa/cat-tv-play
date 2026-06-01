@@ -4,7 +4,7 @@
 This server owns the durable review state for the Cat Projector calibrator UI:
 it lists existing frames from the local corpus, saves cat/not-cat labels and
 portable masks, provides a local click-to-contour segmentation fallback, and
-queues explicit retrain/rescore actions for an operator to run later.
+runs or queues explicit local retrain/rescore actions.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ import mimetypes
 import os
 import re
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -61,6 +62,7 @@ REVIEW_ROOT = STATE_ROOT / "label-review"
 LABELS_ROOT = REVIEW_ROOT / "labels"
 MASKS_ROOT = REVIEW_ROOT / "masks"
 QUEUE_ROOT = REVIEW_ROOT / "actions"
+JOBS_ROOT = REVIEW_ROOT / "jobs"
 VIDEO_STATUS_ROOT = REVIEW_ROOT / "videos"
 TRAINING_DATASETS_ROOT = STATE_ROOT / "datasets"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
@@ -128,6 +130,14 @@ ALLOWED_ROOTS = (
 
 _REPROCESSED_OUTPUT_CACHE: tuple[Path, tuple[tuple[Path, frozenset[str], tuple[Path, ...]], ...]] | None = None
 _RECORDING_CHUNK_INDEX_CACHE: dict[tuple[Path, str], dict[int, tuple[Path, ...]]] = {}
+_DISCOVERY_CACHE_TTL_SECONDS = 30.0
+_DISCOVER_CASES_CACHE: tuple[float, tuple[str, ...], tuple[ReviewCase, ...]] | None = None
+_DISCOVER_VIDEOS_CACHE: tuple[float, tuple[str, ...], tuple[ReviewVideo, ...]] | None = None
+_JUMP_HEIGHT_INDEX_CACHE: tuple[float, Path, dict[str, dict[str, Any]]] | None = None
+ALLOW_LIVE_JOBS = False
+_ACTIVE_JOB_ID: str | None = None
+_JOB_LOCK = threading.Lock()
+LIVE_JOB_COMMAND: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -172,14 +182,35 @@ class ReviewVideo:
     output_artifacts: tuple[Path, ...] = ()
     review_status: str = "unreviewed"
     notes: str = ""
+    max_jump_height_cm: float | None = None
+    max_jump_height_source: str = ""
 
     def priority_tuple(self) -> tuple[float, float]:
         status_penalty = -1000.0 if self.review_status in {"relabeled_ok", "reviewed", "ok"} else 0.0
         return (status_penalty + min(1.0, self.frame_count / 250.0), self.mtime)
 
+    def height_priority_tuple(self) -> tuple[float, float, float, float]:
+        height = self.max_jump_height_cm
+        return (
+            1.0 if height is not None else 0.0,
+            float(height) if height is not None else -1.0,
+            *self.priority_tuple(),
+        )
+
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def _discovery_cache_key() -> tuple[str, ...]:
+    return tuple(str(root) for root in SCAN_ROOTS)
+
+
+def _clear_discovery_caches() -> None:
+    global _DISCOVER_CASES_CACHE, _DISCOVER_VIDEOS_CACHE, _JUMP_HEIGHT_INDEX_CACHE
+    _DISCOVER_CASES_CACHE = None
+    _DISCOVER_VIDEOS_CACHE = None
+    _JUMP_HEIGHT_INDEX_CACHE = None
 
 
 def _safe_slug(value: str) -> str:
@@ -200,6 +231,188 @@ def _safe_local_path(path: Path) -> Path:
     if not any(_is_within(resolved, root) for root in ALLOWED_ROOTS):
         raise ValueError(f"path is outside allowed corpus roots: {path}")
     return resolved
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        if value in (None, ""):
+            return None
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
+def _height_index_keys_for_path(path: Path | None) -> set[str]:
+    if path is None:
+        return set()
+    keys = {str(path), path.name}
+    try:
+        resolved = path.expanduser().resolve()
+    except OSError:
+        resolved = path.expanduser()
+    keys.update({str(resolved), resolved.name})
+    if path.suffix.lower() in VIDEO_EXTENSIONS:
+        keys.update(_height_index_keys_for_path(path.parent))
+    return {key for key in keys if key}
+
+
+def _add_height_index_entry(
+    index: dict[str, dict[str, Any]],
+    *,
+    path: Path | None,
+    video_id: str | None = None,
+    height_cm: float | None,
+    source: str,
+) -> None:
+    if height_cm is None:
+        return
+    keys = _height_index_keys_for_path(path)
+    if video_id:
+        keys.add(video_id)
+    for key in keys:
+        existing = index.get(key)
+        if existing is None or height_cm > float(existing.get("max_jump_height_cm") or -1):
+            index[key] = {
+                "max_jump_height_cm": round(height_cm, 1),
+                "max_jump_height_source": source,
+            }
+
+
+def _height_from_record(record: dict[str, Any]) -> float | None:
+    for key in ("max_jump_height_cm", "max_height_cm", "cat_top_height_cm", "best_top_height_cm"):
+        value = _float_or_none(record.get(key))
+        if value is not None:
+            return value
+    for key in ("max_jump_height_mm", "max_height_mm", "cat_top_height_mm"):
+        value = _float_or_none(record.get(key))
+        if value is not None:
+            return value / 10.0
+    scan = record.get("scan") if isinstance(record.get("scan"), dict) else None
+    if scan:
+        return _height_from_record(scan)
+    render_stats = record.get("render_stats") if isinstance(record.get("render_stats"), dict) else None
+    if render_stats:
+        return _height_from_record(render_stats)
+    return None
+
+
+def _index_height_record(index: dict[str, dict[str, Any]], record: dict[str, Any], *, source: str) -> None:
+    height_cm = _height_from_record(record)
+    max_frame_path = record.get("max_frame_path") or record.get("observation_path")
+    if _saved_label_says_no_cat(max_frame_path):
+        return
+    path_values: list[Any] = [
+        record.get("recording_dir"),
+        record.get("recording"),
+        record.get("source"),
+        record.get("source_key"),
+        record.get("source_video_path"),
+        max_frame_path,
+    ]
+    max_record = record.get("max_record") if isinstance(record.get("max_record"), dict) else None
+    if max_record:
+        max_record_frame_path = max_record.get("max_frame_path") or max_record.get("observation_path")
+        if _saved_label_says_no_cat(max_record_frame_path):
+            return
+        path_values.extend([max_record.get("recording_dir"), max_record.get("recording"), max_record.get("source")])
+        height_cm = height_cm if height_cm is not None else _height_from_record(max_record)
+    video_id = str(record.get("video_id") or "") or None
+    for raw_path in path_values:
+        if not raw_path:
+            continue
+        path = Path(str(raw_path)).expanduser()
+        _add_height_index_entry(index, path=path, video_id=video_id, height_cm=height_cm, source=source)
+
+
+def _index_jump_height_payload(source_path: Path, data: Any) -> dict[str, dict[str, Any]]:
+    index: dict[str, dict[str, Any]] = {}
+    records: list[Any] = []
+    if isinstance(data, dict):
+        if isinstance(data.get("videos"), list):
+            records.extend(data["videos"])
+        if isinstance(data.get("records"), list):
+            records.extend(data["records"])
+        records.append(data)
+    elif isinstance(data, list):
+        records.extend(data)
+    for record in records:
+        if isinstance(record, dict):
+            _index_height_record(index, record, source=str(source_path))
+    return index
+
+
+def _build_jump_height_index() -> dict[str, dict[str, Any]]:
+    global _JUMP_HEIGHT_INDEX_CACHE
+    now = time.monotonic()
+    if _JUMP_HEIGHT_INDEX_CACHE is not None:
+        cached_at, cached_state_root, cached_index = _JUMP_HEIGHT_INDEX_CACHE
+        if cached_state_root == STATE_ROOT and now - cached_at <= _DISCOVERY_CACHE_TTL_SECONDS:
+            return dict(cached_index)
+
+    latest_heights = STATE_ROOT / "label-review" / "rescores" / "jump_heights_latest.json"
+    if latest_heights.exists():
+        index = _index_jump_height_payload(latest_heights, _read_json(latest_heights))
+        if index:
+            _JUMP_HEIGHT_INDEX_CACHE = (now, STATE_ROOT, dict(index))
+            return index
+        rescore_root = latest_heights.parent
+        previous = sorted(
+            (path for path in rescore_root.glob("*/jump_heights.json") if path.exists()),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        for path in previous:
+            index = _index_jump_height_payload(path, _read_json(path))
+            if index:
+                _JUMP_HEIGHT_INDEX_CACHE = (now, STATE_ROOT, dict(index))
+                return index
+        _JUMP_HEIGHT_INDEX_CACHE = (now, STATE_ROOT, {})
+        return {}
+
+    index: dict[str, dict[str, Any]] = {}
+    candidate_files: list[Path] = []
+    for root, patterns in (
+        (STATE_ROOT / "batch_reviews", ("**/scan_results.json", "**/render_summary*.json", "**/summary.json")),
+        (STATE_ROOT / "recordings", ("*/telegram*_notification.json",)),
+        (STATE_ROOT / "jump-heights", ("*/measurements*.json",)),
+        (STATE_ROOT / "jump-observations", ("*.measurements.json",)),
+    ):
+        if root.exists():
+            for pattern in patterns:
+                candidate_files.extend(sorted(root.glob(pattern)))
+
+    seen: set[Path] = set()
+    for path in candidate_files:
+        if path in seen or not path.exists():
+            continue
+        seen.add(path)
+        index.update(_index_jump_height_payload(path, _read_json(path)))
+    _JUMP_HEIGHT_INDEX_CACHE = (now, STATE_ROOT, dict(index))
+    return index
+
+
+def _jump_height_for_video(
+    height_index: dict[str, dict[str, Any]],
+    *,
+    video_id: str,
+    recording_dir: Path | None,
+    group_key: Path | None,
+    source_video: Path | None,
+) -> tuple[float | None, str]:
+    for key in (
+        video_id,
+        *sorted(_height_index_keys_for_path(recording_dir)),
+        *sorted(_height_index_keys_for_path(source_video)),
+        *sorted(_height_index_keys_for_path(group_key)),
+    ):
+        row = height_index.get(key)
+        if not row:
+            continue
+        return _float_or_none(row.get("max_jump_height_cm")), str(row.get("max_jump_height_source") or "")
+    return None, ""
 
 
 def _encode_path(path: Path) -> str:
@@ -234,6 +447,7 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
     tmp.replace(path)
+    _clear_discovery_caches()
 
 
 def _label_path(case_id: str) -> Path:
@@ -248,6 +462,10 @@ def _video_status_path(video_id: str) -> Path:
     return VIDEO_STATUS_ROOT / f"{_safe_slug(video_id)}.json"
 
 
+def _job_path(job_id: str) -> Path:
+    return JOBS_ROOT / f"{_safe_slug(job_id)}.json"
+
+
 def _load_label_for_case(case_id: str) -> dict[str, Any]:
     return _read_json(_label_path(case_id))
 
@@ -256,10 +474,18 @@ def _load_status_for_video(video_id: str) -> dict[str, Any]:
     return _read_json(_video_status_path(video_id))
 
 
-def _parse_bbox(raw: str | None) -> tuple[float, float, float, float] | None:
+def _parse_bbox(raw: Any) -> tuple[float, float, float, float] | None:
     if not raw:
         return None
-    parts = [part.strip() for part in raw.replace(";", ",").split(",") if part.strip()]
+    if isinstance(raw, dict):
+        try:
+            return (float(raw["x"]), float(raw["y"]), float(raw["width"]), float(raw["height"]))
+        except (KeyError, TypeError, ValueError):
+            return None
+    if isinstance(raw, (list, tuple)):
+        parts = list(raw)
+    else:
+        parts = [part.strip() for part in str(raw).replace(";", ",").split(",") if part.strip()]
     if len(parts) != 4:
         return None
     try:
@@ -315,6 +541,23 @@ def _probe_rows_by_image(root: Path) -> dict[Path, dict[str, str]]:
                 "detector_cat_probability": str(row.get("best_probability") or ""),
                 "candidate_bbox_xywh": str(row.get("best_bbox") or ""),
                 "candidate_reason": str(row.get("best_source") or "probe_rows"),
+                "detector_backend": str(row.get("detector_backend") or ""),
+                "detector_model_id": str(row.get("detector_model_id") or ""),
+                "measurement_source": str(row.get("measurement_source") or ""),
+                "measurement_confidence": str(row.get("measurement_confidence") or ""),
+                "best_top_height_cm": str(row.get("best_top_height_cm") or ""),
+                "best_top_wall_x_cm": str(row.get("best_top_wall_x_cm") or ""),
+                "legacy_bbox_top_height_cm": str(row.get("legacy_bbox_top_height_cm") or ""),
+                "best_measurement_point": row.get("best_measurement_point"),
+                "best_measurement_warning": str(row.get("best_measurement_warning") or ""),
+                "tracker_status": str(row.get("tracker_status") or ""),
+                "tracker_reason": str(row.get("tracker_reason") or ""),
+                "tracker_confirmed": row.get("tracker_confirmed"),
+                "tracker_height_cm": str(row.get("tracker_height_cm") or ""),
+                "review_priority_score": str(row.get("review_priority_score") or ""),
+                "review_priority_reasons": row.get("review_priority_reasons")
+                if isinstance(row.get("review_priority_reasons"), list)
+                else [],
                 "notes": f"probe_rows: {row.get('candidate_count', '?')} candidates",
             }
     return rows
@@ -391,8 +634,7 @@ def _is_review_artifact_image(path: Path) -> bool:
 
 def _is_generated_review_training_path(path: Path) -> bool:
     return any(
-        part.startswith("cat-projector-review-ui-") or part.startswith("cat-projector-ui-")
-        for part in path.parts
+        part.startswith("cat-projector-review-ui-") or part.startswith("cat-projector-ui-") for part in path.parts
     )
 
 
@@ -564,6 +806,14 @@ def _image_size(path: Path) -> dict[str, int] | None:
 
 
 def _discover_cases(limit: int) -> list[ReviewCase]:
+    global _DISCOVER_CASES_CACHE
+    cache_key = _discovery_cache_key()
+    now = time.monotonic()
+    if _DISCOVER_CASES_CACHE is not None:
+        cached_at, cached_key, cached_cases = _DISCOVER_CASES_CACHE
+        if cached_key == cache_key and now - cached_at <= _DISCOVERY_CACHE_TTL_SECONDS:
+            return list(cached_cases[:limit])
+
     rows_by_image: dict[Path, dict[str, str]] = {}
     for root in (STATE_ROOT / "datasets", DATASET_ROOT / "datasets", DATASET_ROOT / "detector-training"):
         if root.exists():
@@ -613,10 +863,7 @@ def _discover_cases(limit: int) -> list[ReviewCase]:
                 except ValueError:
                     pass
             human_label = (
-                saved.get("label")
-                or row.get("label_cat_present")
-                or row.get("label_candidate_is_cat")
-                or None
+                saved.get("label") or row.get("label_cat_present") or row.get("label_candidate_is_cat") or None
             )
             review_status = saved.get("review_status") or row.get("review_status") or "unreviewed"
             label = str(saved.get("title") or image_path.name)
@@ -630,7 +877,9 @@ def _discover_cases(limit: int) -> list[ReviewCase]:
                     source_video_path=source_video,
                     source_recording_dir=recording_dir,
                     detector_probability=probability,
-                    candidate_bbox_xywh=_parse_bbox(row.get("candidate_bbox_xywh") or row.get("best_bbox") or saved.get("candidate_bbox_xywh")),
+                    candidate_bbox_xywh=_parse_bbox(
+                        row.get("candidate_bbox_xywh") or row.get("best_bbox") or saved.get("candidate_bbox_xywh")
+                    ),
                     review_status=str(review_status),
                     human_label=str(human_label) if human_label else None,
                     notes=str(saved.get("notes") or row.get("notes") or ""),
@@ -638,6 +887,7 @@ def _discover_cases(limit: int) -> list[ReviewCase]:
             )
 
     cases.sort(key=lambda item: item.priority_tuple(), reverse=True)
+    _DISCOVER_CASES_CACHE = (now, cache_key, tuple(cases))
     return cases[:limit]
 
 
@@ -665,6 +915,190 @@ def _case_to_payload(case: ReviewCase, include_size: bool = False) -> dict[str, 
     if include_size:
         payload["source_size_px"] = _image_size(case.image_path)
     return payload
+
+
+def _review_is_saved(value: Any) -> bool:
+    return str(value or "").lower() in {"saved", "reviewed"}
+
+
+def _frame_says_no_cat(frame: dict[str, Any]) -> bool:
+    cat_present = frame.get("cat_present")
+    if cat_present is True or str(cat_present).lower() in {"true", "yes", "cat"}:
+        return False
+    if cat_present is False or str(cat_present).lower() in {"false", "no", "not_cat"}:
+        return True
+    for key in ("human_label", "label_cat_present"):
+        value = str(frame.get(key) or "").lower()
+        if value in {"yes", "cat", "true"}:
+            return False
+        if value in {"no", "not_cat", "false"}:
+            return True
+    candidate_is_cat = frame.get("candidate_is_cat")
+    if candidate_is_cat is True or str(candidate_is_cat).lower() in {"true", "yes", "cat"}:
+        return False
+    if candidate_is_cat is False or str(candidate_is_cat).lower() in {"false", "no", "not_cat"}:
+        return True
+    label_candidate = str(frame.get("label_candidate_is_cat") or "").lower()
+    if label_candidate in {"yes", "cat", "true"}:
+        return False
+    return label_candidate in {"no", "not_cat", "false"}
+
+
+def _saved_label_says_no_cat(image_path: Path | str | None) -> bool:
+    if image_path is None:
+        return False
+    try:
+        path = Path(image_path)
+        saved = _load_label_for_case(_case_id_for_path(path))
+    except (OSError, ValueError):
+        return False
+    return _review_is_saved(saved.get("review_status")) and _frame_says_no_cat(saved)
+
+
+def _all_paths_saved_no_cat(paths: list[Path]) -> bool:
+    return bool(paths) and all(_saved_label_says_no_cat(path) for path in paths)
+
+
+def _frame_has_detector_metadata(frame: dict[str, Any]) -> bool:
+    return any(
+        frame.get(key) not in {None, ""}
+        for key in (
+            "detector_backend",
+            "detector_model_id",
+            "measurement_source",
+            "best_top_height_cm",
+            "review_priority_score",
+            "tracker_status",
+        )
+    )
+
+
+def _probability_value(frame: dict[str, Any]) -> float | None:
+    try:
+        value = frame.get("detector_probability")
+        if value in {None, ""}:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _suspicion_for_frame(frame: dict[str, Any]) -> dict[str, Any]:
+    score = 0.0
+    reasons: list[str] = []
+    reviewed = _review_is_saved(frame.get("review_status"))
+    reviewed_no_cat = reviewed and _frame_says_no_cat(frame)
+    if not reviewed:
+        score += 100.0
+        reasons.append("unreviewed")
+    probability = _probability_value(frame)
+    if probability is not None:
+        uncertainty = max(0.0, 1.0 - min(1.0, abs(probability - 0.5) * 2.0))
+        score += uncertainty * 50.0
+        if uncertainty >= 0.5:
+            reasons.append(f"uncertain p={probability:.2f}")
+    explicit_uncertainty = frame.get("uncertainty_score")
+    try:
+        if explicit_uncertainty not in {None, ""}:
+            score += max(0.0, float(explicit_uncertainty)) * 25.0
+    except (TypeError, ValueError):
+        pass
+    if not reviewed and not frame.get("model_output_path") and not _frame_has_detector_metadata(frame):
+        score += 10.0
+        reasons.append("model output missing")
+    if frame.get("review_decision") in {"false_positive", "missed_cat", "bad_geometry"} and not reviewed_no_cat:
+        score += 20.0
+        reasons.append("manual correction nearby")
+    priority_score = _float_or_none(frame.get("review_priority_score"))
+    if priority_score is not None:
+        score += priority_score
+        for reason in frame.get("review_priority_reasons") or []:
+            if isinstance(reason, str) and reason not in reasons:
+                reasons.append(reason)
+    height = _float_or_none(frame.get("best_top_height_cm"))
+    confidence = _float_or_none(frame.get("measurement_confidence"))
+    if height is not None and height >= 120:
+        score += min(35.0, (height - 100.0) * 0.5)
+        if reviewed_no_cat:
+            reasons.append(f"reviewed no-cat but still measured {height:.1f} cm")
+        else:
+            reasons.append(f"peak candidate {height:.1f} cm")
+    if height is not None and confidence is not None and height >= 100 and confidence < 0.55:
+        score += 20.0
+        reasons.append("low confidence around apex")
+    if frame.get("measurement_source") == "legacy_bbox_top":
+        score += 15.0
+        reasons.append("legacy bbox measurement")
+    if frame.get("best_measurement_warning"):
+        score += 15.0
+        reasons.append(str(frame["best_measurement_warning"]))
+    if frame.get("tracker_status") == "rejected":
+        score += 25.0
+        reasons.append(f"tracker rejected: {frame.get('tracker_reason') or 'physics gate'}")
+    if reviewed_no_cat and not any(reason.startswith("reviewed no-cat") for reason in reasons):
+        score = 0.0
+        reasons = ["reviewed no-cat"]
+    if not reasons:
+        reasons.append("low priority")
+    frame["suspicion_score"] = round(score, 4)
+    frame["suspicion_reasons"] = reasons
+    frame["suspicion_reason"] = reasons[0]
+    frame["reviewed"] = _review_is_saved(frame.get("review_status"))
+    return frame
+
+
+def _timeline_for_video(
+    video_id: str,
+) -> tuple[ReviewVideo, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    video = next((item for item in _discover_videos(10000) if item.id == video_id), None)
+    if video is None:
+        raise ValueError(f"unknown review video: {video_id}")
+    input_paths = _frame_paths_for_review_video(video)
+    frames: list[dict[str, Any]] = []
+    if input_paths:
+        frames = _frame_payloads_for_review_video(video, input_paths, offset=0, limit=max(1, len(input_paths)))
+    frames = [_suspicion_for_frame(frame) for frame in frames]
+    suspect_queue = sorted(
+        (
+            {
+                "frame_id": frame["id"],
+                "frame_index": frame["frame_index"],
+                "score": frame["suspicion_score"],
+                "reason": frame["suspicion_reason"],
+                "reasons": frame["suspicion_reasons"],
+                "neighborhood": {
+                    "start_frame": max(0, int(frame["frame_index"]) - 20),
+                    "end_frame": min(max(0, len(frames) - 1), int(frame["frame_index"]) + 20),
+                },
+            }
+            for frame in frames
+            if not frame["reviewed"] and frame["suspicion_score"] > 0
+        ),
+        key=lambda item: (item["score"], -int(item["frame_index"])),
+        reverse=True,
+    )
+    reviewed_suspect_queue = sorted(
+        (
+            {
+                "frame_id": frame["id"],
+                "frame_index": frame["frame_index"],
+                "score": frame["suspicion_score"],
+                "reason": frame["suspicion_reason"],
+                "reasons": frame["suspicion_reasons"],
+                "review_decision": frame.get("review_decision"),
+                "human_label": frame.get("human_label"),
+                "neighborhood": {
+                    "start_frame": max(0, int(frame["frame_index"]) - 20),
+                    "end_frame": min(max(0, len(frames) - 1), int(frame["frame_index"]) + 20),
+                },
+            }
+            for frame in frames
+            if frame["reviewed"] and frame["suspicion_score"] > 0
+        ),
+        key=lambda item: (item["score"], -int(item["frame_index"])),
+        reverse=True,
+    )
+    return video, frames, suspect_queue, reviewed_suspect_queue
 
 
 def _image_paths_under(root: Path) -> list[Path]:
@@ -718,11 +1152,7 @@ def _frame_count_for_group(group_key: Path) -> int:
         count = _image_count_under(group_key / directory_name)
         if count:
             return count
-    return sum(
-        1
-        for image_path in _image_paths_under(group_key)
-        if not _is_review_artifact_image(image_path)
-    )
+    return sum(1 for image_path in _image_paths_under(group_key) if not _is_review_artifact_image(image_path))
 
 
 def _output_frame_count_for_group(group_key: Path) -> int:
@@ -783,6 +1213,55 @@ def _candidate_output_path(input_path: Path) -> Path | None:
                 if input_index < len(output_peers):
                     return output_peers[input_index]
     return None
+
+
+def _candidate_output_paths_for_inputs(input_paths: list[Path]) -> dict[Path, Path | None]:
+    input_index_by_dir: dict[Path, dict[Path, int]] = {}
+    output_peers_by_dir: dict[Path, list[Path]] = {}
+    output_paths: dict[Path, Path | None] = {}
+    for input_path in input_paths:
+        exact_candidates: list[Path] = []
+        for parent in [input_path.parent, *input_path.parents]:
+            if parent == parent.parent:
+                break
+            for directory_name in PREFERRED_OUTPUT_FRAME_DIR_NAMES:
+                exact_candidates.append(parent / directory_name / input_path.name)
+                exact_candidates.append(parent / directory_name / input_path.with_suffix(".jpg").name)
+                exact_candidates.append(parent / directory_name / input_path.with_suffix(".png").name)
+            if _is_input_frame_dir_name(parent.name):
+                for directory_name in PREFERRED_OUTPUT_FRAME_DIR_NAMES:
+                    exact_candidates.append(parent.parent / directory_name / input_path.name)
+                    exact_candidates.append(parent.parent / directory_name / input_path.with_suffix(".jpg").name)
+                    exact_candidates.append(parent.parent / directory_name / input_path.with_suffix(".png").name)
+        for candidate in exact_candidates:
+            try:
+                if candidate.is_file():
+                    output_paths[input_path] = _safe_local_path(candidate)
+                    break
+            except ValueError:
+                continue
+        if input_path in output_paths:
+            continue
+        output_paths[input_path] = None
+        if not _is_input_frame_dir_name(input_path.parent.name):
+            continue
+        index_by_path = input_index_by_dir.get(input_path.parent)
+        if index_by_path is None:
+            index_by_path = {path: index for index, path in enumerate(_image_paths_under(input_path.parent))}
+            input_index_by_dir[input_path.parent] = index_by_path
+        input_index = index_by_path.get(input_path, -1)
+        if input_index < 0:
+            continue
+        for directory_name in PREFERRED_OUTPUT_FRAME_DIR_NAMES:
+            output_dir = input_path.parent.parent / directory_name
+            output_peers = output_peers_by_dir.get(output_dir)
+            if output_peers is None:
+                output_peers = _image_paths_under(output_dir)
+                output_peers_by_dir[output_dir] = output_peers
+            if input_index < len(output_peers):
+                output_paths[input_path] = output_peers[input_index]
+                break
+    return output_paths
 
 
 def _string_values(value: Any) -> list[str]:
@@ -896,14 +1375,12 @@ def _video_group_key(case: ReviewCase) -> Path:
 
 def _input_frame_paths_for_group(group_key: Path) -> list[Path]:
     for directory_name in PREFERRED_INPUT_FRAME_DIR_NAMES:
-        frame_paths = [path for path in _image_paths_under(group_key / directory_name) if not _is_review_artifact_image(path)]
+        frame_paths = [
+            path for path in _image_paths_under(group_key / directory_name) if not _is_review_artifact_image(path)
+        ]
         if frame_paths:
             return frame_paths
-    return [
-        image_path
-        for image_path in _image_paths_under(group_key)
-        if not _is_review_artifact_image(image_path)
-    ]
+    return [image_path for image_path in _image_paths_under(group_key) if not _is_review_artifact_image(image_path)]
 
 
 def _unique_case_image_paths(group: list[ReviewCase]) -> list[Path]:
@@ -935,6 +1412,8 @@ def _video_payload(video: ReviewVideo) -> dict[str, Any]:
         "output_artifacts": output_artifacts,
         "review_status": status.get("review_status") or video.review_status,
         "notes": status.get("notes") or video.notes,
+        "max_jump_height_cm": video.max_jump_height_cm,
+        "max_jump_height_source": video.max_jump_height_source,
         "mtime": video.mtime,
     }
 
@@ -943,6 +1422,15 @@ def _merge_review_video(existing: ReviewVideo | None, update: ReviewVideo) -> Re
     if existing is None:
         return update
     output_artifacts = tuple(dict.fromkeys([*existing.output_artifacts, *update.output_artifacts]))
+    if existing.max_jump_height_cm is None:
+        max_jump_height_cm = update.max_jump_height_cm
+        max_jump_height_source = update.max_jump_height_source
+    elif update.max_jump_height_cm is None or existing.max_jump_height_cm >= update.max_jump_height_cm:
+        max_jump_height_cm = existing.max_jump_height_cm
+        max_jump_height_source = existing.max_jump_height_source
+    else:
+        max_jump_height_cm = update.max_jump_height_cm
+        max_jump_height_source = update.max_jump_height_source
     return ReviewVideo(
         id=existing.id,
         label=existing.label if existing.mtime >= update.mtime else update.label,
@@ -955,11 +1443,22 @@ def _merge_review_video(existing: ReviewVideo | None, update: ReviewVideo) -> Re
         output_artifacts=output_artifacts,
         review_status=existing.review_status if existing.mtime >= update.mtime else update.review_status,
         notes=existing.notes or update.notes,
+        max_jump_height_cm=max_jump_height_cm,
+        max_jump_height_source=max_jump_height_source,
     )
 
 
 def _discover_videos(limit: int) -> list[ReviewVideo]:
+    global _DISCOVER_VIDEOS_CACHE
+    cache_key = _discovery_cache_key()
+    now = time.monotonic()
+    if _DISCOVER_VIDEOS_CACHE is not None:
+        cached_at, cached_key, cached_videos = _DISCOVER_VIDEOS_CACHE
+        if cached_key == cache_key and now - cached_at <= _DISCOVERY_CACHE_TTL_SECONDS:
+            return list(cached_videos[:limit])
+
     videos: dict[str, ReviewVideo] = {}
+    height_index = _build_jump_height_index()
 
     for root in SCAN_ROOTS:
         if not root.exists() or root.name == "recordings":
@@ -969,7 +1468,8 @@ def _discover_videos(limit: int) -> list[ReviewVideo]:
                 key = _safe_local_path(key)
             except ValueError:
                 continue
-            sample_paths = _input_frame_paths_for_group(key)[:20]
+            input_paths = _input_frame_paths_for_group(key)
+            sample_paths = input_paths[:20]
             if not sample_paths:
                 continue
             contexts = [_recording_context(path) for path in sample_paths]
@@ -985,6 +1485,16 @@ def _discover_videos(limit: int) -> list[ReviewVideo]:
                 source_video=source_video,
             )
             status = _load_status_for_video(video_id)
+            max_jump_height_cm, max_jump_height_source = _jump_height_for_video(
+                height_index,
+                video_id=video_id,
+                recording_dir=recording_dir,
+                group_key=key,
+                source_video=source_video,
+            )
+            if _all_paths_saved_no_cat(input_paths):
+                max_jump_height_cm = None
+                max_jump_height_source = ""
             update = ReviewVideo(
                 id=video_id,
                 label=status.get("title") or (recording_dir.name if recording_dir else key.name),
@@ -997,6 +1507,8 @@ def _discover_videos(limit: int) -> list[ReviewVideo]:
                 output_artifacts=output_artifacts,
                 review_status=status.get("review_status") or "unreviewed",
                 notes=status.get("notes") or "",
+                max_jump_height_cm=max_jump_height_cm,
+                max_jump_height_source=max_jump_height_source,
             )
             videos[video_id] = _merge_review_video(videos.get(video_id), update)
 
@@ -1021,6 +1533,16 @@ def _discover_videos(limit: int) -> list[ReviewVideo]:
             if not chunks and not frame_count:
                 continue
             status = _load_status_for_video(video_id)
+            max_jump_height_cm, max_jump_height_source = _jump_height_for_video(
+                height_index,
+                video_id=video_id,
+                recording_dir=recording_dir,
+                group_key=recording_dir,
+                source_video=chunks[0] if chunks else None,
+            )
+            if max_jump_height_cm is not None and _all_paths_saved_no_cat(_recording_frame_paths(recording_dir)):
+                max_jump_height_cm = None
+                max_jump_height_source = ""
             output_artifacts = _output_artifacts_for_video(
                 video_id=video_id,
                 recording_dir=recording_dir,
@@ -1039,9 +1561,12 @@ def _discover_videos(limit: int) -> list[ReviewVideo]:
                 output_artifacts=output_artifacts,
                 review_status=status.get("review_status") or "unreviewed",
                 notes=status.get("notes") or "",
+                max_jump_height_cm=max_jump_height_cm,
+                max_jump_height_source=max_jump_height_source,
             )
 
-    rows = sorted(videos.values(), key=lambda item: item.priority_tuple(), reverse=True)
+    rows = sorted(videos.values(), key=lambda item: item.height_priority_tuple(), reverse=True)
+    _DISCOVER_VIDEOS_CACHE = (now, cache_key, tuple(rows))
     return rows[:limit]
 
 
@@ -1068,7 +1593,7 @@ def _recording_frame_paths(recording_dir: Path) -> list[Path]:
     seen: set[Path] = set()
     unique: list[Path] = []
     for path in paths:
-        if path in seen:
+        if path in seen or _is_review_artifact_image(path):
             continue
         seen.add(path)
         unique.append(path)
@@ -1117,13 +1642,16 @@ def _frame_paths_for_review_video(video: ReviewVideo) -> list[Path]:
     return sorted(unique, key=_sort_frame_path)
 
 
-def _frames_for_video(video_id: str, *, offset: int = 0, limit: int = 50) -> tuple[ReviewVideo, list[dict[str, Any]]]:
-    video = next((item for item in _discover_videos(10000) if item.id == video_id), None)
-    if video is None:
-        raise ValueError(f"unknown review video: {video_id}")
+def _frame_payloads_for_review_video(
+    video: ReviewVideo,
+    input_paths: list[Path],
+    *,
+    offset: int = 0,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
     metadata_by_path = _review_metadata_rows_by_image()
-    input_paths = _frame_paths_for_review_video(video)
-    selected = input_paths[max(0, offset) : max(0, offset) + max(1, min(limit, 500))]
+    selected = input_paths[max(0, offset) : max(0, offset) + max(1, limit)]
+    output_paths = _candidate_output_paths_for_inputs(selected) if video.output_frame_count else {}
     frames: list[dict[str, Any]] = []
     for frame_index, input_path in enumerate(selected, start=max(0, offset)):
         case_id = _case_id_for_path(input_path)
@@ -1140,7 +1668,9 @@ def _frames_for_video(video_id: str, *, offset: int = 0, limit: int = 50) -> tup
             except ValueError:
                 pass
         bbox = saved.get("candidate_bbox_xywh") or _parse_bbox(row.get("candidate_bbox_xywh") or row.get("best_bbox"))
-        output_path = _candidate_output_path(input_path)
+        label_cat_present = saved.get("label_cat_present") or row.get("label_cat_present") or None
+        label_candidate_is_cat = saved.get("label_candidate_is_cat") or row.get("label_candidate_is_cat") or None
+        output_path = output_paths.get(input_path)
         input_token = _encode_path(input_path)
         output_token = _encode_path(output_path) if output_path else None
         frames.append(
@@ -1158,13 +1688,55 @@ def _frames_for_video(video_id: str, *, offset: int = 0, limit: int = 50) -> tup
                 "source_recording_dir": str(video.source_recording_dir) if video.source_recording_dir else None,
                 "candidate_bbox_xywh": bbox,
                 "detector_probability": probability,
+                "detector_backend": row.get("detector_backend") or "",
+                "detector_model_id": row.get("detector_model_id") or "",
+                "measurement_source": row.get("measurement_source") or "",
+                "measurement_confidence": _float_or_none(row.get("measurement_confidence")),
+                "best_top_height_cm": _float_or_none(row.get("best_top_height_cm")),
+                "best_top_wall_x_cm": _float_or_none(row.get("best_top_wall_x_cm")),
+                "legacy_bbox_top_height_cm": _float_or_none(row.get("legacy_bbox_top_height_cm")),
+                "measurement_point": row.get("best_measurement_point")
+                if isinstance(row.get("best_measurement_point"), dict)
+                else None,
+                "best_measurement_warning": row.get("best_measurement_warning") or "",
+                "tracker_status": row.get("tracker_status") or "",
+                "tracker_reason": row.get("tracker_reason") or "",
+                "tracker_confirmed": bool(row.get("tracker_confirmed"))
+                if row.get("tracker_confirmed") not in {None, ""}
+                else False,
+                "tracker_height_cm": _float_or_none(row.get("tracker_height_cm")),
+                "review_priority_score": _float_or_none(row.get("review_priority_score")),
+                "review_priority_reasons": row.get("review_priority_reasons")
+                if isinstance(row.get("review_priority_reasons"), list)
+                else [],
                 "review_status": saved.get("review_status") or row.get("review_status") or "unreviewed",
-                "human_label": saved.get("label") or row.get("label_cat_present") or row.get("label_candidate_is_cat") or None,
+                "human_label": saved.get("label")
+                or row.get("label_cat_present")
+                or row.get("label_candidate_is_cat")
+                or None,
+                "label_cat_present": label_cat_present,
+                "label_candidate_is_cat": label_candidate_is_cat,
+                "review_decision": saved.get("review_decision"),
+                "cat_present": saved.get("cat_present"),
+                "candidate_is_cat": saved.get("candidate_is_cat"),
+                "geometry_status": saved.get("geometry_status"),
                 "notes": saved.get("notes") or row.get("notes") or "",
-                "source_size_px": _image_size(input_path),
+                # Do not open every image while building a video timeline. The
+                # browser learns naturalWidth/naturalHeight when the selected
+                # frame image loads; eager PIL probes made long recordings look
+                # like the UI was hung.
+                "source_size_px": saved.get("source_size_px"),
             }
         )
-    return video, frames
+    return frames
+
+
+def _frames_for_video(video_id: str, *, offset: int = 0, limit: int = 50) -> tuple[ReviewVideo, list[dict[str, Any]]]:
+    video = next((item for item in _discover_videos(10000) if item.id == video_id), None)
+    if video is None:
+        raise ValueError(f"unknown review video: {video_id}")
+    input_paths = _frame_paths_for_review_video(video)
+    return video, _frame_payloads_for_review_video(video, input_paths, offset=offset, limit=limit)
 
 
 def _save_video_status(video_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1330,9 +1902,7 @@ def _click_to_contour(image_path: Path, positive_points: list[Any], negative_poi
     # Slightly close single-pixel holes without importing cv2/scipy.
     padded = np.pad(mask, 1, mode="constant")
     neighbours = sum(
-        padded[1 + dy : 1 + dy + height, 1 + dx : 1 + dx + width]
-        for dy in (-1, 0, 1)
-        for dx in (-1, 0, 1)
+        padded[1 + dy : 1 + dy + height, 1 + dx : 1 + dx + width] for dy in (-1, 0, 1) for dx in (-1, 0, 1)
     )
     mask = mask | (neighbours >= 7)
     polygon = _component_polygon(mask)
@@ -1360,7 +1930,16 @@ def _save_label(payload: dict[str, Any]) -> dict[str, Any]:
         image_path = _path_from_payload(payload)
         case_id = _case_id_for_path(image_path)
     image_path = _path_from_payload(payload)
+    review_decision = str(payload.get("review_decision") or "").strip()
     label = str(payload.get("label") or payload.get("human_label") or "unsure")
+    if review_decision == "good":
+        label = "cat" if label not in {"not_cat", "no"} else "not_cat"
+    elif review_decision == "false_positive":
+        label = "not_cat"
+    elif review_decision in {"missed_cat", "bad_geometry"}:
+        label = "cat"
+    elif review_decision == "unsure":
+        label = "unsure"
     review_status = str(payload.get("review_status") or "saved")
     masks = payload.get("masks") or payload.get("cat_annotations") or []
     if not isinstance(masks, list):
@@ -1394,6 +1973,47 @@ def _save_label(payload: dict[str, Any]) -> dict[str, Any]:
         mask_refs.append({"id": mask_id, "path": str(path), "label": mask_payload["label"]})
         mask_payloads.append(mask_payload)
 
+    candidate_is_cat = payload.get("candidate_is_cat")
+    cat_present = payload.get("cat_present")
+    geometry_status = payload.get("geometry_status")
+    if review_decision == "good":
+        candidate_is_cat = label == "cat"
+        cat_present = label == "cat"
+        geometry_status = "ok" if label == "cat" else None
+    elif review_decision == "false_positive":
+        candidate_is_cat = False
+        cat_present = bool(payload.get("cat_present")) if "cat_present" in payload else False
+        geometry_status = None
+    elif review_decision == "missed_cat":
+        cat_present = True
+        candidate_is_cat = False
+        geometry_status = "corrected" if masks else "missing"
+    elif review_decision == "bad_geometry":
+        cat_present = True
+        candidate_is_cat = True
+        geometry_status = str(geometry_status or ("corrected" if masks else "bad"))
+    elif review_decision == "unsure":
+        cat_present = None if cat_present in {None, ""} else cat_present
+        candidate_is_cat = None if candidate_is_cat in {None, ""} else candidate_is_cat
+        geometry_status = geometry_status or None
+
+    label_cat_present = payload.get("label_cat_present")
+    if label_cat_present is None:
+        if cat_present is True:
+            label_cat_present = "yes"
+        elif cat_present is False:
+            label_cat_present = "no"
+        else:
+            label_cat_present = "yes" if label == "cat" else "no" if label == "not_cat" else ""
+    label_candidate_is_cat = payload.get("label_candidate_is_cat")
+    if label_candidate_is_cat is None:
+        if candidate_is_cat is True:
+            label_candidate_is_cat = "yes"
+        elif candidate_is_cat is False:
+            label_candidate_is_cat = "no"
+        else:
+            label_candidate_is_cat = "yes" if label == "cat" else "no" if label == "not_cat" else ""
+
     row = {
         "kind": LABEL_NAMESPACE + "_label_v1",
         "case_id": case_id,
@@ -1404,9 +2024,15 @@ def _save_label(payload: dict[str, Any]) -> dict[str, Any]:
         "source_video_path": payload.get("source_video_path"),
         "source_recording_dir": payload.get("source_recording_dir"),
         "label": label,
-        "label_cat_present": "yes" if label == "cat" else "no" if label == "not_cat" else "",
-        "label_candidate_is_cat": payload.get("label_candidate_is_cat")
-        or ("yes" if label == "cat" else "no" if label == "not_cat" else ""),
+        "label_cat_present": label_cat_present,
+        "label_candidate_is_cat": label_candidate_is_cat,
+        "review_decision": review_decision or None,
+        "cat_present": cat_present,
+        "candidate_is_cat": candidate_is_cat,
+        "geometry_status": geometry_status,
+        "review_notes": payload.get("review_notes") or payload.get("notes") or "",
+        "reviewed_at": _utc_now(),
+        "reviewer_source": payload.get("reviewer_source") or "local_ui",
         "review_status": review_status,
         "candidate_bbox_xywh": payload.get("candidate_bbox_xywh"),
         "notes": payload.get("notes") or "",
@@ -1461,14 +2087,79 @@ def _bbox_dict_to_csv(raw: Any) -> str:
     return ""
 
 
+def _mask_ref_path(label: dict[str, Any], ref: dict[str, Any]) -> Path | None:
+    raw_path = str(ref.get("path") or "")
+    if not raw_path:
+        return None
+    path = Path(raw_path).expanduser()
+    if path.is_absolute():
+        return path
+    case_id = str(label.get("case_id") or "")
+    if case_id:
+        return MASKS_ROOT / _safe_slug(case_id) / path.name
+    return MASKS_ROOT / path
+
+
+def _masks_for_training_label(label: dict[str, Any]) -> list[dict[str, Any]]:
+    masks = [mask for mask in label.get("masks") or [] if isinstance(mask, dict)]
+    if masks:
+        return masks
+    loaded: list[dict[str, Any]] = []
+    for ref in label.get("mask_refs") or []:
+        if not isinstance(ref, dict):
+            continue
+        path = _mask_ref_path(label, ref)
+        if path is None:
+            continue
+        raw = _read_json(path)
+        if raw:
+            loaded.append(raw)
+    return loaded
+
+
 def _mask_bbox_for_label(label: dict[str, Any]) -> str:
-    for mask in label.get("masks") or []:
+    for mask in _masks_for_training_label(label):
         if not isinstance(mask, dict):
             continue
         bbox = _bbox_dict_to_csv(mask.get("bbox_xywh"))
         if bbox:
             return bbox
     return _bbox_dict_to_csv(label.get("candidate_bbox_xywh"))
+
+
+def _corrected_mask_bbox_for_label(label: dict[str, Any]) -> str:
+    for mask in _masks_for_training_label(label):
+        if not isinstance(mask, dict):
+            continue
+        bbox = _bbox_dict_to_csv(mask.get("bbox_xywh"))
+        if bbox:
+            return bbox
+    return ""
+
+
+def _bbox_intersection_area(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> float:
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    left = max(ax, bx)
+    top = max(ay, by)
+    right = min(ax + aw, bx + bw)
+    bottom = min(ay + ah, by + bh)
+    return max(0.0, right - left) * max(0.0, bottom - top)
+
+
+def _old_candidate_negative_bbox_for_label(label: dict[str, Any], corrected_bbox: str) -> str:
+    if str(label.get("review_decision") or "") not in {"bad_geometry", "missed_cat"}:
+        return ""
+    old_bbox = _bbox_dict_to_csv(label.get("candidate_bbox_xywh"))
+    if not old_bbox or not corrected_bbox or old_bbox == corrected_bbox:
+        return ""
+    old_parsed = _parse_bbox(old_bbox)
+    corrected_parsed = _parse_bbox(corrected_bbox)
+    if old_parsed is None or corrected_parsed is None:
+        return ""
+    if _bbox_intersection_area(old_parsed, corrected_parsed) > 0:
+        return ""
+    return old_bbox
 
 
 def _source_chunk_for_label(label: dict[str, Any], image_path: Path, recording_dir: Path | None) -> tuple[str, str]:
@@ -1528,7 +2219,10 @@ def _materialize_review_labels_as_training_package(payload: dict[str, Any]) -> d
     copied: list[dict[str, str]] = []
     for index, label in enumerate(labels):
         image_path = label["_image_path"]
-        target = frames_dir / f"{index:04d}_{_safe_slug(str(label.get('case_id') or image_path.stem))}{image_path.suffix.lower()}"
+        target = (
+            frames_dir
+            / f"{index:04d}_{_safe_slug(str(label.get('case_id') or image_path.stem))}{image_path.suffix.lower()}"
+        )
         shutil.copy2(image_path, target)
         label_kind = str(label.get("label") or "")
         recording_raw = str(label.get("source_recording_dir") or "")
@@ -1538,6 +2232,8 @@ def _materialize_review_labels_as_training_package(payload: dict[str, Any]) -> d
             recording_dir = inferred_recording
         source_chunk, source_offset = _source_chunk_for_label(label, image_path, recording_dir)
         bbox = _mask_bbox_for_label(label)
+        corrected_bbox = _corrected_mask_bbox_for_label(label)
+        old_negative_bbox = _old_candidate_negative_bbox_for_label(label, corrected_bbox)
         row = {field: "" for field in TRAINING_LABEL_FIELDNAMES}
         row.update(
             {
@@ -1551,7 +2247,10 @@ def _materialize_review_labels_as_training_package(payload: dict[str, Any]) -> d
                 "bbox_xywh": bbox if label_kind == "cat" else "",
                 "occlusion": "unknown" if label_kind == "cat" else "",
                 "confidence": "high",
-                "notes": f"materialized from review label {label.get('_label_file')}; {label.get('notes') or ''}".strip(),
+                "notes": (
+                    f"materialized from review label {label.get('_label_file')}; "
+                    f"{label.get('notes') or ''}"
+                ).strip(),
                 "source_recording_dir": str(recording_dir) if recording_dir else "",
                 "source_chunk": source_chunk,
                 "source_offset_seconds": source_offset,
@@ -1560,6 +2259,18 @@ def _materialize_review_labels_as_training_package(payload: dict[str, Any]) -> d
             }
         )
         rows.append(row)
+        if label_kind == "cat" and old_negative_bbox:
+            old_candidate_row = dict(row)
+            old_candidate_row.update(
+                {
+                    "candidate_bbox_xywh": old_negative_bbox,
+                    "label_candidate_is_cat": "no",
+                    "negative_reason": "old_candidate_no_overlap_corrected_mask",
+                    "candidate_reason": "human_review_old_candidate_hard_negative",
+                    "notes": f"{row['notes']}; old model candidate did not intersect corrected mask".strip(),
+                }
+            )
+            rows.append(old_candidate_row)
         copied.append(
             {
                 "label_file": str(label.get("_label_file") or ""),
@@ -1567,6 +2278,7 @@ def _materialize_review_labels_as_training_package(payload: dict[str, Any]) -> d
                 "copied_image": str(target),
                 "label": label_kind,
                 "bbox_xywh": bbox,
+                "old_candidate_negative_bbox_xywh": old_negative_bbox,
             }
         )
 
@@ -1583,11 +2295,7 @@ def _materialize_review_labels_as_training_package(payload: dict[str, Any]) -> d
         "package_id": package_id,
         "package_dir": str(package_dir),
         "labels_csv": str(labels_csv),
-        "source_action_payload": {
-            key: value
-            for key, value in payload.items()
-            if key not in {"training_package"}
-        },
+        "source_action_payload": {key: value for key, value in payload.items() if key not in {"training_package"}},
         "source_label_count": len(labels),
         "positive_count": positive_count,
         "negative_count": negative_count,
@@ -1611,19 +2319,22 @@ def _path_from_payload(payload: dict[str, Any]) -> Path:
     return _safe_local_path(Path(raw))
 
 
-def _queue_action(action: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _queue_action(action: str, payload: dict[str, Any], *, status: str = "queued") -> dict[str, Any]:
     action_id = f"{int(time.time())}-{_safe_slug(action)}-{hashlib.sha1(os.urandom(12)).hexdigest()[:8]}"
+    log_message = (
+        "recorded by review UI; live jobs are disabled, so nothing will pick this up automatically"
+        if status == "recorded"
+        else "queued by review UI; operator must run the matching offline command"
+    )
     row = {
         "kind": LABEL_NAMESPACE + "_action_v1",
         "id": action_id,
         "action": action,
-        "status": "queued",
+        "status": status,
         "created_at": _utc_now(),
         "updated_at": _utc_now(),
         "payload": payload,
-        "log": [
-            "queued by review UI; operator must run the matching offline command",
-        ],
+        "log": [log_message],
     }
     _write_json(QUEUE_ROOT / f"{action_id}.json", row)
     return row
@@ -1633,6 +2344,122 @@ def _list_actions(limit: int = 50) -> list[dict[str, Any]]:
     if not QUEUE_ROOT.exists():
         return []
     paths = sorted(QUEUE_ROOT.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    return [_read_json(path) for path in paths[:limit]]
+
+
+def _update_job(job_id: str, **updates: Any) -> dict[str, Any]:
+    row = _read_json(_job_path(job_id))
+    row.update(updates)
+    row["updated_at"] = _utc_now()
+    _write_json(_job_path(job_id), row)
+    return row
+
+
+def _live_job_command() -> list[str]:
+    if LIVE_JOB_COMMAND is not None:
+        return list(LIVE_JOB_COMMAND)
+    jobs = os.environ.get("CAT_PROJECTOR_LIVE_JOB_JOBS", "16").strip() or "16"
+    return [sys.executable, str(REPO_ROOT / "scripts" / "cat_projector_active_learning.py"), "--jobs", jobs]
+
+
+def _summarize_active_learning_stdout(stdout: str) -> dict[str, Any]:
+    for line in reversed(stdout.splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError:
+            continue
+    return {}
+
+
+def _run_live_job(job_id: str) -> None:
+    global _ACTIVE_JOB_ID
+    try:
+        path = _job_path(job_id)
+        if not path.exists():
+            return
+        row = _read_json(path)
+        log = list(row.get("log") or [])
+        command = _live_job_command()
+        requested_action = row.get("action") or "rescore_recording"
+        log.append(f"running local active-learning iteration for requested action: {requested_action}")
+        _update_job(job_id, status="running", log=log, command=command)
+        completed = subprocess.run(
+            command,
+            cwd=str(REPO_ROOT),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        log = list(_read_json(path).get("log") or [])
+        if completed.returncode:
+            tail = "\n".join((completed.stderr or completed.stdout).splitlines()[-12:])
+            log.append(f"failed with exit code {completed.returncode}")
+            if tail:
+                log.append(tail)
+            _update_job(job_id, status="failed", log=log)
+            return
+        result = _summarize_active_learning_stdout(completed.stdout)
+        frame_count = result.get("frame_count")
+        if frame_count is not None:
+            log.append(f"active-learning finished; rescored {frame_count} frames")
+        else:
+            log.append("active-learning finished")
+        _update_job(job_id, status="done", log=log, result=result)
+    finally:
+        with _JOB_LOCK:
+            if job_id == _ACTIVE_JOB_ID:
+                _ACTIVE_JOB_ID = None
+
+
+def _start_or_queue_job(payload: dict[str, Any]) -> dict[str, Any]:
+    global _ACTIVE_JOB_ID
+    action = str(payload.get("action") or "rescore_recording")
+    if action not in {"retrain_model", "rescore_recording", "rerender_overlay"}:
+        raise ValueError("job action must be retrain_model, rescore_recording, or rerender_overlay")
+    payload = dict(payload)
+    payload["job_scope"] = "full_active_learning_iteration"
+    payload["job_scope_note"] = (
+        "The local job runs retrain/rescore/re-measure together so jump heights and review priority stay consistent."
+    )
+    if action == "retrain_model" and "training_package" not in payload:
+        payload["training_package"] = _materialize_review_labels_as_training_package(payload)
+    if not ALLOW_LIVE_JOBS:
+        action_payload = dict(payload)
+        action_payload["job_mode"] = "recorded_without_live_jobs"
+        return _queue_action(
+            "rescore_recording" if action == "rerender_overlay" else action, action_payload, status="recorded"
+        )
+
+    with _JOB_LOCK:
+        if _ACTIVE_JOB_ID:
+            raise ValueError(f"live job already running: {_ACTIVE_JOB_ID}")
+        job_id = f"{int(time.time())}-{_safe_slug(action)}-{hashlib.sha1(os.urandom(12)).hexdigest()[:8]}"
+        _ACTIVE_JOB_ID = job_id
+    row = {
+        "kind": LABEL_NAMESPACE + "_job_v1",
+        "id": job_id,
+        "action": action,
+        "status": "running",
+        "created_at": _utc_now(),
+        "updated_at": _utc_now(),
+        "payload": payload,
+        "log": [
+            "started by review UI",
+        ],
+    }
+    _write_json(_job_path(job_id), row)
+    thread = threading.Thread(target=_run_live_job, args=(job_id,), daemon=True)
+    thread.start()
+    return row
+
+
+def _list_jobs(limit: int = 50) -> list[dict[str, Any]]:
+    if not JOBS_ROOT.exists():
+        return []
+    paths = sorted(JOBS_ROOT.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
     return [_read_json(path) for path in paths[:limit]]
 
 
@@ -1692,10 +2519,33 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
                     }
                 )
                 return
+            if len(parts) >= 6 and parts[5] == "timeline":
+                video, frames, suspect_queue, reviewed_suspect_queue = _timeline_for_video(unquote(parts[4]))
+                self._send_json(
+                    {
+                        "kind": LABEL_NAMESPACE + "_video_timeline_v1",
+                        "video": _video_payload(video),
+                        "frames": frames,
+                        "suspect_queue": suspect_queue,
+                        "reviewed_suspect_queue": reviewed_suspect_queue,
+                        "playback": {"default_fps": 15, "neighborhood_frames": 20},
+                    }
+                )
+                return
             if len(parts) >= 6 and parts[5] == "status":
                 video_id = unquote(parts[4])
-                self._send_json(_load_status_for_video(video_id) or {"video_id": video_id, "review_status": "unreviewed"})
+                self._send_json(
+                    _load_status_for_video(video_id) or {"video_id": video_id, "review_status": "unreviewed"}
+                )
                 return
+        if parsed.path.startswith("/api/cat-projector-label-review/jobs/"):
+            job_id = unquote(parsed.path.rsplit("/", 1)[-1])
+            row = _read_json(_job_path(job_id))
+            if not row:
+                self._send_error_json(HTTPStatus.NOT_FOUND, "unknown job")
+                return
+            self._send_json(row)
+            return
         if parsed.path.startswith("/api/cat-projector-label-review/file/"):
             self._send_api_file(parsed.path)
             return
@@ -1709,6 +2559,19 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
             return
         if parsed.path == "/api/cat-projector-label-review/actions":
             self._send_json({"kind": LABEL_NAMESPACE + "_actions_v1", "actions": _list_actions()})
+            return
+        if parsed.path == "/api/cat-projector-label-review/jobs":
+            query = parse_qs(parsed.query)
+            limit = int(query.get("limit", ["50"])[0])
+            self._send_json(
+                {
+                    "kind": LABEL_NAMESPACE + "_jobs_v1",
+                    "allow_live_jobs": ALLOW_LIVE_JOBS,
+                    "active_job_id": _ACTIVE_JOB_ID,
+                    "jobs": _list_jobs(limit),
+                    "actions": _list_actions(limit),
+                }
+            )
             return
         if self._send_static_if_exists(WEB_ROOT, parsed.path):
             return
@@ -1745,6 +2608,13 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/cat-projector-label-review/labels":
                 self._send_json(_save_label(payload))
                 return
+            if parsed.path.startswith("/api/cat-projector-label-review/frames/"):
+                parts = parsed.path.split("/")
+                if len(parts) >= 6 and parts[5] == "review":
+                    payload = dict(payload)
+                    payload["case_id"] = payload.get("case_id") or unquote(parts[4])
+                    self._send_json(_save_label(payload))
+                    return
             if parsed.path.startswith("/api/cat-projector-label-review/videos/"):
                 parts = parsed.path.split("/")
                 if len(parts) >= 6 and parts[5] == "status":
@@ -1759,6 +2629,9 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
                     payload = dict(payload)
                     payload["training_package"] = _materialize_review_labels_as_training_package(payload)
                 self._send_json(_queue_action(action, payload))
+                return
+            if parsed.path == "/api/cat-projector-label-review/jobs":
+                self._send_json(_start_or_queue_job(payload))
                 return
         except Exception as exc:
             self._send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
@@ -1857,7 +2730,7 @@ def build_fake_corpus(root: Path) -> Path:
 
 
 def run_server(host: str, port: int) -> None:
-    for directory in (REVIEW_ROOT, LABELS_ROOT, MASKS_ROOT, QUEUE_ROOT, VIDEO_STATUS_ROOT):
+    for directory in (REVIEW_ROOT, LABELS_ROOT, MASKS_ROOT, QUEUE_ROOT, JOBS_ROOT, VIDEO_STATUS_ROOT):
         directory.mkdir(parents=True, exist_ok=True)
     server = ThreadingHTTPServer((host, port), CatProjectorLabelReviewHandler)
     url = f"http://{host}:{port}/calibration-tools/projector-wall-calibrator.html"
@@ -1872,6 +2745,7 @@ def run_fake_smoke(tmp_root: Path) -> int:
     original_labels = globals()["LABELS_ROOT"]
     original_masks = globals()["MASKS_ROOT"]
     original_queue = globals()["QUEUE_ROOT"]
+    original_jobs = globals()["JOBS_ROOT"]
     original_video_status = globals()["VIDEO_STATUS_ROOT"]
     original_training_datasets = globals()["TRAINING_DATASETS_ROOT"]
     original_scan_roots = globals()["SCAN_ROOTS"]
@@ -1888,11 +2762,12 @@ def run_fake_smoke(tmp_root: Path) -> int:
         globals()["LABELS_ROOT"] = fake_review / "labels"
         globals()["MASKS_ROOT"] = fake_review / "masks"
         globals()["QUEUE_ROOT"] = fake_review / "actions"
+        globals()["JOBS_ROOT"] = fake_review / "jobs"
         globals()["VIDEO_STATUS_ROOT"] = fake_review / "videos"
         globals()["TRAINING_DATASETS_ROOT"] = fake_state / "datasets"
         globals()["SCAN_ROOTS"] = (fake_dataset / "datasets",)
         globals()["ALLOWED_ROOTS"] = (fake_dataset, fake_state, fake_review)
-        for directory in (LABELS_ROOT, MASKS_ROOT, QUEUE_ROOT, VIDEO_STATUS_ROOT):
+        for directory in (LABELS_ROOT, MASKS_ROOT, QUEUE_ROOT, JOBS_ROOT, VIDEO_STATUS_ROOT):
             directory.mkdir(parents=True, exist_ok=True)
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), CatProjectorLabelReviewHandler)
@@ -1909,6 +2784,11 @@ def run_fake_smoke(tmp_root: Path) -> int:
                 timeout=10,
             ) as response:
                 video_frames = json.loads(response.read().decode("utf-8"))["frames"]
+            with urlopen(
+                f"{base_url}/api/cat-projector-label-review/videos/{videos[0]['id']}/timeline",
+                timeout=10,
+            ) as response:
+                timeline = json.loads(response.read().decode("utf-8"))
             with urlopen(f"{base_url}/datasets/fake-review/frames/borderline.jpg", timeout=10) as response:
                 static_asset_status = response.status
         finally:
@@ -1925,6 +2805,11 @@ def run_fake_smoke(tmp_root: Path) -> int:
             raise AssertionError(f"expected fake review video with 3 frames, got {videos}")
         if not video_frames or not video_frames[0]["model_output_url"]:
             raise AssertionError("video frames did not expose previous-model output")
+        if (
+            not timeline["suspect_queue"]
+            or "borderline" not in timeline["frames"][timeline["suspect_queue"][0]["frame_index"]]["image_path"]
+        ):
+            raise AssertionError("timeline did not put the suspicious borderline frame first")
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), CatProjectorLabelReviewHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -1959,31 +2844,31 @@ def run_fake_smoke(tmp_root: Path) -> int:
                     "allow_fallback": True,
                 },
             )
-            saved_cat = post(
-                "/api/cat-projector-label-review/labels",
+            saved_missed = post(
+                f"/api/cat-projector-label-review/frames/{cat_case['id']}/review",
                 {
                     "case_id": cat_case["id"],
                     "video_id": videos[0]["id"],
                     "frame_index": 1,
                     "image_path": cat_case["image_path"],
                     "model_output_path": video_frames[1]["model_output_path"],
-                    "label": "cat",
+                    "review_decision": "missed_cat",
                     "review_status": "saved",
                     "masks": [{"id": "sher", "label": "Sher", "kind": "cat", **contour}],
-                    "notes": "fake smoke cat",
+                    "notes": "fake smoke missed cat",
                 },
             )
-            saved_not_cat = post(
-                "/api/cat-projector-label-review/labels",
+            saved_false_positive = post(
+                f"/api/cat-projector-label-review/frames/{not_cat_case['id']}/review",
                 {
                     "case_id": not_cat_case["id"],
                     "video_id": videos[0]["id"],
                     "frame_index": 2,
                     "image_path": not_cat_case["image_path"],
-                    "label": "not_cat",
+                    "review_decision": "false_positive",
                     "review_status": "saved",
                     "masks": [],
-                    "notes": "fake smoke not-cat",
+                    "notes": "fake smoke false positive",
                 },
             )
             retrain = post(
@@ -1994,6 +2879,10 @@ def run_fake_smoke(tmp_root: Path) -> int:
                 "/api/cat-projector-label-review/actions",
                 {"action": "rescore_recording", "video_id": videos[0]["id"], "recording_dir": "/tmp/fake-recording"},
             )
+            job = post(
+                "/api/cat-projector-label-review/jobs",
+                {"action": "rescore_recording", "video_id": videos[0]["id"], "reason": "fake smoke"},
+            )
             video_status = post(
                 f"/api/cat-projector-label-review/videos/{videos[0]['id']}/status",
                 {"review_status": "relabeled_ok", "notes": "fake video ok"},
@@ -2001,12 +2890,17 @@ def run_fake_smoke(tmp_root: Path) -> int:
         finally:
             server.shutdown()
             thread.join(timeout=5)
-        if saved_cat["mask_refs"] == []:
-            raise AssertionError("cat label did not write mask ref")
-        if saved_not_cat["label_cat_present"] != "no":
-            raise AssertionError("not-cat label did not save frame-level no")
+        if saved_missed["mask_refs"] == [] or saved_missed["review_decision"] != "missed_cat":
+            raise AssertionError("missed-cat label did not write review mask")
+        if (
+            saved_false_positive["label_candidate_is_cat"] != "no"
+            or saved_false_positive["review_decision"] != "false_positive"
+        ):
+            raise AssertionError("false-positive label did not save candidate no")
         if retrain["status"] != "queued" or rescore["status"] != "queued":
             raise AssertionError("actions were not queued")
+        if job["status"] != "recorded":
+            raise AssertionError("job facade did not record disabled live job honestly")
         if video_status["review_status"] != "relabeled_ok":
             raise AssertionError("video status was not saved")
         print(
@@ -2015,10 +2909,11 @@ def run_fake_smoke(tmp_root: Path) -> int:
                     "cases": cases,
                     "videos": videos,
                     "video_frames": video_frames,
-                    "cat_label": saved_cat,
-                    "not_cat_label": saved_not_cat,
+                    "timeline": timeline,
+                    "missed_cat_label": saved_missed,
+                    "false_positive_label": saved_false_positive,
                     "video_status": video_status,
-                    "actions": [retrain, rescore],
+                    "actions": [retrain, rescore, job],
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -2032,6 +2927,7 @@ def run_fake_smoke(tmp_root: Path) -> int:
         globals()["LABELS_ROOT"] = original_labels
         globals()["MASKS_ROOT"] = original_masks
         globals()["QUEUE_ROOT"] = original_queue
+        globals()["JOBS_ROOT"] = original_jobs
         globals()["VIDEO_STATUS_ROOT"] = original_video_status
         globals()["TRAINING_DATASETS_ROOT"] = original_training_datasets
         globals()["SCAN_ROOTS"] = original_scan_roots
@@ -2042,9 +2938,13 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8790)
+    parser.add_argument(
+        "--allow-live-jobs", action="store_true", help="Allow one local active-learning rescore/retrain job at a time."
+    )
     parser.add_argument("--fake-smoke", action="store_true", help="Run the repo-local fake-corpus smoke test and exit.")
     parser.add_argument("--tmp-root", type=Path, default=Path("tmp/cat_projector_label_review_smoke"))
     args = parser.parse_args()
+    globals()["ALLOW_LIVE_JOBS"] = bool(args.allow_live_jobs)
     if args.fake_smoke:
         return run_fake_smoke(args.tmp_root)
     run_server(args.host, args.port)

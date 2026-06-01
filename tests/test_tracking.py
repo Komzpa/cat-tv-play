@@ -86,3 +86,19 @@ def test_confirmed_peak_uses_raw_accepted_detection_not_smoothed_state() -> None
     )
 
     assert peak == 180.0
+
+
+def test_tracker_accepts_wall_measurement_adapter() -> None:
+    class Measurement:
+        wall_x_cm = 12.0
+        wall_y_cm = 145.0
+        confidence = 0.82
+        source = "segmentation_mask"
+
+    detection = tracking.wall_detection_from_measurement(Measurement(), t=1.5, area_px=1234)
+
+    assert detection.x_cm == 12.0
+    assert detection.y_cm == 145.0
+    assert detection.confidence == 0.82
+    assert detection.area_px == 1234
+    assert detection.source == "segmentation_mask"
