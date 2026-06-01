@@ -55,8 +55,8 @@ def compute_eye_safety_overlay(
     people: Iterable[PersonDetection],
     eye_band_top_fraction: float = 0.07,
     eye_band_bottom_fraction: float = 0.19,
-    eye_band_left_fraction: float = 0.32,
-    eye_band_right_fraction: float = 0.68,
+    eye_band_left_fraction: float = 0.20,
+    eye_band_right_fraction: float = 0.92,
     padding_px: int = 12,
     min_overlap_area_px: int = 24,
 ) -> SafetyOverlayResult:

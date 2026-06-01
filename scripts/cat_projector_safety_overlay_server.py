@@ -356,6 +356,40 @@ def _bbox_residual_stats(
     return int(dark.sum()), float(dark.mean())
 
 
+def _person_eye_band_bbox_for_filter(
+    person: PersonDetection,
+    *,
+    camera_size: tuple[int, int],
+    eye_band_top_fraction: float,
+    eye_band_bottom_fraction: float,
+    eye_band_left_fraction: float,
+    eye_band_right_fraction: float,
+    padding_px: int,
+) -> tuple[float, float, float, float]:
+    width, height = camera_size
+    x0, y0, x1, y1 = _clamp_server_bbox(person.bbox_xyxy, camera_size=camera_size)
+    person_width = x1 - x0
+    person_height = y1 - y0
+    left = x0 + person_width * eye_band_left_fraction
+    right = x0 + person_width * eye_band_right_fraction
+    top = y0 + person_height * eye_band_top_fraction
+    bottom = y0 + person_height * eye_band_bottom_fraction
+    return _clamp_server_bbox(
+        (
+            float(np.floor(left - padding_px)),
+            float(np.floor(top - padding_px)),
+            float(np.ceil(right + padding_px)),
+            float(np.ceil(bottom + padding_px)),
+        ),
+        camera_size=(width, height),
+    )
+
+
+def _bbox_area(bbox_xyxy: tuple[float, float, float, float]) -> float:
+    x0, y0, x1, y1 = bbox_xyxy
+    return max(0.0, float(x1) - float(x0)) * max(0.0, float(y1) - float(y0))
+
+
 def _build_residual_views(
     *,
     camera_image: Image.Image,
@@ -532,6 +566,11 @@ def _filter_source_projected_people(
     min_residual_fraction: float,
     enable_residual_occluder_fallback: bool = False,
     source_filter_scale: float = 1.0,
+    eye_band_top_fraction: float = 0.07,
+    eye_band_bottom_fraction: float = 0.19,
+    eye_band_left_fraction: float = 0.20,
+    eye_band_right_fraction: float = 0.92,
+    padding_px: int = 12,
 ) -> tuple[list[PersonDetection], list[dict[str, Any]]]:
     if not people and not enable_residual_occluder_fallback and not ignored_source_polygons:
         return [], [{"reason": "residual_occluder_fallback_disabled"}]
@@ -564,6 +603,15 @@ def _filter_source_projected_people(
     skipped: list[dict[str, Any]] = []
     for index, person in enumerate(filter_people):
         original_person = people[index]
+        eye_band_bbox = _person_eye_band_bbox_for_filter(
+            person,
+            camera_size=filter_camera_image.size,
+            eye_band_top_fraction=eye_band_top_fraction,
+            eye_band_bottom_fraction=eye_band_bottom_fraction,
+            eye_band_left_fraction=eye_band_left_fraction,
+            eye_band_right_fraction=eye_band_right_fraction,
+            padding_px=max(0, int(round(padding_px * scale))),
+        )
         stats = [
             (
                 frame_index,
@@ -576,8 +624,24 @@ def _filter_source_projected_people(
             )
             for frame_index, residual, source_bright_mask in residual_views
         ]
+        eye_stats = [
+            (
+                frame_index,
+                *_bbox_residual_stats(
+                    residual,
+                    eye_band_bbox,
+                    threshold=residual_threshold,
+                    source_bright_mask=source_bright_mask,
+                ),
+            )
+            for frame_index, residual, source_bright_mask in residual_views
+        ]
         best_frame_index, residual_area, residual_fraction = min(
             stats,
+            key=lambda item: (item[1], item[2]),
+        )
+        best_eye_frame_index, eye_residual_area, eye_residual_fraction = min(
+            eye_stats,
             key=lambda item: (item[1], item[2]),
         )
         debug = {
@@ -586,6 +650,9 @@ def _filter_source_projected_people(
             "source_subtracted_residual_fraction": residual_fraction,
             "source_subtracted_best_reference_index": best_frame_index,
             "source_subtracted_reference_count": len(residual_views),
+            "source_subtracted_eye_band_residual_area_px": eye_residual_area,
+            "source_subtracted_eye_band_residual_fraction": eye_residual_fraction,
+            "source_subtracted_eye_band_best_reference_index": best_eye_frame_index,
             "source_filter_scale": scale,
         }
         enriched = PersonDetection(
@@ -595,7 +662,20 @@ def _filter_source_projected_people(
             mask=original_person.mask,
             debug=debug,
         )
-        if residual_area >= filter_min_residual_area_px and residual_fraction >= min_residual_fraction:
+        eye_min_residual_area_px = max(
+            1,
+            min(
+                filter_min_residual_area_px,
+                int(round(_bbox_area(eye_band_bbox) * min_residual_fraction)),
+            ),
+        )
+        if (
+            residual_area >= filter_min_residual_area_px
+            and residual_fraction >= min_residual_fraction
+        ) or (
+            eye_residual_area >= eye_min_residual_area_px
+            and eye_residual_fraction >= min_residual_fraction
+        ):
             accepted.append(enriched)
         else:
             skipped.append(
@@ -606,7 +686,10 @@ def _filter_source_projected_people(
                     "confidence": original_person.confidence,
                     "residual_area_px": residual_area,
                     "residual_fraction": residual_fraction,
+                    "eye_band_residual_area_px": eye_residual_area,
+                    "eye_band_residual_fraction": eye_residual_fraction,
                     "best_reference_index": best_frame_index,
+                    "eye_band_best_reference_index": best_eye_frame_index,
                     "reference_count": len(residual_views),
                     "source_filter_scale": scale,
                 }
@@ -1220,6 +1303,11 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
                 min_residual_fraction=args.person_min_residual_fraction,
                 enable_residual_occluder_fallback=args.enable_residual_occluder_fallback,
                 source_filter_scale=args.source_filter_scale,
+                eye_band_top_fraction=args.eye_band_top_fraction,
+                eye_band_bottom_fraction=args.eye_band_bottom_fraction,
+                eye_band_left_fraction=args.eye_band_left_fraction,
+                eye_band_right_fraction=args.eye_band_right_fraction,
+                padding_px=args.padding_px,
             )
             source_filter_ms = (time.monotonic() - source_filter_started) * 1000.0
             source_filter_skipped = detector_skipped + filter_skipped
@@ -1635,18 +1723,28 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--projector-polygon", type=_parse_projector_polygon, default=DEFAULT_PROJECTOR_POLYGON)
     parser.add_argument("--eye-band-top-fraction", type=float, default=0.07)
     parser.add_argument("--eye-band-bottom-fraction", type=float, default=0.19)
-    parser.add_argument("--eye-band-left-fraction", type=float, default=0.32)
-    parser.add_argument("--eye-band-right-fraction", type=float, default=0.68)
+    parser.add_argument("--eye-band-left-fraction", type=float, default=0.20)
+    parser.add_argument("--eye-band-right-fraction", type=float, default=0.92)
     parser.add_argument("--padding-px", type=int, default=12)
     parser.add_argument("--min-overlap-area-px", type=int, default=24)
     parser.add_argument("--person-residual-threshold", type=float, default=28.0)
     parser.add_argument("--person-min-residual-area-px", type=int, default=1200)
     parser.add_argument("--person-min-residual-fraction", type=float, default=0.10)
     parser.add_argument("--source-filter-scale", type=float, default=0.35)
-    parser.add_argument("--enable-residual-occluder-fallback", action="store_true")
+    parser.add_argument(
+        "--enable-residual-occluder-fallback",
+        dest="enable_residual_occluder_fallback",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--disable-residual-occluder-fallback",
+        dest="enable_residual_occluder_fallback",
+        action="store_false",
+    )
+    parser.set_defaults(enable_residual_occluder_fallback=True)
     parser.add_argument("--source-reference-frames", type=int, default=3)
     parser.add_argument("--camera-sample-interval", type=float, default=0.06)
-    parser.add_argument("--camera-snapshot-timeout", type=float, default=0.8)
+    parser.add_argument("--camera-snapshot-timeout", type=float, default=2.0)
     parser.add_argument("--eye-safety-trail-seconds", type=float, default=0.15)
     parser.add_argument("--eye-safety-hold-seconds", type=float, default=0.0)
     parser.add_argument("--eye-safety-prediction-seconds", type=float, default=0.25)

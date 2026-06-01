@@ -17,6 +17,19 @@ SPEC.loader.exec_module(overlay_server)
 FULL_FRAME_PROJECTOR = ((0.0, 0.0), (1279.0, 0.0), (1279.0, 719.0), (0.0, 719.0))
 
 
+def test_runtime_parse_args_enables_residual_occluder_fallback_by_default() -> None:
+    args = overlay_server.parse_args(["--source-video", "source.mp4"])
+
+    assert args.enable_residual_occluder_fallback is True
+    assert args.camera_snapshot_timeout == 2.0
+
+
+def test_runtime_parse_args_can_disable_residual_occluder_fallback() -> None:
+    args = overlay_server.parse_args(["--source-video", "source.mp4", "--disable-residual-occluder-fallback"])
+
+    assert args.enable_residual_occluder_fallback is False
+
+
 def test_source_filter_rejects_projected_video_content() -> None:
     source = Image.new("RGB", (1280, 720), "white")
     ImageDraw.Draw(source).ellipse((520, 160, 760, 360), fill="black")
@@ -137,6 +150,57 @@ def test_source_filter_rejects_projected_video_content_from_reference_frame() ->
     assert accepted == []
     assert skipped[0]["reason"] == "matches_projected_source"
     assert skipped[0]["best_reference_index"] == 1
+
+
+def test_source_filter_keeps_person_when_intro_cat_only_masks_body_residual() -> None:
+    current_source = Image.new("RGB", (1280, 720), "white")
+    intro_source = Image.new("RGB", (1280, 720), "white")
+    # A dark projected startup cat in the center can make the full person bbox
+    # look source-like, but the eye band still carries the physical occluder.
+    ImageDraw.Draw(intro_source).rectangle((460, 180, 820, 560), fill="black")
+    camera = Image.fromarray(
+        overlay_server.source_subtraction.warp_source_to_camera(
+            intro_source,
+            projector_polygon=FULL_FRAME_PROJECTOR,
+            width=1280,
+            height=720,
+        )
+    ).convert("RGB")
+    ImageDraw.Draw(camera).rectangle((500, 90, 790, 140), fill="black")
+    person = overlay_server.PersonDetection(
+        bbox_xyxy=(500.0, 70.0, 790.0, 590.0),
+        confidence=0.9,
+        source="test",
+    )
+
+    accepted, skipped = overlay_server._filter_source_projected_people(
+        [person],
+        camera_image=camera,
+        source_frame=current_source,
+        source_reference_frames=[intro_source],
+        projector_polygon=FULL_FRAME_PROJECTOR,
+        residual_threshold=28.0,
+        min_residual_area_px=1200,
+        min_residual_fraction=0.10,
+    )
+
+    assert skipped == []
+    assert len(accepted) == 1
+    assert accepted[0].bbox_xyxy == person.bbox_xyxy
+    assert accepted[0].debug["source_subtracted_best_reference_index"] == 1
+    assert accepted[0].debug["source_subtracted_residual_fraction"] < 0.10
+    assert accepted[0].debug["source_subtracted_eye_band_residual_fraction"] >= 0.10
+
+    result = overlay_server.compute_eye_safety_overlay(
+        camera_size=camera.size,
+        source_size=(1280, 720),
+        projector_polygon=FULL_FRAME_PROJECTOR,
+        people=accepted,
+        min_overlap_area_px=24,
+    )
+    assert result.status == "active"
+    rendered = overlay_server.render_eye_safety_overlay(current_source, result)
+    assert rendered.getpixel((640, 130)) == (0, 0, 0)
 
 
 def test_source_filter_does_not_create_eye_zone_from_residual_without_detector_person_by_default() -> None:
@@ -488,7 +552,7 @@ def test_stale_active_result_expires_to_clear_overlay() -> None:
     assert stale.debug["stale_active_age_seconds"] == 0.5
 
 
-def test_runtime_defaults_prioritize_low_latency_camera_updates() -> None:
+def test_runtime_defaults_prioritize_live_safety_camera_updates() -> None:
     args = overlay_server.parse_args(["--source-video", "cats.mp4"])
 
     assert args.fps == 20
@@ -496,11 +560,11 @@ def test_runtime_defaults_prioritize_low_latency_camera_updates() -> None:
     assert args.source_filter_scale == 0.35
     assert args.eye_band_top_fraction == 0.07
     assert args.eye_band_bottom_fraction == 0.19
-    assert args.eye_band_left_fraction == 0.32
-    assert args.eye_band_right_fraction == 0.68
+    assert args.eye_band_left_fraction == 0.20
+    assert args.eye_band_right_fraction == 0.92
     assert args.padding_px == 12
     assert args.camera_sample_interval == 0.06
-    assert args.camera_snapshot_timeout == 0.8
+    assert args.camera_snapshot_timeout == 2.0
     assert args.eye_safety_trail_seconds == 0.15
     assert args.eye_safety_hold_seconds == 0.0
     assert args.eye_safety_prediction_seconds == 0.25
