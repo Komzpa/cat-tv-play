@@ -70,6 +70,13 @@ frames from the source clip, and serves `/status.json`, `/camera.jpg`, and
 tests, but it should not be the normal playback path because Python/ffmpeg HLS
 encoding can make the video less smooth than the native player.
 
+Production status-only units should also pass the Home Assistant active gate
+(`--ha-url` plus `--ha-config-path`). When both the cat-projector session latch
+and display-active sensor are explicitly `off`, the server continues serving
+status but idles the camera/detector worker so a lamp-off projector does not
+burn CPU. HA errors and unknown states fail open: the worker stays active rather
+than risking a blind safety overlay during startup.
+
 The player alone is not a physical safety boundary. Home Assistant production
 wiring must run an independent watchdog that treats `active`, stale, or
 unavailable safety status as a lamp-off command while preserving the

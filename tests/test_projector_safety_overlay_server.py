@@ -30,6 +30,36 @@ def test_runtime_parse_args_can_disable_residual_occluder_fallback() -> None:
     assert args.enable_residual_occluder_fallback is False
 
 
+def test_projector_active_gate_idles_only_on_explicit_off_states() -> None:
+    assert (
+        overlay_server._projector_active_from_states(
+            {
+                "input_boolean.cat_projector_session": "off",
+                "binary_sensor.cat_projector_display_active": "off",
+            }
+        )
+        is False
+    )
+    assert (
+        overlay_server._projector_active_from_states(
+            {
+                "input_boolean.cat_projector_session": "on",
+                "binary_sensor.cat_projector_display_active": "off",
+            }
+        )
+        is True
+    )
+    assert (
+        overlay_server._projector_active_from_states(
+            {
+                "input_boolean.cat_projector_session": "unknown",
+                "binary_sensor.cat_projector_display_active": "off",
+            }
+        )
+        is True
+    )
+
+
 def test_source_filter_rejects_projected_video_content() -> None:
     source = Image.new("RGB", (1280, 720), "white")
     ImageDraw.Draw(source).ellipse((520, 160, 760, 360), fill="black")
@@ -635,3 +665,10 @@ def test_runtime_defaults_prioritize_live_safety_camera_updates() -> None:
     assert args.person_track_smoothing_alpha == 0.65
     assert args.status_only is False
     assert args.source_tracking_fps == 5
+    assert args.ha_url is None
+    assert args.ha_config_path is None
+    assert args.ha_active_entity == list(overlay_server.DEFAULT_HA_ACTIVE_ENTITIES)
+    assert args.ha_active_poll_interval == 1.0
+    assert args.ha_active_timeout == 1.0
+    assert args.inactive_sample_interval == 2.0
+    assert args.inactive_status_interval == 1.0

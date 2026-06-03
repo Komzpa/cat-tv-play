@@ -216,8 +216,17 @@ python3 scripts/cat_projector_safety_overlay_server.py \
   --camera-snapshot-url http://192.168.100.39:8081/shot.jpg \
   --host 0.0.0.0 \
   --port 8787 \
-  --status-only
+  --status-only \
+  --ha-url http://192.168.100.128:8123 \
+  --ha-config-path ~/Dropbox/Reemxy/tasks-loop/Config/config.py
 ```
+
+When the Home Assistant active gate is configured, the camera/detector worker
+idles while both `input_boolean.cat_projector_session` and
+`binary_sensor.cat_projector_display_active` are explicitly `off`. The service
+still serves `/status.json`, but it does not keep sampling the projector camera
+or running person detection while the lamp is off. Unknown HA states or HA read
+errors fail open and keep the worker active for safety.
 
 Then start the projector Android activity with the raw MP4 as `video_url` and
 the safety server as `overlay_status_url`. This avoids the Python/ffmpeg HLS

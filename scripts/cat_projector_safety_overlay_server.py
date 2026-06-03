@@ -17,7 +17,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from pathlib import Path
 from typing import Any
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -67,6 +67,10 @@ DEFAULT_HUMAN_DETECTOR_DIR = Path("~/.openclaw/state/cat-tv-learning/models/open
 DEFAULT_HUMAN_DETECTOR_PROTOTXT = DEFAULT_HUMAN_DETECTOR_DIR / "MobileNetSSD_deploy.prototxt"
 DEFAULT_HUMAN_DETECTOR_MODEL = DEFAULT_HUMAN_DETECTOR_DIR / "MobileNetSSD_deploy.caffemodel"
 PERSON_CLASS_ID = 15
+DEFAULT_HA_ACTIVE_ENTITIES = (
+    "input_boolean.cat_projector_session",
+    "binary_sensor.cat_projector_display_active",
+)
 
 
 class MobileNetPersonDetector:
@@ -271,6 +275,90 @@ class OverlayRequestHandler(SimpleHTTPRequestHandler):
 def _read_camera_snapshot(url: str, *, timeout: float = 2.0) -> Image.Image:
     with urlopen(url, timeout=timeout) as response:
         return Image.open(response).convert("RGB")
+
+
+def _load_ha_token(config_path: Path) -> str:
+    spec = importlib.util.spec_from_file_location("cat_projector_overlay_ha_config", config_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load Home Assistant config from {config_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    token = (
+        getattr(module, "HOME_ASSISTANT_TOKEN", None)
+        or getattr(module, "HASS_TOKEN", None)
+        or getattr(module, "HA_TOKEN", None)
+    )
+    if not token:
+        raise RuntimeError(f"Home Assistant token not found in {config_path}")
+    return str(token)
+
+
+def _read_ha_state(ha_url: str, token: str, entity_id: str, *, timeout: float) -> str:
+    request = Request(
+        f"{ha_url.rstrip('/')}/api/states/{entity_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with urlopen(request, timeout=timeout) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    return str(payload.get("state", "unknown"))
+
+
+def _projector_active_from_states(states: dict[str, str]) -> bool:
+    if not states:
+        return True
+    return any(state != "off" for state in states.values())
+
+
+class ProjectorActiveGate:
+    def __init__(
+        self,
+        *,
+        ha_url: str | None,
+        ha_config_path: Path | None,
+        active_entities: tuple[str, ...],
+        poll_interval_seconds: float,
+        timeout_seconds: float,
+    ) -> None:
+        self._ha_url = ha_url
+        self._ha_config_path = ha_config_path
+        self._active_entities = active_entities
+        self._poll_interval_seconds = max(0.1, poll_interval_seconds)
+        self._timeout_seconds = max(0.1, timeout_seconds)
+        self._token: str | None = None
+        self._next_check = 0.0
+        self._active = True
+        self._states: dict[str, str] = {}
+        self._error: str | None = None
+
+    def active(self, now: float) -> bool:
+        if not self._ha_url or not self._ha_config_path or not self._active_entities:
+            return True
+        if now < self._next_check:
+            return self._active
+        self._next_check = now + self._poll_interval_seconds
+        try:
+            if self._token is None:
+                self._token = _load_ha_token(self._ha_config_path.expanduser())
+            self._states = {
+                entity_id: _read_ha_state(self._ha_url, self._token, entity_id, timeout=self._timeout_seconds)
+                for entity_id in self._active_entities
+            }
+            self._active = _projector_active_from_states(self._states)
+            self._error = None
+        except Exception as exc:
+            self._active = True
+            self._error = str(exc)
+        return self._active
+
+    def debug(self) -> dict[str, Any]:
+        if not self._ha_url or not self._ha_config_path or not self._active_entities:
+            return {"projector_active_gate_enabled": False}
+        return {
+            "projector_active_gate_enabled": True,
+            "projector_active_gate_active": self._active,
+            "projector_active_gate_states": dict(self._states),
+            "projector_active_gate_error": self._error,
+        }
 
 
 def _parse_projector_polygon(value: str) -> tuple[tuple[float, float], ...]:
@@ -1273,6 +1361,13 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
         source_size=args.source_size,
         max_frames=args.source_reference_frames,
     )
+    active_gate = ProjectorActiveGate(
+        ha_url=args.ha_url,
+        ha_config_path=args.ha_config_path,
+        active_entities=tuple(args.ha_active_entity),
+        poll_interval_seconds=args.ha_active_poll_interval,
+        timeout_seconds=args.ha_active_timeout,
+    )
     recent_eye_zone_results: list[tuple[float, SafetyOverlayResult]] = []
     held_result: SafetyOverlayResult | None = None
     held_people: list[PersonDetection] = []
@@ -1284,6 +1379,45 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
     sample_index = 0
 
     while not runtime.should_stop():
+        gate_checked_at = time.monotonic()
+        if not active_gate.active(gate_checked_at):
+            recent_eye_zone_results = []
+            held_result = None
+            held_people = []
+            previous_people = []
+            previous_people_at = None
+            physics_tracks = []
+            last_blackout_polygons = []
+            sample_index += 1
+            result = SafetyOverlayResult(
+                "no_person",
+                debug={
+                    "person_count": 0,
+                    "safety_worker_idle": True,
+                    "idle_reason": "projector_inactive",
+                    **active_gate.debug(),
+                },
+            )
+            runtime.update_snapshot(
+                SafetyComputationSnapshot(
+                    result=result,
+                    people=[],
+                    camera_image=None,
+                    camera_error=None,
+                    performance={
+                        "safety_sample_index": sample_index,
+                        "safety_worker_idle": True,
+                        "idle_reason": "projector_inactive",
+                        "inactive_sample_interval_ms": round(args.inactive_sample_interval * 1000.0, 1),
+                        **active_gate.debug(),
+                    },
+                    blackout_polygons=[],
+                    updated_at=gate_checked_at,
+                )
+            )
+            time.sleep(args.inactive_sample_interval)
+            continue
+
         source_frame, source_frame_index, source_updated_at = runtime.source_frame_snapshot()
         if source_frame is None:
             time.sleep(min(0.02, max(0.001, args.camera_sample_interval)))
@@ -1401,6 +1535,7 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
                     "prediction_horizon_seconds": round(horizon_seconds, 3),
                     "prediction_padding_px": args.eye_safety_prediction_padding_px,
                     "max_prediction_px": args.eye_safety_max_prediction_px,
+                    **active_gate.debug(),
                     **physics_debug,
                 },
             )
@@ -1442,6 +1577,7 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
             "person_track_max_missing_seconds": args.person_track_max_missing_seconds,
             "person_track_max_speed_px_s": args.person_track_max_speed_px_s,
             "person_track_smoothing_alpha": args.person_track_smoothing_alpha,
+            **active_gate.debug(),
             **physics_debug,
         }
         runtime.update_snapshot(
@@ -1554,12 +1690,16 @@ def _run_status_only(args: argparse.Namespace, *, state: SafetyOverlayState) -> 
     try:
         while True:
             started = time.monotonic()
-            if started >= next_source_at:
+            snapshot = runtime.snapshot()
+            worker_idle = bool(snapshot.performance.get("safety_worker_idle"))
+            if not worker_idle and started >= next_source_at:
                 frame_index += 1
                 source_frame = _frame_from_capture(capture, source_size=args.source_size)
                 runtime.update_source_frame(source_frame, frame_index)
                 next_source_at = started + source_interval
-            snapshot = runtime.snapshot()
+                snapshot = runtime.snapshot()
+            elif worker_idle:
+                next_source_at = started + source_interval
             finished = time.monotonic()
             status_interval_ms = (finished - last_status_monotonic) * 1000.0
             last_status_monotonic = finished
@@ -1579,6 +1719,7 @@ def _run_status_only(args: argparse.Namespace, *, state: SafetyOverlayState) -> 
                 "native_video_playback": True,
                 "source_tracking_fps": args.source_tracking_fps,
                 "status_target_interval_ms": round(status_interval * 1000.0, 1),
+                "inactive_status_interval_ms": round(args.inactive_status_interval * 1000.0, 1),
                 "status_loop_ms": round((finished - started) * 1000.0, 1),
                 "status_interval_ms": round(status_interval_ms, 1),
                 "safety_result_age_ms": safety_age_ms,
@@ -1595,8 +1736,9 @@ def _run_status_only(args: argparse.Namespace, *, state: SafetyOverlayState) -> 
                 performance=performance,
             )
             elapsed = time.monotonic() - started
-            if elapsed < status_interval:
-                time.sleep(status_interval - elapsed)
+            target_interval = args.inactive_status_interval if worker_idle else status_interval
+            if elapsed < target_interval:
+                time.sleep(target_interval - elapsed)
     finally:
         runtime.stop()
         capture.release()
@@ -1793,6 +1935,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--status-only", action="store_true")
     parser.add_argument("--source-tracking-fps", type=int, default=5)
+    parser.add_argument("--ha-url")
+    parser.add_argument("--ha-config-path", type=Path)
+    parser.add_argument("--ha-active-entity", action="append", default=list(DEFAULT_HA_ACTIVE_ENTITIES))
+    parser.add_argument("--ha-active-poll-interval", type=float, default=1.0)
+    parser.add_argument("--ha-active-timeout", type=float, default=1.0)
+    parser.add_argument("--inactive-sample-interval", type=float, default=2.0)
+    parser.add_argument("--inactive-status-interval", type=float, default=1.0)
     args = parser.parse_args(argv)
     if len(args.source_size) != 2:
         raise SystemExit("--source-size must be WIDTHxHEIGHT")
