@@ -1228,6 +1228,19 @@ def _annotate_motion_prediction(
     return annotated
 
 
+def _people_with_current_frame_evidence(people: list[PersonDetection]) -> list[PersonDetection]:
+    """Keep only detections backed by the current camera frame for served overlays."""
+
+    current: list[PersonDetection] = []
+    for person in people:
+        if person.debug.get("physics_predicted") is True:
+            continue
+        if person.source == "physics_smoothed_person_track":
+            continue
+        current.append(person)
+    return current
+
+
 def _build_detector(args: argparse.Namespace) -> MobileNetPersonDetector | UnavailablePersonDetector:
     try:
         return MobileNetPersonDetector(
@@ -1345,6 +1358,7 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
         if people:
             previous_people = list(people)
             previous_people_at = now
+        overlay_people = _people_with_current_frame_evidence(people)
 
         if camera_image is None or camera_error:
             result = SafetyOverlayResult("safety_overlay_unavailable", debug={"error": camera_error})
@@ -1353,7 +1367,7 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
                 camera_size=camera_image.size,
                 source_size=args.source_size,
                 projector_polygon=args.projector_polygon,
-                people=people,
+                people=overlay_people,
                 eye_band_top_fraction=args.eye_band_top_fraction,
                 eye_band_bottom_fraction=args.eye_band_bottom_fraction,
                 eye_band_left_fraction=args.eye_band_left_fraction,
@@ -1368,6 +1382,8 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
                     **result.debug,
                     "source_filter_skipped": source_filter_skipped,
                     "raw_person_count": len(raw_people),
+                    "tracked_person_count": len(people),
+                    "overlay_person_count": len(overlay_people),
                     "prediction_horizon_seconds": round(horizon_seconds, 3),
                     "prediction_padding_px": args.eye_safety_prediction_padding_px,
                     "max_prediction_px": args.eye_safety_max_prediction_px,
@@ -1382,7 +1398,7 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
             )
             result, held_result, held_people, held_at = _apply_eye_safety_hold(
                 result,
-                current_people=people,
+                current_people=overlay_people,
                 held_result=held_result,
                 held_people=held_people,
                 held_at=held_at,
@@ -1417,7 +1433,7 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
         runtime.update_snapshot(
             SafetyComputationSnapshot(
                 result=result,
-                people=held_people if result.debug.get("held_after_last_detection") else people,
+                people=held_people if result.debug.get("held_after_last_detection") else overlay_people,
                 camera_image=camera_image,
                 camera_error=camera_error,
                 performance=performance,

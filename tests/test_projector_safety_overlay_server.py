@@ -500,6 +500,39 @@ def test_physical_track_predicts_person_through_short_detector_gap() -> None:
     assert debug["physics_track_predicted_count"] == 1
 
 
+def test_predicted_only_physics_track_is_not_served_as_overlay_person() -> None:
+    predicted = overlay_server.PersonDetection(
+        bbox_xyxy=(140.0, 100.0, 220.0, 260.0),
+        confidence=0.8,
+        source="physics_smoothed_person_track",
+        debug={"physics_predicted": True},
+    )
+
+    assert overlay_server._people_with_current_frame_evidence([predicted]) == []
+
+    result = overlay_server.compute_eye_safety_overlay(
+        camera_size=(640, 480),
+        source_size=(1280, 720),
+        projector_polygon=((0.0, 0.0), (639.0, 0.0), (639.0, 479.0), (0.0, 479.0)),
+        people=overlay_server._people_with_current_frame_evidence([predicted]),
+        min_overlap_area_px=24,
+    )
+
+    assert result.status == "no_person"
+    assert result.zones == ()
+
+
+def test_current_detector_person_is_still_served_as_overlay_person() -> None:
+    current = overlay_server.PersonDetection(
+        bbox_xyxy=(140.0, 100.0, 220.0, 260.0),
+        confidence=0.8,
+        source="opencv_mobilenet_ssd",
+        debug={"physics_smoothed": True, "physics_predicted": False},
+    )
+
+    assert overlay_server._people_with_current_frame_evidence([current]) == [current]
+
+
 def test_physical_track_expires_after_missing_window() -> None:
     track = overlay_server.SmoothedPersonTrack(
         bbox_xyxy=(100.0, 100.0, 180.0, 260.0),
