@@ -933,6 +933,18 @@ def _clamp_server_bbox(
     return left, top, right, bottom
 
 
+def _bbox_intersects_camera_frame(
+    bbox_xyxy: tuple[float, float, float, float],
+    *,
+    camera_size: tuple[int, int],
+) -> bool:
+    width, height = camera_size
+    x0, y0, x1, y1 = bbox_xyxy
+    left, right = min(x0, x1), max(x0, x1)
+    top, bottom = min(y0, y1), max(y0, y1)
+    return right > 0.0 and bottom > 0.0 and left < float(width) and top < float(height)
+
+
 def _predict_track_bbox(
     track: SmoothedPersonTrack,
     *,
@@ -946,10 +958,7 @@ def _predict_track_bbox(
         track.velocity_xy_px_s[1],
         max_prediction_px=max_speed_px_s,
     )
-    return _clamp_server_bbox(
-        _shift_bbox(track.bbox_xyxy, velocity_x * elapsed, velocity_y * elapsed),
-        camera_size=camera_size,
-    )
+    return _shift_bbox(track.bbox_xyxy, velocity_x * elapsed, velocity_y * elapsed)
 
 
 def _track_to_detection(
@@ -1002,6 +1011,7 @@ def _update_physical_person_tracks(
     next_tracks: list[SmoothedPersonTrack] = []
     matched_count = 0
     predicted_count = 0
+    offscreen_count = 0
 
     for person in people:
         center_x, center_y = _bbox_center(person.bbox_xyxy)
@@ -1095,7 +1105,6 @@ def _update_physical_person_tracks(
         missing_seconds = now - track.last_seen_at
         if missing_seconds > max_missing_seconds:
             continue
-        predicted_count += 1
         predicted = _track_to_detection(
             track,
             now=now,
@@ -1103,6 +1112,10 @@ def _update_physical_person_tracks(
             camera_size=camera_size,
             max_speed_px_s=max_speed_px_s,
         )
+        if not _bbox_intersects_camera_frame(predicted.bbox_xyxy, camera_size=camera_size):
+            offscreen_count += 1
+            continue
+        predicted_count += 1
         output_people.append(predicted)
         next_tracks.append(
             SmoothedPersonTrack(
@@ -1124,6 +1137,7 @@ def _update_physical_person_tracks(
             "physics_track_count": len(next_tracks),
             "physics_track_matched_count": matched_count,
             "physics_track_predicted_count": predicted_count,
+            "physics_track_offscreen_count": offscreen_count,
             "physics_track_max_missing_seconds": max_missing_seconds,
         },
     )

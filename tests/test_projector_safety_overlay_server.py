@@ -500,6 +500,32 @@ def test_physical_track_predicts_person_through_short_detector_gap() -> None:
     assert debug["physics_track_predicted_count"] == 1
 
 
+def test_physical_track_drops_prediction_after_it_leaves_frame() -> None:
+    track = overlay_server.SmoothedPersonTrack(
+        bbox_xyxy=(570.0, 100.0, 630.0, 260.0),
+        velocity_xy_px_s=(400.0, 0.0),
+        confidence=0.9,
+        last_seen_at=10.0,
+        last_update_at=10.0,
+        source="test",
+    )
+
+    predicted, tracks, debug = overlay_server._update_physical_person_tracks(
+        [],
+        [track],
+        now=10.3,
+        camera_size=(640, 480),
+        max_missing_seconds=1.0,
+        max_speed_px_s=1800.0,
+        smoothing_alpha=0.65,
+    )
+
+    assert predicted == []
+    assert tracks == []
+    assert debug["physics_track_predicted_count"] == 0
+    assert debug["physics_track_offscreen_count"] == 1
+
+
 def test_predicted_only_physics_track_is_not_served_as_overlay_person() -> None:
     predicted = overlay_server.PersonDetection(
         bbox_xyxy=(140.0, 100.0, 220.0, 260.0),
