@@ -9,6 +9,11 @@ observations, and measures jump height on a wall from camera frames.
 
 The integration is intentionally generic. It does not assume a specific cat, a
 specific projector, OpenClaw, Frigate, Android TV, or any private entity names.
+House-specific automations should react to the Cat TV session service result,
+`sensor.cat_tv_play_session`, or local helper states. Avoid using
+`automation.trigger` to call another policy automation directly; in Home
+Assistant that can run the target automation's action body even when the target
+automation is disabled.
 
 ## Status
 
