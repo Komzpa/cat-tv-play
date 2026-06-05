@@ -661,6 +661,7 @@ def test_timeline_materializes_requested_recording_frame_label(tmp_path: Path, m
         server.ALLOWED_ROOTS = (tmp_path, state)
         server._clear_discovery_caches()  # noqa: SLF001
         monkeypatch.setattr(server.subprocess, "run", fake_run)
+        monkeypatch.setattr(server, "_current_model_row_for_image", lambda _path: None)  # noqa: SLF001
 
         video_id = server._video_id_for_path(recording.resolve())  # noqa: SLF001
         _video, frames, suspect_queue, _reviewed, resolved_label, frame_rate = server._timeline_for_video(  # noqa: SLF001
@@ -774,6 +775,59 @@ def test_timeline_materializes_requested_recording_frame_label(tmp_path: Path, m
     assert all(frame["best_top_height_cm"] is None for frame in non_peak_frames)
     assert all(frame["review_priority_score"] is None for frame in non_peak_frames)
     assert all(frame["original_model_overlay"] is None for frame in non_peak_frames)
+
+
+def test_frame_payload_adds_on_demand_current_model_overlay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = tmp_path / "state"
+    frame_dir = state / "recordings" / "session" / "review_frames"
+    frame_dir.mkdir(parents=True)
+    frame_path = frame_dir / "chunk_0001_00008.jpg"
+    server.Image.new("RGB", (80, 60), (40, 40, 40)).save(frame_path)
+
+    def fake_current_row(path: Path) -> dict[str, object] | None:
+        assert path == frame_path.resolve()
+        return {
+            "detector_cat_probability": "0.87",
+            "candidate_bbox_xywh": "10,11,12,13",
+            "detector_backend": "current_model_test",
+            "detector_model_id": "current-model-v1",
+            "measurement_source": "current_bbox_top",
+            "best_measurement_point": {
+                "image_x": 16.0,
+                "image_y": 11.0,
+                "point_type": "current_bbox_top",
+                "source": "current_model_test",
+            },
+        }
+
+    original_allowed = server.ALLOWED_ROOTS
+    original_state = server.STATE_ROOT
+    try:
+        server.STATE_ROOT = state
+        server.ALLOWED_ROOTS = (tmp_path, state)
+        server._clear_discovery_caches()  # noqa: SLF001
+        monkeypatch.setattr(server, "_current_model_row_for_image", fake_current_row)  # noqa: SLF001
+        video = server.ReviewVideo(
+            id="video.test",
+            label="session",
+            source="recordings",
+            mtime=frame_path.stat().st_mtime,
+            source_recording_dir=frame_path.parents[1],
+        )
+
+        frames = server._frame_payloads_for_review_video(video, [frame_path.resolve()])  # noqa: SLF001
+    finally:
+        server.ALLOWED_ROOTS = original_allowed
+        server.STATE_ROOT = original_state
+        server._clear_discovery_caches()  # noqa: SLF001
+
+    assert frames[0]["current_model_overlay"]["role"] == "current_model"
+    assert frames[0]["current_model_overlay"]["bbox_xywh"] == (10.0, 11.0, 12.0, 13.0)
+    assert frames[0]["current_model_overlay"]["detector_backend"] == "current_model_test"
+    assert frames[0]["current_model_overlay"]["measurement_point"]["image_x"] == 16.0
+    assert frames[0]["model_overlays"] == [frames[0]["current_model_overlay"]]
 
 
 def test_video_review_counts_reprocessed_session_artifacts(tmp_path: Path) -> None:

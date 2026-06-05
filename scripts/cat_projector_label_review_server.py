@@ -13,6 +13,7 @@ import argparse
 import base64
 import csv
 import hashlib
+import importlib.util
 import json
 import math
 import mimetypes
@@ -38,6 +39,8 @@ from PIL import Image, ImageDraw
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WEB_ROOT = REPO_ROOT / "web"
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 
 def _default_dataset_root() -> Path:
@@ -138,6 +141,10 @@ ALLOW_LIVE_JOBS = False
 _ACTIVE_JOB_ID: str | None = None
 _JOB_LOCK = threading.Lock()
 LIVE_JOB_COMMAND: list[str] | None = None
+_CURRENT_MODEL_ON_DEMAND_CACHE: dict[Path, dict[str, Any] | None] = {}
+_CURRENT_MODEL_DETECTOR: Any | None = None
+_CAT_DETECTION_MODULE: Any | None = None
+_CAT_MEASUREMENT_MODULE: Any | None = None
 DEFAULT_REVIEW_FRAME_FPS = 30.0
 LEGACY_TELEGRAM_REVIEW_FRAME_FPS = 15.0
 
@@ -209,10 +216,12 @@ def _discovery_cache_key() -> tuple[str, ...]:
 
 
 def _clear_discovery_caches() -> None:
-    global _DISCOVER_CASES_CACHE, _DISCOVER_VIDEOS_CACHE, _JUMP_HEIGHT_INDEX_CACHE
+    global _CURRENT_MODEL_DETECTOR, _DISCOVER_CASES_CACHE, _DISCOVER_VIDEOS_CACHE, _JUMP_HEIGHT_INDEX_CACHE
     _DISCOVER_CASES_CACHE = None
     _DISCOVER_VIDEOS_CACHE = None
     _JUMP_HEIGHT_INDEX_CACHE = None
+    _CURRENT_MODEL_DETECTOR = None
+    _CURRENT_MODEL_ON_DEMAND_CACHE.clear()
 
 
 def _safe_slug(value: str) -> str:
@@ -834,6 +843,152 @@ def _current_model_rows_by_image() -> dict[Path, dict[str, Any]]:
     if latest_rescore_root is None:
         return {}
     return _probe_rows_by_image(latest_rescore_root)
+
+
+def _load_repo_module(module_name: str, path: Path) -> Any:
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load {module_name} from {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _cat_detection_module() -> Any:
+    global _CAT_DETECTION_MODULE
+    if _CAT_DETECTION_MODULE is None:
+        _CAT_DETECTION_MODULE = _load_repo_module(
+            "cat_tv_play_detection_for_label_review_server",
+            REPO_ROOT / "custom_components" / "cat_tv_play" / "detection.py",
+        )
+    return _CAT_DETECTION_MODULE
+
+
+def _cat_measurement_module() -> Any:
+    global _CAT_MEASUREMENT_MODULE
+    if _CAT_MEASUREMENT_MODULE is None:
+        _CAT_MEASUREMENT_MODULE = _load_repo_module(
+            "cat_tv_play_measurement_for_label_review_server",
+            REPO_ROOT / "custom_components" / "cat_tv_play" / "measurement.py",
+        )
+    return _CAT_MEASUREMENT_MODULE
+
+
+def _measurement_for_detection(detection: Any) -> tuple[dict[str, Any] | None, str]:
+    cat_measurement = _cat_measurement_module()
+
+    if getattr(detection, "mask", None) is not None:
+        point = cat_measurement.mask_top_measurement_point(detection.mask, score=detection.score)
+        if point is not None:
+            return cat_measurement.measurement_point_to_dict(point), ""
+        point = cat_measurement.legacy_bbox_top_measurement_point(
+            detection.bbox_xywh,
+            score=detection.score,
+        )
+        return cat_measurement.measurement_point_to_dict(point), "segmentation_mask_rejected_using_legacy_bbox_top"
+    point = cat_measurement.legacy_bbox_top_measurement_point(detection.bbox_xywh, score=detection.score)
+    return cat_measurement.measurement_point_to_dict(point), "missing_segmentation_mask_using_legacy_bbox_top"
+
+
+def _current_model_detector() -> Any | None:
+    global _CURRENT_MODEL_DETECTOR
+    if _CURRENT_MODEL_DETECTOR is not None:
+        return _CURRENT_MODEL_DETECTOR
+    try:
+        from scripts import cat_projector_frame_detector as detector
+        cat_detection = _cat_detection_module()
+    except Exception as exc:
+        print(f"[cat-projector-label-review] current model detector import failed: {exc}", flush=True)
+        return None
+
+    manifest = _read_json(REVIEW_ROOT / "rescores" / "latest.json")
+    detector_config = manifest.get("detector_config") if isinstance(manifest.get("detector_config"), dict) else {}
+    backend = str(detector_config.get("backend") or "legacy")
+    model_path = detector.DEFAULT_MODEL_PATH
+    metadata_path = detector.DEFAULT_METADATA_PATH
+    model_meta = manifest.get("model") if isinstance(manifest.get("model"), dict) else {}
+    if backend == "legacy" and model_meta.get("model_path"):
+        model_path = Path(str(model_meta["model_path"])).expanduser()
+        metadata_path = model_path.with_suffix(".metadata.json")
+        if not metadata_path.exists():
+            metadata_path = detector.DEFAULT_METADATA_PATH
+    try:
+        if backend == "legacy":
+            _CURRENT_MODEL_DETECTOR = cat_detection.LegacyContrastDetector(
+                model_path=model_path,
+                metadata_path=metadata_path,
+                min_probability=0.0,
+            )
+        else:
+            _CURRENT_MODEL_DETECTOR = cat_detection.build_detector(
+                cat_detection.DetectorConfig(
+                    backend=backend,
+                    model_path=detector_config.get("model_path"),
+                    device=detector_config.get("device"),
+                    confidence_threshold=float(detector_config.get("confidence_threshold") or 0.5),
+                    legacy_model_path=str(detector.DEFAULT_MODEL_PATH),
+                    legacy_metadata_path=str(detector.DEFAULT_METADATA_PATH),
+                    allow_fake=bool(detector_config.get("allow_fake")),
+                )
+            )
+    except Exception as exc:
+        print(f"[cat-projector-label-review] current model detector init failed: {exc}", flush=True)
+        _CURRENT_MODEL_DETECTOR = None
+    return _CURRENT_MODEL_DETECTOR
+
+
+def _current_model_row_for_image(image_path: Path) -> dict[str, Any] | None:
+    try:
+        image_path = _safe_local_path(image_path)
+    except ValueError:
+        return None
+    if image_path in _CURRENT_MODEL_ON_DEMAND_CACHE:
+        return _CURRENT_MODEL_ON_DEMAND_CACHE[image_path]
+    detector = _current_model_detector()
+    if detector is None:
+        _CURRENT_MODEL_ON_DEMAND_CACHE[image_path] = None
+        return None
+    try:
+        cat_detection = _cat_detection_module()
+
+        with Image.open(image_path) as image:
+            rgb = image.convert("RGB")
+        context = cat_detection.DetectorContext(source_path=str(image_path))
+        detections = sorted(detector.detect(rgb, context), key=lambda item: item.score, reverse=True)
+    except Exception:
+        print(f"[cat-projector-label-review] current model on-demand failed: {image_path}", flush=True)
+        _CURRENT_MODEL_ON_DEMAND_CACHE[image_path] = None
+        return None
+
+    top_candidates: list[dict[str, Any]] = []
+    for detection in detections[:12]:
+        point, warning = _measurement_for_detection(detection)
+        row = detection.to_debug_row()
+        row["measurement_point"] = point
+        row["measurement_warning"] = warning
+        top_candidates.append(row)
+    best = top_candidates[0] if top_candidates else {}
+    result = {
+        "raw_path": str(image_path),
+        "detector_backend": getattr(detector, "source", "unknown"),
+        "detector_model_id": getattr(detector, "model_id", ""),
+        "detector_cat_probability": str(best.get("p") or ""),
+        "candidate_bbox_xywh": str(best.get("bbox") or ""),
+        "candidate_reason": str(best.get("source") or "current_model_on_demand"),
+        "candidate_count": str(len(detections)),
+        "best_probability": str(best.get("p") or ""),
+        "best_bbox": str(best.get("bbox") or ""),
+        "best_source": str(best.get("source") or ""),
+        "best_measurement_point": best.get("measurement_point"),
+        "best_measurement_warning": str(best.get("measurement_warning") or ""),
+        "measurement_source": str((best.get("measurement_point") or {}).get("point_type") or ""),
+        "measurement_confidence": str((best.get("measurement_point") or {}).get("confidence") or ""),
+        "notes": f"current model on-demand: {len(detections)} candidates",
+        "top_candidates": top_candidates,
+    }
+    _CURRENT_MODEL_ON_DEMAND_CACHE[image_path] = result
+    return result
 
 
 def _original_model_rows_by_image() -> dict[Path, dict[str, Any]]:
@@ -2043,6 +2198,11 @@ def _frame_payloads_for_review_video(
     current_model_rows = _current_model_rows_by_image()
     original_model_rows = _original_model_rows_by_image()
     selected = input_paths[max(0, offset) : max(0, offset) + max(1, limit)]
+    for input_path in selected:
+        if input_path not in current_model_rows:
+            on_demand_row = _current_model_row_for_image(input_path)
+            if on_demand_row:
+                current_model_rows[input_path] = on_demand_row
     output_paths = _candidate_output_paths_for_inputs(selected) if video.output_frame_count else {}
     frames: list[dict[str, Any]] = []
     for frame_index, input_path in enumerate(selected, start=max(0, offset)):
