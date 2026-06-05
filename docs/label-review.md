@@ -62,10 +62,33 @@ big central raw-frame player. The model annotation is drawn over the frame;
 previous rendered output is available only as an optional compare overlay, not
 as the primary work area.
 
+Three annotation layers must remain visible while editing: green is the manual
+human mask, blue is the current model from the latest rescore, and orange is the
+original model/capture-time overlay. Fresh Telegram jump alerts that have not
+been rescored yet reuse the sent `jump_highlight` record from `sessions.jsonl`,
+so the exact bbox/top point that triggered the message is still visible as the
+original overlay on the linked frame. The current and original model layers may
+coincide, but they stay separate in the API/UI so disagreements are visible.
+
 Use the bottom timeline to scrub. Suspicious and reviewed frames are marked, and
 the left queue lists the next suspect frames with human-readable reasons. The
 right inspector is only for the current frame: model belief, suspicion reason,
 review state, notes, geometry tools, save status, and job status.
+
+Review URLs can deep-link directly into a video/frame. Use
+`?review_video_id=<video-id>&review_frame_label=<frame-file>` for stable links
+to extracted chunk frames such as `chunk_0204_00052.jpg`; the UI also keeps the
+current `review_video_id`, `review_frame`, and `review_frame_label` in the URL
+as the operator moves through the review timeline.
+For Telegram jump links, the backend materializes every decoded source frame
+from the linked chunk without fps resampling and resolves older timestamp-based
+links to the nearest decoded source frame. This keeps frame-by-frame review tied
+to the original recording frames, even when the chunk has variable frame timing.
+The Telegram jump bbox/top overlay is a peak-frame marker only. It must not be
+drawn on neighboring source frames as if it were an original per-frame model
+output. Current-model rescoring provides the per-frame overlay layer; original
+capture overlays are shown only when frame-level capture metadata exists for the
+selected frame.
 
 The left suspect queue can switch between unreviewed suspects, all suspicious
 frames, and reviewed suspects. Saved `not_cat` frames do not reappear in the

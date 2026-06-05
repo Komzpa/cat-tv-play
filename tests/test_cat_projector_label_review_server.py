@@ -132,6 +132,38 @@ def test_live_retrain_job_materializes_training_package(tmp_path: Path) -> None:
         server.LIVE_JOB_COMMAND = original_live_command
 
 
+def test_stale_running_job_is_marked_failed_after_restart(tmp_path: Path) -> None:
+    original_jobs = server.JOBS_ROOT
+    original_active = server._ACTIVE_JOB_ID
+    try:
+        server.JOBS_ROOT = tmp_path / "jobs"
+        server.JOBS_ROOT.mkdir(parents=True)
+        server._ACTIVE_JOB_ID = None
+        job_path = server.JOBS_ROOT / "stale.json"
+        job_path.write_text(
+            json.dumps(
+                {
+                    "id": "stale",
+                    "kind": "cat_projector_label_review_job_v1",
+                    "action": "rescore_recording",
+                    "status": "running",
+                    "created_at": "2026-01-01T00:00:00+00:00",
+                    "updated_at": "2026-01-01T00:00:00+00:00",
+                    "log": ["started by review UI"],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        jobs = server._list_jobs()
+    finally:
+        server.JOBS_ROOT = original_jobs
+        server._ACTIVE_JOB_ID = original_active
+
+    assert jobs[0]["status"] == "failed"
+    assert "marked failed after server restart" in jobs[0]["log"][-1]
+
+
 def test_segment_endpoint_requires_configured_sam_without_explicit_degraded_fallback(tmp_path: Path) -> None:
     image_path = tmp_path / "frame.jpg"
     image_path.write_bytes(b"not-an-image")
@@ -507,6 +539,243 @@ def test_batch_review_frames_infer_full_recording_context(tmp_path: Path) -> Non
         server.ALLOWED_ROOTS = original_allowed
 
 
+def test_direct_recording_review_frame_points_to_matching_chunk(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    recording = state / "recordings" / "20260606T000431_session"
+    review_frames = recording / "review_frames"
+    review_frames.mkdir(parents=True)
+    (recording / "manifest.json").write_text("{}", encoding="utf-8")
+    (recording / "chunk_0000.mp4").write_bytes(b"first chunk")
+    (recording / "chunk_0204.mp4").write_bytes(b"highlight chunk")
+    frame_path = review_frames / "chunk_0204_00105.jpg"
+    server.Image.new("RGB", (80, 60), (40, 40, 40)).save(frame_path)
+    (state / "sessions.jsonl").write_text(
+        json.dumps(
+            {
+                "kind": "cat_projector_telegram_live_notification_sent",
+                "telegram_live_action": "sent",
+                "recording_dir": str(recording.resolve()),
+                "jump_highlight": {
+                    "bbox": [10, 20, 70, 120],
+                    "chunk": 204,
+                    "height_cm": 99.4,
+                    "offset_seconds": 3.5,
+                    "reason": "calibrated_high_jump",
+                    "top_px": [42.0, 26.0],
+                    "wall_x_mm": -25.0,
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    original_allowed = server.ALLOWED_ROOTS
+    original_state = server.STATE_ROOT
+    try:
+        server.STATE_ROOT = state
+        server.ALLOWED_ROOTS = (tmp_path, state)
+        video = server.ReviewVideo(
+            id=server._video_id_for_path(recording),  # noqa: SLF001
+            label=recording.name,
+            source="recordings",
+            mtime=recording.stat().st_mtime,
+            source_recording_dir=recording.resolve(),
+            source_video_path=(recording / "chunk_0000.mp4").resolve(),
+        )
+
+        frames = server._frame_payloads_for_review_video(video, [frame_path.resolve()])  # noqa: SLF001
+    finally:
+        server.ALLOWED_ROOTS = original_allowed
+        server.STATE_ROOT = original_state
+
+    assert frames[0]["source_video_path"] == str((recording / "chunk_0204.mp4").resolve())
+    assert frames[0]["candidate_bbox_xywh"] == (10.0, 20.0, 60.0, 100.0)
+    assert frames[0]["detector_backend"] == "telegram_jump_highlight"
+    assert frames[0]["best_top_height_cm"] == 99.4
+    assert frames[0]["measurement_point"]["image_x"] == 42.0
+    assert frames[0]["measurement_point"]["image_y"] == 26.0
+
+
+def test_timeline_materializes_requested_recording_frame_label(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    state = tmp_path / "state"
+    recording = state / "recordings" / "20260606T003437_session"
+    recording.mkdir(parents=True)
+    (recording / "manifest.json").write_text("{}", encoding="utf-8")
+    (recording / "chunk_0095.mp4").write_bytes(b"fake chunk")
+    (state / "sessions.jsonl").write_text(
+        json.dumps(
+            {
+                "kind": "cat_projector_telegram_live_notification_sent",
+                "telegram_live_action": "sent",
+                "recording_dir": str(recording.resolve()),
+                "jump_highlight": {
+                    "bbox": [588, 360, 672, 488],
+                    "chunk": 95,
+                    "height_cm": 117.1,
+                    "offset_seconds": 3.0,
+                    "top_px": [610.0, 374.0],
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], **_kwargs: object) -> object:
+        commands.append(command)
+        if command[0] == "ffprobe":
+            if "frame=best_effort_timestamp_time,pkt_pts_time" in command:
+                return type(
+                    "Completed",
+                    (),
+                    {
+                        "returncode": 0,
+                        "stdout": json.dumps(
+                            {"frames": [{"best_effort_timestamp_time": f"{index / 30:.6f}"} for index in range(92)]}
+                        ),
+                    },
+                )()
+            return type(
+                "Completed",
+                (),
+                {"returncode": 0, "stdout": json.dumps({"streams": [{"avg_frame_rate": "30/1"}]})},
+            )()
+        output_pattern = Path(command[-1])
+        for index in range(92):
+            server.Image.new("RGB", (80, 60), (40, 40, 40)).save(
+                output_pattern.with_name(output_pattern.name.replace("%05d", f"{index:05d}"))
+            )
+        return type("Completed", (), {"returncode": 0})()
+
+    original_state = server.STATE_ROOT
+    original_dataset = server.DATASET_ROOT
+    original_scan_roots = server.SCAN_ROOTS
+    original_allowed = server.ALLOWED_ROOTS
+    try:
+        server.STATE_ROOT = state
+        server.DATASET_ROOT = tmp_path / "missing-dataset-root"
+        server.SCAN_ROOTS = (state / "recordings",)
+        server.ALLOWED_ROOTS = (tmp_path, state)
+        server._clear_discovery_caches()  # noqa: SLF001
+        monkeypatch.setattr(server.subprocess, "run", fake_run)
+
+        video_id = server._video_id_for_path(recording.resolve())  # noqa: SLF001
+        _video, frames, suspect_queue, _reviewed, resolved_label, frame_rate = server._timeline_for_video(  # noqa: SLF001
+            video_id,
+            requested_frame_label="chunk_0095_00045.jpg",
+        )
+        current_rescore = state / "label-review" / "rescores" / "current"
+        current_rescore.mkdir(parents=True)
+        current_probe = current_rescore / "probe_rows.json"
+        current_probe.write_text(
+            json.dumps(
+                [
+                    {
+                        "raw_path": str(recording / "review_frames" / "chunk_0095_00069.jpg"),
+                        "best_probability": 0.91,
+                        "best_bbox": "10,11,12,13",
+                        "detector_backend": "current_segmentation",
+                        "detector_model_id": "current-model-test",
+                        "measurement_source": "current_mask_top",
+                        "best_top_height_cm": 77.7,
+                        "best_measurement_point": {
+                            "image_x": 16.0,
+                            "image_y": 17.0,
+                            "wall_y_cm": 77.7,
+                            "point_type": "current_mask_top",
+                            "source": "current_segmentation",
+                        },
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        latest = state / "label-review" / "rescores" / "latest.json"
+        latest.write_text(json.dumps({"probe_rows": str(current_probe)}), encoding="utf-8")
+        _video2, explicit_frames, _suspect_queue2, _reviewed2, explicit_label, _frame_rate2 = server._timeline_for_video(  # noqa: SLF001
+            video_id,
+            requested_frame_label="chunk_0095_00069.jpg",
+        )
+    finally:
+        server.STATE_ROOT = original_state
+        server.DATASET_ROOT = original_dataset
+        server.SCAN_ROOTS = original_scan_roots
+        server.ALLOWED_ROOTS = original_allowed
+        server._clear_discovery_caches()  # noqa: SLF001
+
+    frame_path = recording / "review_frames" / "chunk_0095_00090.jpg"
+    assert frame_path.exists()
+    assert (recording / "review_frames" / "chunk_0095_00089.jpg").exists()
+    assert (recording / "review_frames" / "chunk_0095_00091.jpg").exists()
+    assert frames[90]["label"] == "chunk_0095_00090.jpg"
+    assert frames[90]["source_video_path"] == str((recording / "chunk_0095.mp4").resolve())
+    assert frames[90]["candidate_bbox_xywh"] == (588.0, 360.0, 84.0, 128.0)
+    assert frames[90]["current_model_overlay"] is None
+    assert frames[90]["original_model_overlay"]["bbox_xywh"] == (588.0, 360.0, 84.0, 128.0)
+    assert frames[90]["original_model_overlay"]["role"] == "original_model"
+    assert frames[90]["best_top_height_cm"] == 117.1
+    assert frames[90]["review_priority_score"] == 35.0
+    assert frames[69]["label"] == "chunk_0095_00069.jpg"
+    assert frames[69]["candidate_bbox_xywh"] is None
+    assert frames[69]["current_model_overlay"] is None
+    assert frames[69]["original_model_overlay"] is None
+    assert frames[69]["model_overlays"] == []
+    assert frames[69]["detector_backend"] == ""
+    assert frames[69]["measurement_point"] is None
+    assert frames[69]["best_top_height_cm"] is None
+    assert frames[69]["review_priority_score"] is None
+    assert any(item["frame_index"] == 90 for item in suspect_queue)
+    assert resolved_label == "chunk_0095_00090.jpg"
+    assert frame_rate == 30.0
+    ffmpeg_command = next(command for command in commands if command[0] == "ffmpeg")
+    assert "-vsync" in ffmpeg_command
+    assert "-vf" not in ffmpeg_command
+    assert explicit_label == "chunk_0095_00069.jpg"
+    assert explicit_frames[69]["candidate_bbox_xywh"] == (10.0, 11.0, 12.0, 13.0)
+    assert explicit_frames[69]["current_model_overlay"]["bbox_xywh"] == (10.0, 11.0, 12.0, 13.0)
+    assert explicit_frames[69]["current_model_overlay"]["detector_backend"] == "current_segmentation"
+    assert explicit_frames[69]["current_model_overlay"]["measurement_point"]["image_x"] == 16.0
+    assert explicit_frames[69]["best_top_height_cm"] == 77.7
+    assert explicit_frames[69]["original_model_overlay"] is None
+    assert [overlay["role"] for overlay in explicit_frames[69]["model_overlays"]] == ["current_model"]
+    assert len(explicit_frames) == 92
+    for frame in explicit_frames:
+        if frame["label"] == "chunk_0095_00069.jpg":
+            assert frame["detector_backend"] == "current_segmentation"
+            assert frame["measurement_source"] == "current_mask_top"
+            assert frame["measurement_point"]["image_x"] == 16.0
+            continue
+        if frame["label"] == "chunk_0095_00090.jpg":
+            assert frame["candidate_bbox_xywh"] == (588.0, 360.0, 84.0, 128.0)
+            assert frame["current_model_overlay"] is None
+            assert frame["model_overlays"] == [frame["original_model_overlay"]]
+            assert frame["detector_backend"] == "telegram_jump_highlight"
+            assert frame["measurement_source"] == "telegram_jump_highlight"
+            assert frame["measurement_point"]["image_x"] == 610.0
+            assert frame["measurement_point"]["image_y"] == 374.0
+            assert frame["original_model_overlay"]["bbox_xywh"] == (588.0, 360.0, 84.0, 128.0)
+            continue
+        else:
+            assert frame["candidate_bbox_xywh"] is None
+            assert frame["current_model_overlay"] is None
+            assert frame["original_model_overlay"] is None
+            assert frame["model_overlays"] == []
+            assert frame["detector_backend"] == ""
+            assert frame["measurement_source"] == ""
+            assert frame["measurement_point"] is None
+    non_peak_frames = [
+        frame
+        for frame in explicit_frames
+        if frame["label"] not in {"chunk_0095_00069.jpg", "chunk_0095_00090.jpg"}
+    ]
+    assert all(frame["best_top_height_cm"] is None for frame in non_peak_frames)
+    assert all(frame["review_priority_score"] is None for frame in non_peak_frames)
+    assert all(frame["original_model_overlay"] is None for frame in non_peak_frames)
+
+
 def test_video_review_counts_reprocessed_session_artifacts(tmp_path: Path) -> None:
     state = tmp_path / "state"
     recording = state / "recordings" / "20260518T184855_session"
@@ -838,7 +1107,9 @@ def test_timeline_keeps_saved_not_cat_out_of_unreviewed_suspects(tmp_path: Path)
         )
 
         video = server._discover_videos(1)[0]
-        _video, frames, suspect_queue, reviewed_suspect_queue = server._timeline_for_video(video.id)  # noqa: SLF001
+        _video, frames, suspect_queue, reviewed_suspect_queue, _resolved_label, _frame_rate = server._timeline_for_video(  # noqa: SLF001
+            video.id
+        )
     finally:
         server.STATE_ROOT = original_state
         server.REVIEW_ROOT = original_review
@@ -853,6 +1124,11 @@ def test_timeline_keeps_saved_not_cat_out_of_unreviewed_suspects(tmp_path: Path)
     fresh = next(frame for frame in frames if frame["image_path"] == str(fresh_frame.resolve()))
     assert saved["reviewed"] is True
     assert fresh["reviewed"] is False
+    assert fresh["current_model_overlay"]["role"] == "current_model"
+    assert fresh["current_model_overlay"]["detector_backend"] == "ultralytics_yolo_segmentation"
+    assert fresh["current_model_overlay"]["top_height_cm"] == 150.0
+    assert fresh["original_model_overlay"] is None
+    assert fresh["model_overlays"] == [fresh["current_model_overlay"]]
     assert {item["frame_id"] for item in suspect_queue} == {fresh["id"]}
     assert {item["frame_id"] for item in reviewed_suspect_queue} == {saved["id"]}
     assert "model output missing" not in fresh["suspicion_reasons"]

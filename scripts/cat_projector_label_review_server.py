@@ -138,6 +138,8 @@ ALLOW_LIVE_JOBS = False
 _ACTIVE_JOB_ID: str | None = None
 _JOB_LOCK = threading.Lock()
 LIVE_JOB_COMMAND: list[str] | None = None
+DEFAULT_REVIEW_FRAME_FPS = 30.0
+LEGACY_TELEGRAM_REVIEW_FRAME_FPS = 15.0
 
 
 @dataclass(frozen=True)
@@ -243,6 +245,104 @@ def _float_or_none(value: Any) -> float | None:
     if not math.isfinite(number):
         return None
     return number
+
+
+def _ffprobe_frame_rate(path: Path) -> float | None:
+    completed = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=avg_frame_rate,r_frame_rate",
+            "-of",
+            "json",
+            str(path),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return None
+    streams = payload.get("streams")
+    if not isinstance(streams, list) or not streams:
+        return None
+    stream = streams[0] if isinstance(streams[0], dict) else {}
+    for key in ("r_frame_rate", "avg_frame_rate"):
+        raw = str(stream.get(key) or "")
+        if "/" in raw:
+            numerator_raw, denominator_raw = raw.split("/", 1)
+            try:
+                numerator = float(numerator_raw)
+                denominator = float(denominator_raw)
+            except ValueError:
+                continue
+            if denominator and numerator > 0:
+                return numerator / denominator
+        else:
+            value = _float_or_none(raw)
+            if value and value > 0:
+                return value
+    return None
+
+
+def _chunk_frame_rate(path: Path | None) -> float:
+    if path is None:
+        return DEFAULT_REVIEW_FRAME_FPS
+    return _ffprobe_frame_rate(path) or DEFAULT_REVIEW_FRAME_FPS
+
+
+def _ffprobe_frame_times(path: Path) -> list[float]:
+    completed = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "frame=best_effort_timestamp_time,pkt_pts_time",
+            "-of",
+            "json",
+            str(path),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return []
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return []
+    frames = payload.get("frames")
+    if not isinstance(frames, list):
+        return []
+    times: list[float] = []
+    for frame in frames:
+        if not isinstance(frame, dict):
+            continue
+        value = _float_or_none(frame.get("best_effort_timestamp_time"))
+        if value is None:
+            value = _float_or_none(frame.get("pkt_pts_time"))
+        if value is not None:
+            times.append(value)
+    return times
+
+
+def _source_frame_index_for_offset(path: Path, offset_seconds: float) -> int:
+    times = _ffprobe_frame_times(path)
+    if times:
+        return min(range(len(times)), key=lambda index: (abs(times[index] - offset_seconds), index))
+    return max(0, int(round(offset_seconds * _chunk_frame_rate(path))))
 
 
 def _height_index_keys_for_path(path: Path | None) -> set[str]:
@@ -563,6 +663,183 @@ def _probe_rows_by_image(root: Path) -> dict[Path, dict[str, str]]:
     return rows
 
 
+def _merge_missing_metadata_rows(
+    rows_by_image: dict[Path, dict[str, Any]],
+    fallback_rows_by_image: dict[Path, dict[str, Any]],
+) -> None:
+    for image_path, fallback_row in fallback_rows_by_image.items():
+        row = rows_by_image.setdefault(image_path, {})
+        for key, value in fallback_row.items():
+            if value in (None, "", []):
+                continue
+            if row.get(key) in (None, "", []):
+                row[key] = value
+
+
+def _model_overlay_from_row(row: dict[str, Any], *, role: str, label: str) -> dict[str, Any] | None:
+    bbox = _parse_bbox(row.get("candidate_bbox_xywh") or row.get("best_bbox"))
+    measurement_point = (
+        row.get("best_measurement_point") if isinstance(row.get("best_measurement_point"), dict) else None
+    )
+    probability = None
+    for key in ("detector_cat_probability", "cat_probability", "probability", "best_probability"):
+        if row.get(key) not in {None, ""}:
+            probability = _float_or_none(row.get(key))
+            break
+    top_height_cm = _float_or_none(row.get("best_top_height_cm"))
+    top_wall_x_cm = _float_or_none(row.get("best_top_wall_x_cm"))
+    backend = str(row.get("detector_backend") or "")
+    model_id = str(row.get("detector_model_id") or "")
+    measurement_source = str(row.get("measurement_source") or "")
+    if not any((bbox, measurement_point, probability is not None, top_height_cm is not None, backend, model_id)):
+        return None
+    return {
+        "role": role,
+        "label": label,
+        "bbox_xywh": bbox,
+        "detector_probability": probability,
+        "detector_backend": backend,
+        "detector_model_id": model_id,
+        "measurement_source": measurement_source,
+        "measurement_confidence": _float_or_none(row.get("measurement_confidence")),
+        "top_height_cm": top_height_cm,
+        "top_wall_x_cm": top_wall_x_cm,
+        "measurement_point": measurement_point,
+        "measurement_warning": str(row.get("best_measurement_warning") or ""),
+        "review_priority_score": _float_or_none(row.get("review_priority_score")),
+        "review_priority_reasons": row.get("review_priority_reasons")
+        if isinstance(row.get("review_priority_reasons"), list)
+        else [],
+    }
+
+
+def _telegram_jump_highlight_rows_by_image() -> dict[Path, dict[str, Any]]:
+    rows: dict[Path, dict[str, Any]] = {}
+    sessions_path = STATE_ROOT / "sessions.jsonl"
+    if not sessions_path.exists():
+        return rows
+    try:
+        lines = sessions_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return rows
+    for line in lines:
+        if "jump_highlight" not in line or "telegram" not in line:
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        action = str(payload.get("telegram_live_action") or payload.get("telegram_action") or "")
+        kind = str(payload.get("kind") or "")
+        if action != "sent" and not kind.endswith("_notification_sent"):
+            continue
+        highlight = payload.get("jump_highlight")
+        if not isinstance(highlight, dict):
+            continue
+        recording_value = payload.get("recording_dir") or highlight.get("recording_dir")
+        if not recording_value:
+            continue
+        try:
+            recording_dir = _safe_local_path(Path(str(recording_value)))
+        except ValueError:
+            continue
+        review_frames_dir = recording_dir / "review_frames"
+        if not review_frames_dir.exists():
+            continue
+        try:
+            chunk_index = int(highlight["chunk"])
+            offset_seconds = float(highlight.get("offset_seconds") or 0.0)
+        except (KeyError, TypeError, ValueError):
+            continue
+        chunk_path = recording_dir / f"chunk_{chunk_index:04d}.mp4"
+        if chunk_path.exists():
+            expected_frame = float(_source_frame_index_for_offset(chunk_path, offset_seconds))
+        else:
+            expected_frame = offset_seconds * DEFAULT_REVIEW_FRAME_FPS
+        peak_frame_index = max(0, int(round(expected_frame)))
+        candidate_paths = [review_frames_dir / f"chunk_{chunk_index:04d}_{peak_frame_index:05d}.jpg"]
+        bbox_xywh: tuple[float, float, float, float] | None = None
+        bbox = highlight.get("bbox")
+        if isinstance(bbox, (list, tuple)) and len(bbox) == 4:
+            try:
+                x1, y1, x2, y2 = (float(value) for value in bbox)
+                if x2 > x1 and y2 > y1:
+                    bbox_xywh = (x1, y1, x2 - x1, y2 - y1)
+            except (TypeError, ValueError):
+                bbox_xywh = None
+        top_px = highlight.get("top_px")
+        measurement_point: dict[str, Any] | None = None
+        if isinstance(top_px, (list, tuple)) and len(top_px) >= 2:
+            try:
+                measurement_point = {
+                    "image_x": float(top_px[0]),
+                    "image_y": float(top_px[1]),
+                    "wall_y_cm": _float_or_none(highlight.get("height_cm")),
+                    "wall_x_cm": (
+                        float(highlight["wall_x_mm"]) / 10.0
+                        if highlight.get("wall_x_mm") not in (None, "")
+                        else None
+                    ),
+                    "point_type": "telegram_jump_highlight_top",
+                    "source": "telegram_jump_highlight",
+                    "debug": {
+                        "recording_dir": str(recording_dir),
+                        "chunk": chunk_index,
+                        "offset_seconds": offset_seconds,
+                    },
+                }
+            except (TypeError, ValueError):
+                measurement_point = None
+        for image_path in candidate_paths:
+            if not image_path.exists():
+                continue
+            try:
+                image_path = _safe_local_path(image_path)
+            except ValueError:
+                continue
+            match = re.match(r"chunk_\d+_(\d+)\.", image_path.name)
+            frame_index = int(match.group(1)) if match else peak_frame_index
+            is_peak_frame = frame_index == peak_frame_index
+            rows[image_path] = {
+                "detector_cat_probability": str(highlight.get("cat_probability") or ""),
+                "candidate_bbox_xywh": _bbox_dict_to_csv(bbox_xywh) if bbox_xywh else "",
+                "candidate_reason": str(highlight.get("reason") or "telegram_jump_highlight"),
+                "detector_backend": "telegram_jump_highlight",
+                "detector_model_id": "cat_projector_telegram_notification",
+                "measurement_source": "telegram_jump_highlight",
+                "measurement_confidence": "",
+                "best_top_height_cm": str(highlight.get("height_cm") or "") if is_peak_frame else "",
+                "best_top_wall_x_cm": (
+                    str(float(highlight["wall_x_mm"]) / 10.0)
+                    if is_peak_frame and highlight.get("wall_x_mm") not in (None, "")
+                    else ""
+                ),
+                "best_measurement_point": measurement_point,
+                "best_measurement_warning": "",
+                "review_priority_score": "35" if is_peak_frame else "2",
+                "review_priority_reasons": ["telegram jump highlight"] if is_peak_frame else ["telegram jump highlight context"],
+                "notes": (
+                    f"telegram jump highlight: {highlight.get('height_cm', '?')} cm"
+                    if is_peak_frame
+                    else f"telegram jump highlight context; peak frame {peak_frame_index}"
+                ),
+            }
+    return rows
+
+
+def _current_model_rows_by_image() -> dict[Path, dict[str, Any]]:
+    latest_rescore_root = _latest_rescore_root()
+    if latest_rescore_root is None:
+        return {}
+    return _probe_rows_by_image(latest_rescore_root)
+
+
+def _original_model_rows_by_image() -> dict[Path, dict[str, Any]]:
+    return _telegram_jump_highlight_rows_by_image()
+
+
 def _latest_rescore_root() -> Path | None:
     rescores_root = STATE_ROOT / "label-review" / "rescores"
     latest_path = rescores_root / "latest.json"
@@ -581,8 +858,8 @@ def _latest_rescore_root() -> Path | None:
     return sorted(runs, key=lambda path: path.stat().st_mtime, reverse=True)[0]
 
 
-def _review_metadata_rows_by_image() -> dict[Path, dict[str, str]]:
-    rows_by_image: dict[Path, dict[str, str]] = {}
+def _review_metadata_rows_by_image() -> dict[Path, dict[str, Any]]:
+    rows_by_image: dict[Path, dict[str, Any]] = {}
     for root in (STATE_ROOT / "datasets", DATASET_ROOT / "datasets", DATASET_ROOT / "detector-training"):
         if root.exists():
             rows_by_image.update(_label_rows_by_image(root))
@@ -593,9 +870,8 @@ def _review_metadata_rows_by_image() -> dict[Path, dict[str, str]]:
     ):
         if root.exists():
             rows_by_image.update(_probe_rows_by_image(root))
-    latest_rescore_root = _latest_rescore_root()
-    if latest_rescore_root is not None:
-        rows_by_image.update(_probe_rows_by_image(latest_rescore_root))
+    rows_by_image.update(_current_model_rows_by_image())
+    _merge_missing_metadata_rows(rows_by_image, _original_model_rows_by_image())
     return rows_by_image
 
 
@@ -814,20 +1090,7 @@ def _discover_cases(limit: int) -> list[ReviewCase]:
         if cached_key == cache_key and now - cached_at <= _DISCOVERY_CACHE_TTL_SECONDS:
             return list(cached_cases[:limit])
 
-    rows_by_image: dict[Path, dict[str, str]] = {}
-    for root in (STATE_ROOT / "datasets", DATASET_ROOT / "datasets", DATASET_ROOT / "detector-training"):
-        if root.exists():
-            rows_by_image.update(_label_rows_by_image(root))
-    for root in (
-        STATE_ROOT / "batch_reviews",
-        STATE_ROOT / "jump-review",
-        DATASET_ROOT / "detector-training",
-    ):
-        if root.exists():
-            rows_by_image.update(_probe_rows_by_image(root))
-    latest_rescore_root = _latest_rescore_root()
-    if latest_rescore_root is not None:
-        rows_by_image.update(_probe_rows_by_image(latest_rescore_root))
+    rows_by_image = _review_metadata_rows_by_image()
 
     seen: set[Path] = set()
     cases: list[ReviewCase] = []
@@ -1049,11 +1312,17 @@ def _suspicion_for_frame(frame: dict[str, Any]) -> dict[str, Any]:
 
 def _timeline_for_video(
     video_id: str,
-) -> tuple[ReviewVideo, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    *,
+    requested_frame_label: str | None = None,
+) -> tuple[ReviewVideo, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], str | None, float]:
     video = next((item for item in _discover_videos(10000) if item.id == video_id), None)
     if video is None:
         raise ValueError(f"unknown review video: {video_id}")
+    materialized_path, resolved_frame_label, frame_rate = _materialize_recording_review_frame(video, requested_frame_label)
     input_paths = _frame_paths_for_review_video(video)
+    if materialized_path is not None and materialized_path not in input_paths:
+        input_paths.append(materialized_path)
+        input_paths = sorted(input_paths, key=_sort_frame_path)
     frames: list[dict[str, Any]] = []
     if input_paths:
         frames = _frame_payloads_for_review_video(video, input_paths, offset=0, limit=max(1, len(input_paths)))
@@ -1098,7 +1367,7 @@ def _timeline_for_video(
         key=lambda item: (item["score"], -int(item["frame_index"])),
         reverse=True,
     )
-    return video, frames, suspect_queue, reviewed_suspect_queue
+    return video, frames, suspect_queue, reviewed_suspect_queue, resolved_frame_label, frame_rate
 
 
 def _image_paths_under(root: Path) -> list[Path]:
@@ -1642,6 +1911,127 @@ def _frame_paths_for_review_video(video: ReviewVideo) -> list[Path]:
     return sorted(unique, key=_sort_frame_path)
 
 
+def _source_video_path_for_frame(video: ReviewVideo, input_path: Path) -> Path | None:
+    if video.source_recording_dir:
+        match = re.match(r"(?:chunk|source)_(\d+)_\d+\.(?:jpe?g|png|webp)$", input_path.name, re.IGNORECASE)
+        if match:
+            chunk_path = video.source_recording_dir / f"chunk_{int(match.group(1)):04d}.mp4"
+            if chunk_path.exists():
+                return chunk_path
+    return video.source_video_path
+
+
+def _recording_highlight_for_chunk(recording_dir: Path, chunk_index: int) -> dict[str, Any] | None:
+    sessions_path = STATE_ROOT / "sessions.jsonl"
+    if not sessions_path.exists():
+        return None
+    try:
+        lines = sessions_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        if "jump_highlight" not in line or "telegram" not in line:
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        recording_value = payload.get("recording_dir")
+        if not recording_value:
+            continue
+        try:
+            payload_recording_dir = _safe_local_path(Path(str(recording_value)))
+        except ValueError:
+            continue
+        if payload_recording_dir != recording_dir:
+            continue
+        highlight = payload.get("jump_highlight")
+        if not isinstance(highlight, dict):
+            continue
+        try:
+            if int(highlight.get("chunk")) == chunk_index:
+                return highlight
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _source_fps_review_frame_label(video: ReviewVideo, frame_label: str | None) -> str | None:
+    if not video.source_recording_dir or not frame_label:
+        return None
+    match = re.match(r"(?:chunk|source)_(\d+)_(\d+)\.(?:jpe?g|png|webp)$", frame_label, re.IGNORECASE)
+    if not match:
+        return None
+    chunk_index = int(match.group(1))
+    highlight = _recording_highlight_for_chunk(video.source_recording_dir, chunk_index)
+    if not highlight:
+        return frame_label
+    try:
+        offset_seconds = float(highlight.get("offset_seconds") or 0.0)
+    except (TypeError, ValueError):
+        return frame_label
+    requested_frame_index = int(match.group(2))
+    legacy_frame_index = max(0, int(offset_seconds * LEGACY_TELEGRAM_REVIEW_FRAME_FPS))
+    if requested_frame_index != legacy_frame_index:
+        return frame_label
+    chunk_path = video.source_recording_dir / f"chunk_{chunk_index:04d}.mp4"
+    if not chunk_path.exists():
+        return frame_label
+    frame_index = _source_frame_index_for_offset(chunk_path, offset_seconds)
+    return f"chunk_{chunk_index:04d}_{frame_index:05d}.jpg"
+
+
+def _materialize_recording_review_frame(video: ReviewVideo, frame_label: str | None) -> tuple[Path | None, str | None, float]:
+    if not video.source_recording_dir or not frame_label:
+        return None, None, DEFAULT_REVIEW_FRAME_FPS
+    frame_label = _source_fps_review_frame_label(video, frame_label) or frame_label
+    match = re.match(r"(?:chunk|source)_(\d+)_(\d+)\.(?:jpe?g|png|webp)$", frame_label, re.IGNORECASE)
+    if not match:
+        return None, frame_label, DEFAULT_REVIEW_FRAME_FPS
+    chunk_index = int(match.group(1))
+    frame_index = int(match.group(2))
+    chunk_path = video.source_recording_dir / f"chunk_{chunk_index:04d}.mp4"
+    if not chunk_path.exists():
+        return None, frame_label, DEFAULT_REVIEW_FRAME_FPS
+    frame_rate = _chunk_frame_rate(chunk_path)
+    output_path = video.source_recording_dir / "review_frames" / f"chunk_{chunk_index:04d}_{frame_index:05d}.jpg"
+    chunk_glob = f"chunk_{chunk_index:04d}_*.jpg"
+    if output_path.exists() and output_path.stat().st_size > 512 and len(list(output_path.parent.glob(chunk_glob))) > 1:
+        return output_path.resolve(), frame_label, frame_rate
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_pattern = output_path.parent / f"chunk_{chunk_index:04d}_%05d.jpg"
+    completed = subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostdin",
+            "-y",
+            "-ss",
+            "0",
+            "-i",
+            str(chunk_path),
+            "-vsync",
+            "0",
+            "-start_number",
+            "0",
+            "-q:v",
+            "2",
+            str(output_pattern),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0 or not output_path.exists() or output_path.stat().st_size <= 512:
+        return None, frame_label, frame_rate
+    _clear_discovery_caches()
+    return output_path.resolve(), frame_label, frame_rate
+
+
 def _frame_payloads_for_review_video(
     video: ReviewVideo,
     input_paths: list[Path],
@@ -1650,6 +2040,8 @@ def _frame_payloads_for_review_video(
     limit: int = 50,
 ) -> list[dict[str, Any]]:
     metadata_by_path = _review_metadata_rows_by_image()
+    current_model_rows = _current_model_rows_by_image()
+    original_model_rows = _original_model_rows_by_image()
     selected = input_paths[max(0, offset) : max(0, offset) + max(1, limit)]
     output_paths = _candidate_output_paths_for_inputs(selected) if video.output_frame_count else {}
     frames: list[dict[str, Any]] = []
@@ -1657,6 +2049,16 @@ def _frame_payloads_for_review_video(
         case_id = _case_id_for_path(input_path)
         saved = _load_label_for_case(case_id)
         row = metadata_by_path.get(input_path, {})
+        current_model_overlay = _model_overlay_from_row(
+            current_model_rows.get(input_path, {}),
+            role="current_model",
+            label="current model",
+        )
+        original_model_overlay = _model_overlay_from_row(
+            original_model_rows.get(input_path, {}),
+            role="original_model",
+            label="original capture",
+        )
         probability = saved.get("detector_probability")
         for key in ("detector_cat_probability", "cat_probability", "probability", "best_probability"):
             if probability not in {None, ""}:
@@ -1671,6 +2073,7 @@ def _frame_payloads_for_review_video(
         label_cat_present = saved.get("label_cat_present") or row.get("label_cat_present") or None
         label_candidate_is_cat = saved.get("label_candidate_is_cat") or row.get("label_candidate_is_cat") or None
         output_path = output_paths.get(input_path)
+        source_video_path = _source_video_path_for_frame(video, input_path)
         input_token = _encode_path(input_path)
         output_token = _encode_path(output_path) if output_path else None
         frames.append(
@@ -1684,9 +2087,14 @@ def _frame_payloads_for_review_video(
                 "image_url": f"/api/cat-projector-label-review/file/{input_token}",
                 "model_output_path": str(output_path) if output_path else None,
                 "model_output_url": f"/api/cat-projector-label-review/file/{output_token}" if output_token else None,
-                "source_video_path": str(video.source_video_path) if video.source_video_path else None,
+                "source_video_path": str(source_video_path) if source_video_path else None,
                 "source_recording_dir": str(video.source_recording_dir) if video.source_recording_dir else None,
                 "candidate_bbox_xywh": bbox,
+                "current_model_overlay": current_model_overlay,
+                "original_model_overlay": original_model_overlay,
+                "model_overlays": [
+                    overlay for overlay in (current_model_overlay, original_model_overlay) if overlay is not None
+                ],
                 "detector_probability": probability,
                 "detector_backend": row.get("detector_backend") or "",
                 "detector_model_id": row.get("detector_model_id") or "",
@@ -2171,7 +2579,7 @@ def _source_chunk_for_label(label: dict[str, Any], image_path: Path, recording_d
     chunk_index = int(chunk_match.group(1))
     frame_index = int(chunk_match.group(2))
     chunk_path = recording_dir / f"chunk_{chunk_index:04d}.mp4"
-    offset = frame_index / 15.0
+    offset = frame_index / _chunk_frame_rate(chunk_path if chunk_path.exists() else None)
     return (str(chunk_path) if chunk_path.exists() else "", f"{offset:.3f}")
 
 
@@ -2459,8 +2867,37 @@ def _start_or_queue_job(payload: dict[str, Any]) -> dict[str, Any]:
 def _list_jobs(limit: int = 50) -> list[dict[str, Any]]:
     if not JOBS_ROOT.exists():
         return []
+    _mark_stale_running_jobs()
     paths = sorted(JOBS_ROOT.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
     return [_read_json(path) for path in paths[:limit]]
+
+
+def _mark_stale_running_jobs(*, stale_after_seconds: float = 300.0) -> None:
+    if not JOBS_ROOT.exists():
+        return
+    with _JOB_LOCK:
+        active_job_id = _ACTIVE_JOB_ID
+    now = datetime.now(UTC)
+    for path in JOBS_ROOT.glob("*.json"):
+        row = _read_json(path)
+        if row.get("status") != "running" or row.get("id") == active_job_id:
+            continue
+        raw_updated = str(row.get("updated_at") or row.get("created_at") or "")
+        try:
+            updated_at = datetime.fromisoformat(raw_updated)
+        except ValueError:
+            updated_at = now
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=UTC)
+        if (now - updated_at).total_seconds() < stale_after_seconds:
+            continue
+        log = list(row.get("log") or [])
+        if not any("marked failed after server restart" in str(item) for item in log):
+            log.append("marked failed after server restart; no active local worker owns this job")
+        row["status"] = "failed"
+        row["log"] = log
+        row["updated_at"] = _utc_now()
+        _write_json(path, row)
 
 
 class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
@@ -2520,7 +2957,12 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
                 )
                 return
             if len(parts) >= 6 and parts[5] == "timeline":
-                video, frames, suspect_queue, reviewed_suspect_queue = _timeline_for_video(unquote(parts[4]))
+                query = parse_qs(parsed.query)
+                requested_frame_label = query.get("review_frame_label", query.get("frame_label", [""]))[0]
+                video, frames, suspect_queue, reviewed_suspect_queue, resolved_frame_label, frame_rate = _timeline_for_video(
+                    unquote(parts[4]),
+                    requested_frame_label=requested_frame_label,
+                )
                 self._send_json(
                     {
                         "kind": LABEL_NAMESPACE + "_video_timeline_v1",
@@ -2528,7 +2970,8 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
                         "frames": frames,
                         "suspect_queue": suspect_queue,
                         "reviewed_suspect_queue": reviewed_suspect_queue,
-                        "playback": {"default_fps": 15, "neighborhood_frames": 20},
+                        "resolved_review_frame_label": resolved_frame_label,
+                        "playback": {"default_fps": frame_rate, "neighborhood_frames": 20},
                     }
                 )
                 return

@@ -1211,6 +1211,53 @@
     let didInitialFit = false;
     let didInitialReviewLoad = false;
     let loadingSavedState = false;
+    let pendingReviewDeepLink = readReviewDeepLink();
+
+    function readReviewDeepLink() {
+      const params = new URLSearchParams(window.location.search);
+      const frameRaw = params.get("review_frame") || "";
+      const parsedFrame = frameRaw === "" ? null : Number(frameRaw);
+      return {
+        videoId: params.get("review_video_id") || params.get("video_id") || "",
+        frameIndex: Number.isInteger(parsedFrame) ? parsedFrame : null,
+        frameLabel: params.get("review_frame_label") || params.get("frame_label") || ""
+      };
+    }
+
+    function frameBasename(frame) {
+      const raw = frame?.label || frame?.image_path || "";
+      return raw.split("/").pop() || "";
+    }
+
+    function reviewFrameArrayIndexForDeepLink(link) {
+      if (!link) return -1;
+      if (link.frameLabel) {
+        const label = link.frameLabel.split("/").pop();
+        const byLabel = reviewFrames.findIndex(frame => frameBasename(frame) === label);
+        if (byLabel >= 0) return byLabel;
+      }
+      if (Number.isInteger(link.frameIndex)) {
+        return reviewArrayIndexForFrameIndex(link.frameIndex);
+      }
+      return -1;
+    }
+
+    function syncReviewDeepLinkToUrl() {
+      if (activeMode !== "review" || !history.replaceState) return;
+      const video = activeReviewVideo();
+      if (!video) return;
+      const frame = activeReviewFrame();
+      const url = new URL(window.location.href);
+      url.searchParams.set("review_video_id", video.id);
+      if (frame) {
+        url.searchParams.set("review_frame", String(frame.frame_index));
+        url.searchParams.set("review_frame_label", frameBasename(frame));
+      } else {
+        url.searchParams.delete("review_frame");
+        url.searchParams.delete("review_frame_label");
+      }
+      history.replaceState(null, "", url);
+    }
 
     function byId(id) {
       return points.find(p => p.id === id);
@@ -2522,19 +2569,71 @@
       };
     }
 
+    function reviewModelOverlays(frame) {
+      const overlays = [];
+      if (frame?.current_model_overlay) overlays.push(frame.current_model_overlay);
+      if (frame?.original_model_overlay) overlays.push(frame.original_model_overlay);
+      if (!overlays.length && (frame?.candidate_bbox_xywh || frame?.measurement_point)) {
+        overlays.push({
+          role: "previous_model",
+          label: "previous model",
+          bbox_xywh: frame.candidate_bbox_xywh || null,
+          detector_probability: frame.detector_probability,
+          detector_backend: frame.detector_backend || "",
+          detector_model_id: frame.detector_model_id || "",
+          measurement_source: frame.measurement_source || "",
+          top_height_cm: frame.best_top_height_cm ?? null,
+          top_wall_x_cm: frame.best_top_wall_x_cm ?? null,
+          measurement_point: frame.measurement_point || null,
+          measurement_warning: frame.best_measurement_warning || ""
+        });
+      }
+      return overlays;
+    }
+
+    function overlayHasGeometry(overlay) {
+      return Boolean(overlay?.bbox_xywh || overlay?.measurement_point);
+    }
+
+    function overlayBBoxText(overlay) {
+      const bbox = overlay?.bbox_xywh;
+      if (Array.isArray(bbox)) return bbox.map(value => Number(value).toFixed(0)).join(",");
+      if (typeof bbox === "string" && bbox) return bbox;
+      if (bbox && Number.isFinite(Number(bbox.x))) {
+        return [bbox.x, bbox.y, bbox.width, bbox.height].map(value => Number(value).toFixed(0)).join(",");
+      }
+      return "none";
+    }
+
+    function overlayPointText(overlay) {
+      const point = overlay?.measurement_point;
+      if (point && Number.isFinite(Number(point.image_x)) && Number.isFinite(Number(point.image_y))) {
+        return `${Number(point.image_x).toFixed(0)},${Number(point.image_y).toFixed(0)}`;
+      }
+      return "none";
+    }
+
+    function overlayStyle(role) {
+      if (role === "current_model") return { color: "#58a6ff", fill: "rgba(88,166,255,0.10)", dash: [] };
+      if (role === "original_model") return { color: "#ffa657", fill: "rgba(255,166,87,0.10)", dash: [9, 5] };
+      return { color: "#ffd33d", fill: "rgba(255,211,61,0.10)", dash: [9, 5] };
+    }
+
     function updateReviewPlayerBar() {
       const video = activeReviewVideo();
       const frame = activeReviewFrame();
       const label = normaliseReviewLabel(frame?.human_label || activeReviewLabel);
       const status = frame?.review_status || video?.review_status || "unreviewed";
       const outputArtifact = primaryReviewVideoArtifact(video);
-      const output = frame?.model_output_url ? "frame output" : outputArtifact ? "session output" : "no output";
+      const modelOverlayCount = reviewModelOverlays(frame).filter(overlayHasGeometry).length;
+      const output = frame?.model_output_url ? "frame output" : outputArtifact ? "session output" : modelOverlayCount ? `${modelOverlayCount} overlays` : "no output";
       const reason = frame?.suspicion_reason || "no suspect reason";
       const measurement = frame?.best_top_height_cm ? ` · ${frame.best_top_height_cm.toFixed(1)} cm ${frame.measurement_source || "measurement"}` : "";
       const backend = frame?.detector_backend ? ` · ${frame.detector_backend}` : "";
       const tracker = frame?.tracker_status ? ` · tracker ${frame.tracker_status}${frame.tracker_reason ? ` (${frame.tracker_reason})` : ""}` : "";
+      const frameLabel = frame ? frameBasename(frame) : "";
       reviewPlayerTitle.textContent = frame
-        ? `${video?.label || "Review video"} · frame ${frame.frame_index} / ${Math.max(0, reviewFrames.length - 1)}`
+        ? `${video?.label || "Review video"} · ${frameLabel} · frame ${frame.frame_index} / ${Math.max(0, reviewFrames.length - 1)}`
         : (video?.label || "Open a review video");
       reviewPlayerMeta.textContent = frame
         ? `frame: ${frameStatusText(frame)} · ${reason}${measurement}${backend}${tracker}`
@@ -2542,7 +2641,7 @@
       reviewPlayerLabelChip.textContent = `${status} · ${label}`;
       reviewPlayerLabelChip.className = "review-status-chip" + (label === "cat" ? " ok" : label === "unsure" ? " warn" : "");
       reviewPlayerOutputChip.textContent = output;
-      reviewPlayerOutputChip.className = "review-status-chip" + (frame?.model_output_url || outputArtifact ? " ok" : "");
+      reviewPlayerOutputChip.className = "review-status-chip" + (frame?.model_output_url || outputArtifact || modelOverlayCount ? " ok" : "");
     }
 
 	    function renderReviewVideos() {
@@ -2601,7 +2700,8 @@
         const row = document.createElement("div");
         row.className = "review-item" + (index === activeReviewFrameIndex ? " active" : "");
         const label = normaliseReviewLabel(item.human_label);
-        const output = item.model_output_url ? "output" : "no output";
+        const overlayCount = reviewModelOverlays(item).filter(overlayHasGeometry).length;
+        const output = item.model_output_url ? "output" : overlayCount ? `${overlayCount} overlays` : "no output";
         const measurement = typeof item.best_top_height_cm === "number" ? ` · ${item.best_top_height_cm.toFixed(1)} cm` : "";
         row.innerHTML = `
           <div class="review-item-title">#${item.frame_index} ${escapeHtml(suspect.reason || item.suspicion_reason || item.label || item.id)}</div>
@@ -2685,7 +2785,10 @@
       });
       renderReviewVideos();
       if (!activeReviewVideoId && reviewVideos.length) {
-        await openReviewVideo(reviewVideos[0].id);
+        const linkedVideo = pendingReviewDeepLink?.videoId
+          ? reviewVideos.find(item => item.id === pendingReviewDeepLink.videoId)
+          : null;
+        await openReviewVideo((linkedVideo || reviewVideos[0]).id);
       }
     }
 
@@ -2702,7 +2805,11 @@
       frameStatus.textContent = "loading timeline...";
       let response;
       try {
-        response = await fetch(`${LABEL_REVIEW_API}/videos/${encodeURIComponent(videoId)}/timeline`, {
+        const timelineUrl = new URL(`${LABEL_REVIEW_API}/videos/${encodeURIComponent(videoId)}/timeline`, window.location.href);
+        if (pendingReviewDeepLink?.frameLabel && (!pendingReviewDeepLink.videoId || pendingReviewDeepLink.videoId === videoId)) {
+          timelineUrl.searchParams.set("review_frame_label", pendingReviewDeepLink.frameLabel);
+        }
+        response = await fetch(timelineUrl.pathname + timelineUrl.search, {
           signal: reviewVideoAbortController.signal
         });
       } catch (error) {
@@ -2716,13 +2823,24 @@
       suspectQueue = payload.suspect_queue || [];
       reviewedSuspectQueue = payload.reviewed_suspect_queue || [];
       playbackBaseFps = Number(payload.playback?.default_fps || 15);
+      if (payload.resolved_review_frame_label && pendingReviewDeepLink?.frameLabel) {
+        pendingReviewDeepLink.frameLabel = payload.resolved_review_frame_label;
+      }
       activeReviewFrameIndex = reviewFrames.length ? 0 : -1;
       renderReviewVideos();
       renderReviewFrames();
       renderReviewTimeline();
       if (reviewFrames.length) {
-        const firstSuspect = suspectQueue[0]?.frame_index ?? 0;
-        await openReviewFrameByFrameIndex(firstSuspect);
+        const linkedFrameArrayIndex = pendingReviewDeepLink?.videoId && pendingReviewDeepLink.videoId !== videoId
+          ? -1
+          : reviewFrameArrayIndexForDeepLink(pendingReviewDeepLink);
+        if (linkedFrameArrayIndex >= 0) {
+          pendingReviewDeepLink = null;
+          await openReviewFrame(linkedFrameArrayIndex);
+        } else {
+          const firstSuspect = suspectQueue[0]?.frame_index ?? 0;
+          await openReviewFrameByFrameIndex(firstSuspect);
+        }
       } else {
         frameStatus.textContent = "timeline has no review frames";
       }
@@ -2762,6 +2880,8 @@
         modelOutputEmpty.hidden = false;
         if (outputArtifact) {
           modelOutputEmpty.innerHTML = `<a href="${escapeHtml(outputArtifact.url)}" target="_blank" rel="noreferrer">${escapeHtml(outputArtifact.label || "open session model output")}</a>`;
+        } else if (reviewModelOverlays(frame).some(overlayHasGeometry)) {
+          modelOutputEmpty.textContent = "model overlays are drawn on the frame";
         } else {
           modelOutputEmpty.textContent = "no previous model output for this frame";
         }
@@ -2899,6 +3019,7 @@
       update();
       renderReviewQueue();
       updateReviewPlayerBar();
+      syncReviewDeepLinkToUrl();
     }
 
     function renderReviewDetail() {
@@ -2911,11 +3032,18 @@
       const videoLink = item.source_video_url ? `<a href="${escapeHtml(item.source_video_url)}" target="_blank" rel="noopener">open video context</a>` : "";
       const outputLink = item.model_output_url ? `<a href="${escapeHtml(item.model_output_url)}" target="_blank" rel="noopener">open previous output</a>` : "previous output: none";
       const measurement = typeof item.best_top_height_cm === "number" ? `${item.best_top_height_cm.toFixed(1)} cm · ${item.measurement_source || "measurement"}` : "no wall measurement";
+      const overlayLines = reviewModelOverlays(item).map(overlay => {
+        const backend = overlay.detector_backend || overlay.measurement_source || "unknown";
+        return `<div class="review-item-meta">${escapeHtml(overlay.label || overlay.role || "model")}: bbox ${escapeHtml(overlayBBoxText(overlay))} · top ${escapeHtml(overlayPointText(overlay))} · ${escapeHtml(backend)}</div>`;
+      }).join("") || `<div class="review-item-meta">model overlays: none</div>`;
+      const manualMaskCount = catAnnotations.filter(annotation => (annotation.kind || "cat") === "cat" && (annotation.polygon || []).length).length;
       const tracker = item.tracker_status ? `${item.tracker_status}${item.tracker_reason ? ` · ${item.tracker_reason}` : ""}${item.tracker_confirmed ? " · confirmed" : ""}` : "not tracked";
       reviewDetail.innerHTML = `
         <div class="review-detail-title">frame ${escapeHtml(frameStatusText(item))} · p=${escapeHtml(probability)}</div>
         <div class="review-item-meta">reason: ${escapeHtml(item.suspicion_reason || "none")}</div>
         <div class="review-item-meta">detector: ${escapeHtml(item.detector_backend || "unknown")} · ${escapeHtml(measurement)}</div>
+        ${overlayLines}
+        <div class="review-item-meta">manual masks: ${manualMaskCount}</div>
         <div class="review-item-meta">tracker: ${escapeHtml(tracker)}</div>
         <div class="review-item-meta">${escapeHtml(reviewActionHint(item))}</div>
         <div class="review-item-meta">decision: ${escapeHtml(activeReviewDecision)}</div>
@@ -3486,32 +3614,73 @@
       }
     }
 
-    function drawCandidateBBox(ui) {
-      const item = activeReviewCase();
-      const bbox = item?.candidate_bbox_xywh;
-      if (!bbox || catAnnotations.length) return;
+    function normaliseBboxValues(bbox) {
+      if (!bbox) return;
       const values = Array.isArray(bbox)
         ? bbox
         : typeof bbox === "string"
           ? bbox.split(",").map(Number)
           : [bbox.x, bbox.y, bbox.width, bbox.height];
       if (values.length < 4 || values.some(value => !Number.isFinite(Number(value)))) return;
+      return values.map(Number);
+    }
+
+    function drawModelOverlayBBox(overlay, ui, index) {
+      const values = normaliseBboxValues(overlay?.bbox_xywh);
+      if (!values) return;
       const [x, y, width, height] = values.map(Number);
+      const style = overlayStyle(overlay?.role);
+      const dash = (style.dash || []).map(value => value * ui);
       ctx.save();
-      ctx.strokeStyle = "#ffd33d";
-      ctx.fillStyle = "rgba(255, 211, 61, 0.10)";
+      ctx.strokeStyle = style.color;
+      ctx.fillStyle = style.fill;
       ctx.lineWidth = 3 * ui;
-      ctx.setLineDash([9 * ui, 5 * ui]);
+      ctx.setLineDash(dash);
       ctx.fillRect(x, y, width, height);
       ctx.strokeRect(x, y, width, height);
       ctx.setLineDash([]);
-      const probability = typeof item.detector_probability === "number" ? `p=${item.detector_probability.toFixed(2)}` : "model candidate";
+      const probability = typeof overlay.detector_probability === "number" ? ` p=${overlay.detector_probability.toFixed(2)}` : "";
+      const label = `${overlay.label || overlay.role || "model"}${probability}`;
       ctx.font = `${18 * ui}px system-ui`;
       ctx.textBaseline = "bottom";
       ctx.fillStyle = "rgba(0,0,0,0.72)";
-      ctx.fillRect(x, Math.max(0, y - 26 * ui), Math.max(130 * ui, ctx.measureText(probability).width + 14 * ui), 24 * ui);
-      ctx.fillStyle = "#ffd33d";
-      ctx.fillText(probability, x + 7 * ui, Math.max(20 * ui, y - 6 * ui));
+      const labelY = Math.max(0, y - (26 + index * 28) * ui);
+      ctx.fillRect(x, labelY, Math.max(130 * ui, ctx.measureText(label).width + 14 * ui), 24 * ui);
+      ctx.fillStyle = style.color;
+      ctx.fillText(label, x + 7 * ui, labelY + 20 * ui);
+      ctx.restore();
+    }
+
+    function drawModelOverlays(ui) {
+      const item = activeReviewCase();
+      reviewModelOverlays(item).forEach((overlay, index) => drawModelOverlayBBox(overlay, ui, index));
+    }
+
+    function drawMeasurementMarker(point, label, color, ui, labelIndex = 0) {
+      if (!point || !Number.isFinite(Number(point.image_x)) || !Number.isFinite(Number(point.image_y))) return;
+      const x = Number(point.image_x);
+      const y = Number(point.image_y);
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = 3 * ui;
+      ctx.beginPath();
+      ctx.arc(x, y, 7 * ui, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - 10 * ui, y);
+      ctx.lineTo(x + 10 * ui, y);
+      ctx.moveTo(x, y - 10 * ui);
+      ctx.lineTo(x, y + 10 * ui);
+      ctx.stroke();
+      ctx.font = `${16 * ui}px system-ui`;
+      const w = Math.max(120 * ui, ctx.measureText(label).width + 14 * ui);
+      ctx.fillStyle = "rgba(0,0,0,0.76)";
+      const labelY = Math.max(0, y - (26 + labelIndex * 28) * ui);
+      ctx.fillRect(x + 10 * ui, labelY, w, 24 * ui);
+      ctx.fillStyle = color;
+      ctx.textBaseline = "bottom";
+      ctx.fillText(label, x + 17 * ui, labelY + 20 * ui);
       ctx.restore();
     }
 
@@ -3545,35 +3714,20 @@
 
     function drawMeasurementPoint(ui) {
       const item = activeReviewCase();
-      const point = activeMaskTopMeasurementPoint() || item?.measurement_point;
-      if (!point || !Number.isFinite(Number(point.image_x)) || !Number.isFinite(Number(point.image_y))) return;
-      const x = Number(point.image_x);
-      const y = Number(point.image_y);
-      const source = point.point_type === "corrected_mask_top" ? "corrected mask top" : item.measurement_source || point.point_type || "measurement";
-      const height = point.point_type === "corrected_mask_top" ? Number(point.wall_y_cm) : Number(item.best_top_height_cm ?? point.wall_y_cm);
-      const label = Number.isFinite(height) ? `${height.toFixed(1)} cm ${source}` : source;
-      ctx.save();
-      const color = source.includes("mask") ? "#7ee787" : "#ffa657";
-      ctx.strokeStyle = color;
-      ctx.fillStyle = color;
-      ctx.lineWidth = 3 * ui;
-      ctx.beginPath();
-      ctx.arc(x, y, 7 * ui, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(x - 10 * ui, y);
-      ctx.lineTo(x + 10 * ui, y);
-      ctx.moveTo(x, y - 10 * ui);
-      ctx.lineTo(x, y + 10 * ui);
-      ctx.stroke();
-      ctx.font = `${16 * ui}px system-ui`;
-      const w = Math.max(120 * ui, ctx.measureText(label).width + 14 * ui);
-      ctx.fillStyle = "rgba(0,0,0,0.76)";
-      ctx.fillRect(x + 10 * ui, Math.max(0, y - 26 * ui), w, 24 * ui);
-      ctx.fillStyle = color;
-      ctx.textBaseline = "bottom";
-      ctx.fillText(label, x + 17 * ui, Math.max(20 * ui, y - 6 * ui));
-      ctx.restore();
+      reviewModelOverlays(item).forEach((overlay, index) => {
+        const modelPoint = overlay?.measurement_point;
+        if (!modelPoint) return;
+        const source = overlay.label || overlay.measurement_source || modelPoint.point_type || "model top";
+        const height = Number(overlay.top_height_cm ?? modelPoint.wall_y_cm);
+        const label = Number.isFinite(height) ? `${height.toFixed(1)} cm ${source}` : source;
+        drawMeasurementMarker(modelPoint, label, overlayStyle(overlay.role).color, ui, index);
+      });
+      const correctedPoint = activeMaskTopMeasurementPoint();
+      if (correctedPoint) {
+        const height = Number(correctedPoint.wall_y_cm);
+        const label = Number.isFinite(height) ? `${height.toFixed(1)} cm corrected mask top` : "corrected mask top";
+        drawMeasurementMarker(correctedPoint, label, "#7ee787", ui, reviewModelOverlays(item).length);
+      }
     }
 
     function drawCalibrationOverlay(ui) {
@@ -3720,9 +3874,9 @@
       ctx.clearRect(0, 0, image.naturalWidth, image.naturalHeight);
       ctx.drawImage(image, 0, 0);
       if (activeMode === "wall") drawCalibrationOverlay(ui);
-      drawCandidateBBox(ui);
-      drawMeasurementPoint(ui);
+      drawModelOverlays(ui);
       drawCatAnnotations(ui);
+      drawMeasurementPoint(ui);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
 
