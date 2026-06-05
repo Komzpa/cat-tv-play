@@ -905,9 +905,9 @@
         <div id="reviewTimelineTrack"></div>
       </div>
       <div class="review-output-pane review-only">
-        <div id="modelOutputTitle" class="review-pane-title">previous model output</div>
-        <div id="modelOutputEmpty">open a video frame; previous model output appears here when the corpus has it</div>
-        <img id="modelOutputImage" alt="previous model output" hidden>
+        <div id="modelOutputTitle" class="review-pane-title">rendered model artifact</div>
+        <div id="modelOutputEmpty">open a video frame; rendered model artifacts appear here when the corpus has them</div>
+        <img id="modelOutputImage" alt="rendered model artifact" hidden>
       </div>
     </main>
 
@@ -1465,6 +1465,12 @@
       };
     }
 
+    function semanticCatKind(kind) {
+      const value = String(kind || "cat");
+      if (value === "not_cat" || value === "not cat") return "not_cat";
+      return "cat";
+    }
+
     function storedCatAnnotationsFrom(items, options = {}) {
       const clamp = options.clamp !== false;
       const normalise = point => clamp ? clampImagePoint(point) : rawImagePoint(point);
@@ -1475,7 +1481,7 @@
         return {
           id: item.id || `cat.imported${index + 1}`,
           label: item.label || "Sher",
-          kind: item.kind || "cat",
+          kind: semanticCatKind(item.kind),
           source: item.source || "manual_polygon",
           positive_points: (item.positive_points || []).map(normalise).filter(point =>
             Number.isFinite(point.x) && Number.isFinite(point.y)
@@ -2595,6 +2601,32 @@
       return Boolean(overlay?.bbox_xywh || overlay?.measurement_point);
     }
 
+    function annotationHasCatGeometry(annotation) {
+      if (semanticCatKind(annotation?.kind) !== "cat") return false;
+      return Boolean(
+        (annotation.polygon || []).length ||
+        (annotation.positive_points || []).length ||
+        annotation.bbox_xywh
+      );
+    }
+
+    function manualCatAnnotationCount(annotations = catAnnotations) {
+      return (annotations || []).filter(annotationHasCatGeometry).length;
+    }
+
+    function reviewLayerSummary(frame, manualCount = 0) {
+      const layers = [];
+      if (manualCount) layers.push(`${manualCount} manual`);
+      if (frame?.current_model_overlay && overlayHasGeometry(frame.current_model_overlay)) layers.push("current");
+      if (frame?.original_model_overlay && overlayHasGeometry(frame.original_model_overlay)) layers.push("original");
+      const legacyCount = reviewModelOverlays(frame)
+        .filter(overlayHasGeometry)
+        .filter(overlay => !["current_model", "original_model"].includes(overlay.role || ""))
+        .length;
+      if (legacyCount) layers.push(`${legacyCount} legacy`);
+      return layers.join(" + ");
+    }
+
     function overlayBBoxText(overlay) {
       const bbox = overlay?.bbox_xywh;
       if (Array.isArray(bbox)) return bbox.map(value => Number(value).toFixed(0)).join(",");
@@ -2625,8 +2657,9 @@
       const label = normaliseReviewLabel(frame?.human_label || activeReviewLabel);
       const status = frame?.review_status || video?.review_status || "unreviewed";
       const outputArtifact = primaryReviewVideoArtifact(video);
-      const modelOverlayCount = reviewModelOverlays(frame).filter(overlayHasGeometry).length;
-      const output = frame?.model_output_url ? "frame output" : outputArtifact ? "session output" : modelOverlayCount ? `${modelOverlayCount} overlays` : "no output";
+      const modelOverlays = reviewModelOverlays(frame).filter(overlayHasGeometry);
+      const layerSummary = reviewLayerSummary(frame, manualCatAnnotationCount());
+      const output = frame?.model_output_url ? "frame artifact" : outputArtifact ? "session artifact" : layerSummary || "no overlays";
       const reason = frame?.suspicion_reason || "no suspect reason";
       const measurement = frame?.best_top_height_cm ? ` · ${frame.best_top_height_cm.toFixed(1)} cm ${frame.measurement_source || "measurement"}` : "";
       const backend = frame?.detector_backend ? ` · ${frame.detector_backend}` : "";
@@ -2637,11 +2670,11 @@
         : (video?.label || "Open a review video");
       reviewPlayerMeta.textContent = frame
         ? `frame: ${frameStatusText(frame)} · ${reason}${measurement}${backend}${tracker}`
-        : (video ? `${Number(video.frame_count || 0)} frames · ${reviewVideoModelOutputCount(video)} outputs` : "Playlist, frame timeline, labels, and previous model output stay in one place.");
+        : (video ? `${Number(video.frame_count || 0)} frames · ${reviewVideoModelOutputCount(video)} artifacts` : "Playlist, frame timeline, labels, and overlay evidence stay in one place.");
       reviewPlayerLabelChip.textContent = `${status} · ${label}`;
       reviewPlayerLabelChip.className = "review-status-chip" + (label === "cat" ? " ok" : label === "unsure" ? " warn" : "");
       reviewPlayerOutputChip.textContent = output;
-      reviewPlayerOutputChip.className = "review-status-chip" + (frame?.model_output_url || outputArtifact || modelOverlayCount ? " ok" : "");
+      reviewPlayerOutputChip.className = "review-status-chip" + (frame?.model_output_url || outputArtifact || modelOverlays.length || layerSummary ? " ok" : "");
     }
 
 	    function renderReviewVideos() {
@@ -2873,17 +2906,17 @@
     function setModelOutput(frame) {
       const url = frame?.model_output_url || "";
       const outputArtifact = primaryReviewVideoArtifact(activeReviewVideo());
-      modelOutputTitle.textContent = frame ? `previous model output · frame ${frame.frame_index}` : "previous model output";
+      modelOutputTitle.textContent = frame ? `rendered model artifact · frame ${frame.frame_index}` : "rendered model artifact";
       if (!url) {
         modelOutputImage.hidden = true;
         modelOutputImage.removeAttribute("src");
         modelOutputEmpty.hidden = false;
         if (outputArtifact) {
-          modelOutputEmpty.innerHTML = `<a href="${escapeHtml(outputArtifact.url)}" target="_blank" rel="noreferrer">${escapeHtml(outputArtifact.label || "open session model output")}</a>`;
+          modelOutputEmpty.innerHTML = `<a href="${escapeHtml(outputArtifact.url)}" target="_blank" rel="noreferrer">${escapeHtml(outputArtifact.label || "open session model artifact")}</a>`;
         } else if (reviewModelOverlays(frame).some(overlayHasGeometry)) {
           modelOutputEmpty.textContent = "model overlays are drawn on the frame";
         } else {
-          modelOutputEmpty.textContent = "no previous model output for this frame";
+          modelOutputEmpty.textContent = "no rendered model artifact for this frame";
         }
         updateReviewPlayerBar();
         return;
@@ -3015,8 +3048,8 @@
         activeCatId = catAnnotations[0]?.id || null;
       }
       geometryUndoStack = [];
-      renderReviewDetail();
       update();
+      renderReviewDetail();
       renderReviewQueue();
       updateReviewPlayerBar();
       syncReviewDeepLinkToUrl();
@@ -3030,20 +3063,22 @@
       }
       const probability = typeof item.detector_probability === "number" ? item.detector_probability.toFixed(3) : "?";
       const videoLink = item.source_video_url ? `<a href="${escapeHtml(item.source_video_url)}" target="_blank" rel="noopener">open video context</a>` : "";
-      const outputLink = item.model_output_url ? `<a href="${escapeHtml(item.model_output_url)}" target="_blank" rel="noopener">open previous output</a>` : "previous output: none";
+      const outputLink = item.model_output_url ? `<a href="${escapeHtml(item.model_output_url)}" target="_blank" rel="noopener">open rendered artifact</a>` : "rendered artifact: none";
       const measurement = typeof item.best_top_height_cm === "number" ? `${item.best_top_height_cm.toFixed(1)} cm · ${item.measurement_source || "measurement"}` : "no wall measurement";
       const overlayLines = reviewModelOverlays(item).map(overlay => {
         const backend = overlay.detector_backend || overlay.measurement_source || "unknown";
         return `<div class="review-item-meta">${escapeHtml(overlay.label || overlay.role || "model")}: bbox ${escapeHtml(overlayBBoxText(overlay))} · top ${escapeHtml(overlayPointText(overlay))} · ${escapeHtml(backend)}</div>`;
       }).join("") || `<div class="review-item-meta">model overlays: none</div>`;
-      const manualMaskCount = catAnnotations.filter(annotation => (annotation.kind || "cat") === "cat" && (annotation.polygon || []).length).length;
+      const manualMaskCount = manualCatAnnotationCount();
+      const layerSummary = reviewLayerSummary(item, manualMaskCount) || "none";
       const tracker = item.tracker_status ? `${item.tracker_status}${item.tracker_reason ? ` · ${item.tracker_reason}` : ""}${item.tracker_confirmed ? " · confirmed" : ""}` : "not tracked";
       reviewDetail.innerHTML = `
         <div class="review-detail-title">frame ${escapeHtml(frameStatusText(item))} · p=${escapeHtml(probability)}</div>
         <div class="review-item-meta">reason: ${escapeHtml(item.suspicion_reason || "none")}</div>
         <div class="review-item-meta">detector: ${escapeHtml(item.detector_backend || "unknown")} · ${escapeHtml(measurement)}</div>
+        <div class="review-item-meta">visible layers: ${escapeHtml(layerSummary)}</div>
         ${overlayLines}
-        <div class="review-item-meta">manual masks: ${manualMaskCount}</div>
+        <div class="review-item-meta">manual cat masks: ${manualMaskCount}</div>
         <div class="review-item-meta">tracker: ${escapeHtml(tracker)}</div>
         <div class="review-item-meta">${escapeHtml(reviewActionHint(item))}</div>
         <div class="review-item-meta">decision: ${escapeHtml(activeReviewDecision)}</div>
