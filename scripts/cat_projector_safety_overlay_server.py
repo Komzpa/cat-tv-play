@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import importlib.util
 import json
 import shutil
@@ -66,6 +67,8 @@ DEFAULT_PROJECTOR_POLYGON = (
 DEFAULT_HUMAN_DETECTOR_DIR = Path("~/.openclaw/state/cat-tv-learning/models/opencv-mobilenet-ssd").expanduser()
 DEFAULT_HUMAN_DETECTOR_PROTOTXT = DEFAULT_HUMAN_DETECTOR_DIR / "MobileNetSSD_deploy.prototxt"
 DEFAULT_HUMAN_DETECTOR_MODEL = DEFAULT_HUMAN_DETECTOR_DIR / "MobileNetSSD_deploy.caffemodel"
+DEFAULT_LEARNING_ROOT = Path("~/.openclaw/state/cat-tv-learning").expanduser()
+SAFETY_REVIEW_ROOT = DEFAULT_LEARNING_ROOT / "safety-review"
 PERSON_CLASS_ID = 15
 DEFAULT_HA_ACTIVE_ENTITIES = (
     "input_boolean.cat_projector_session",
@@ -476,6 +479,114 @@ def _person_eye_band_bbox_for_filter(
 def _bbox_area(bbox_xyxy: tuple[float, float, float, float]) -> float:
     x0, y0, x1, y1 = bbox_xyxy
     return max(0.0, float(x1) - float(x0)) * max(0.0, float(y1) - float(y0))
+
+
+def _format_bbox_xywh_from_xyxy(bbox_xyxy: tuple[float, float, float, float]) -> str:
+    x0, y0, x1, y1 = bbox_xyxy
+    return ",".join(
+        str(int(round(value)))
+        for value in (
+            x0,
+            y0,
+            max(1.0, x1 - x0),
+            max(1.0, y1 - y0),
+        )
+    )
+
+
+def _append_safety_negative_review_rows(
+    *,
+    camera_image: Image.Image | None,
+    raw_people: list[PersonDetection],
+    people: list[PersonDetection],
+    result: SafetyOverlayResult,
+    source_filter_skipped: list[dict[str, Any]],
+    performance: dict[str, Any],
+    source_video: str,
+) -> int:
+    if camera_image is None:
+        return 0
+    if not raw_people and not people and result.status != "active" and not source_filter_skipped:
+        return 0
+    run_dir = SAFETY_REVIEW_ROOT / time.strftime("%Y%m%d")
+    frames_dir = run_dir / "frames"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    labels_path = run_dir / "labels.csv"
+    fieldnames = [
+        "image_relpath",
+        "label_cat_present",
+        "label_cat_playing",
+        "review_status",
+        "candidate_bbox_xywh",
+        "label_candidate_is_cat",
+        "negative_reason",
+        "bbox_xywh",
+        "occlusion",
+        "confidence",
+        "notes",
+        "source_recording_dir",
+        "source_chunk",
+        "source_offset_seconds",
+        "ha_session_id",
+        "frigate_event_id",
+        "video_slug",
+        "candidate_reason",
+    ]
+    frame_name = f"safety_{int(time.time() * 1000)}_{int(performance.get('safety_sample_index') or 0):07d}.jpg"
+    frame_path = frames_dir / frame_name
+    camera_image.save(frame_path, quality=92)
+
+    rows: list[dict[str, str]] = []
+    candidates = raw_people or people
+    if not candidates and result.zones:
+        for zone in result.zones:
+            bbox = zone.camera_eye_band_xyxy or zone.camera_bbox_xyxy
+            candidates.append(
+                PersonDetection(
+                    bbox_xyxy=bbox,
+                    confidence=0.0,
+                    source="eye_safety_zone",
+                    debug={"zone": asdict(zone)},
+                )
+            )
+    for index, person in enumerate(candidates):
+        row = {field: "" for field in fieldnames}
+        row.update(
+            {
+                "image_relpath": frame_path.relative_to(run_dir).as_posix(),
+                "label_cat_present": "no",
+                "label_cat_playing": "no",
+                "review_status": "machine_prefilled_needs_human_review",
+                "bbox_xywh": "",
+                "candidate_bbox_xywh": _format_bbox_xywh_from_xyxy(person.bbox_xyxy),
+                "label_candidate_is_cat": "no",
+                "negative_reason": "eye_safety_guard",
+                "confidence": "machine",
+                "notes": json.dumps(
+                    {
+                        "person_index": index,
+                        "person": asdict(person),
+                        "status": result.status,
+                        "source_filter_skipped": source_filter_skipped,
+                        "performance": performance,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                "video_slug": Path(source_video).name,
+                "candidate_reason": "eye_safety_guard_negative",
+            }
+        )
+        rows.append(row)
+    if not rows:
+        return 0
+    write_header = not labels_path.exists() or labels_path.stat().st_size == 0
+    with labels_path.open("a", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        if write_header:
+            writer.writeheader()
+        writer.writerows(rows)
+    return len(rows)
 
 
 def _build_residual_views(
@@ -1376,6 +1487,7 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
     previous_people_at: float | None = None
     physics_tracks: list[SmoothedPersonTrack] = []
     last_blackout_polygons: list[tuple[tuple[float, float], ...]] = []
+    last_negative_review_at = 0.0
     sample_index = 0
 
     while not runtime.should_stop():
@@ -1580,6 +1692,32 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
             **active_gate.debug(),
             **physics_debug,
         }
+        if (
+            camera_image is not None
+            and now - last_negative_review_at >= args.safety_negative_review_interval
+            and (
+                raw_people
+                or source_filter_skipped
+                or result.status == "active"
+                or int(physics_debug.get("physics_track_predicted_count") or 0) > 0
+            )
+        ):
+            rows_written = _append_safety_negative_review_rows(
+                camera_image=camera_image,
+                raw_people=raw_people,
+                people=people,
+                result=result,
+                source_filter_skipped=source_filter_skipped,
+                performance=performance,
+                source_video=str(args.source_video),
+            )
+            if rows_written:
+                last_negative_review_at = now
+                performance = {
+                    **performance,
+                    "safety_negative_review_rows_written": rows_written,
+                    "safety_negative_review_labels": str(SAFETY_REVIEW_ROOT / time.strftime("%Y%m%d") / "labels.csv"),
+                }
         runtime.update_snapshot(
             SafetyComputationSnapshot(
                 result=result,
@@ -1913,7 +2051,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         dest="enable_residual_occluder_fallback",
         action="store_false",
     )
-    parser.set_defaults(enable_residual_occluder_fallback=True)
+    parser.set_defaults(enable_residual_occluder_fallback=False)
     parser.add_argument("--source-reference-frames", type=int, default=3)
     parser.add_argument("--camera-sample-interval", type=float, default=0.06)
     parser.add_argument("--camera-snapshot-timeout", type=float, default=2.0)
@@ -1923,6 +2061,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--eye-safety-prediction-padding-px", type=float, default=16.0)
     parser.add_argument("--eye-safety-max-prediction-px", type=float, default=220.0)
     parser.add_argument("--max-active-overlay-age", type=float, default=0.9)
+    parser.add_argument("--safety-negative-review-interval", type=float, default=2.0)
     parser.add_argument("--person-track-max-missing-seconds", type=float, default=1.0)
     parser.add_argument("--person-track-max-speed-px-s", type=float, default=1800.0)
     parser.add_argument("--person-track-smoothing-alpha", type=float, default=0.65)

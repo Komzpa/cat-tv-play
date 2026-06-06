@@ -17,11 +17,17 @@ SPEC.loader.exec_module(overlay_server)
 FULL_FRAME_PROJECTOR = ((0.0, 0.0), (1279.0, 0.0), (1279.0, 719.0), (0.0, 719.0))
 
 
-def test_runtime_parse_args_enables_residual_occluder_fallback_by_default() -> None:
+def test_runtime_parse_args_disables_residual_occluder_fallback_by_default() -> None:
     args = overlay_server.parse_args(["--source-video", "source.mp4"])
 
-    assert args.enable_residual_occluder_fallback is True
+    assert args.enable_residual_occluder_fallback is False
     assert args.camera_snapshot_timeout == 2.0
+
+
+def test_runtime_parse_args_can_enable_residual_occluder_fallback() -> None:
+    args = overlay_server.parse_args(["--source-video", "source.mp4", "--enable-residual-occluder-fallback"])
+
+    assert args.enable_residual_occluder_fallback is True
 
 
 def test_runtime_parse_args_can_disable_residual_occluder_fallback() -> None:

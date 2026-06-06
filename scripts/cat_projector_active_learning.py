@@ -106,6 +106,7 @@ def _collect_labels(extra_labels: list[Path]) -> list[Path]:
     candidates: list[Path] = []
     for root in (
         STATE_ROOT / "datasets",
+        STATE_ROOT / "safety-review",
         REPO_ROOT / "datasets" / "cat-tv-learning" / "detector-training",
         review.DATASET_ROOT / "detector-training",
     ):
@@ -263,7 +264,17 @@ def _score_one(path_raw: str) -> dict[str, Any]:
     image_path = Path(path_raw)
     with detector.Image.open(image_path) as image:
         rgb = image.convert("RGB")
-    context = cat_detection.DetectorContext(source_path=str(image_path))
+    context_debug: dict[str, Any] = {}
+    if getattr(_WORKER_DETECTOR, "source", "") == "legacy_contrast_catboost":
+        try:
+            source = review._source_frame_for_review_image(image_path)  # noqa: SLF001
+        except Exception:
+            source = None
+        if source is not None:
+            source_frame, source_debug = source
+            context_debug.update(source_debug)
+            context_debug["projector_source_frame"] = source_frame
+    context = cat_detection.DetectorContext(source_path=str(image_path), debug=context_debug)
     detections = sorted(_WORKER_DETECTOR.detect(rgb, context), key=lambda item: item.score, reverse=True)
     top_candidates: list[dict[str, Any]] = []
     measurement_points: list[dict[str, Any] | None] = []
@@ -275,9 +286,15 @@ def _score_one(path_raw: str) -> dict[str, Any]:
         row["measurement_warning"] = warning
         top_candidates.append(row)
     best = top_candidates[0] if top_candidates else {}
+    detector_backend = getattr(_WORKER_DETECTOR, "source", "unknown")
+    best_debug = best.get("debug") if isinstance(best.get("debug"), dict) else {}
+    if best_debug.get("backend"):
+        detector_backend = str(best_debug["backend"])
+    elif context_debug.get("projector_source_frame") is not None:
+        detector_backend = "legacy_contrast_catboost_source_subtracted"
     return {
         "raw_path": str(image_path),
-        "detector_backend": getattr(_WORKER_DETECTOR, "source", "unknown"),
+        "detector_backend": detector_backend,
         "detector_model_id": getattr(_WORKER_DETECTOR, "model_id", ""),
         "candidate_count": len(detections),
         "best_probability": float(best.get("p", 0.0)),

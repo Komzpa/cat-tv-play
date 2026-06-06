@@ -144,26 +144,86 @@ class LegacyContrastDetector:
         self.model_id = str(self._metadata.get("model_path") or model_path or legacy.DEFAULT_MODEL_PATH)
         self.min_probability = min_probability
 
+    def _source_explains_candidate(
+        self,
+        frame: Image.Image,
+        bbox_xywh: BBoxXYWH,
+        reference_frames: list[Image.Image],
+        *,
+        residual_threshold: float = 26.0,
+        source_bright_threshold: int = 150,
+        max_dark_fraction: float = 0.16,
+        min_bright_coverage: float = 0.25,
+    ) -> bool:
+        x, y, width, height = bbox_xywh
+        left = max(0, min(frame.width, int(np.floor(x))))
+        top = max(0, min(frame.height, int(np.floor(y))))
+        right = max(left + 1, min(frame.width, int(np.ceil(x + width))))
+        bottom = max(top + 1, min(frame.height, int(np.ceil(y + height))))
+        for source_frame in reference_frames:
+            residual, warped_source = self._legacy.source_subtracted_residual(
+                frame.convert("RGB"),
+                source_frame=source_frame,
+            )
+            residual_patch = residual[top:bottom, left:right]
+            source_patch = warped_source[top:bottom, left:right]
+            bright = source_patch > source_bright_threshold
+            bright_coverage = float(bright.mean()) if bright.size else 0.0
+            if bright_coverage < min_bright_coverage:
+                continue
+            dark_fraction = float(((residual_patch > residual_threshold) & bright).mean())
+            if dark_fraction <= max_dark_fraction:
+                return True
+        return False
+
     def detect(self, frame: Image.Image, context: DetectorContext | None = None) -> list[CatDetection]:
+        candidates = None
+        source_frame = (context.debug or {}).get("projector_source_frame") if context else None
+        reference_frames = list((context.debug or {}).get("projector_source_reference_frames") or []) if context else []
+        if source_frame is not None:
+            candidates = self._legacy.detect_source_subtracted_candidate_components(
+                frame.convert("RGB"),
+                source_frame=source_frame,
+                room_background=(context.debug or {}).get("room_background") if context else None,
+                residual_baseline=(context.debug or {}).get("residual_baseline") if context else None,
+            )
         predictions = sorted(
-            self._legacy.score_candidates(frame.convert("RGB"), model=self._model, metadata=self._metadata),
+            self._legacy.score_candidates(
+                frame.convert("RGB"),
+                model=self._model,
+                metadata=self._metadata,
+                candidates=candidates,
+            ),
             key=lambda item: item.cat_probability,
             reverse=True,
         )
+        detector_source = self.source
+        if candidates is not None:
+            detector_source = "legacy_contrast_catboost_source_subtracted"
         detections: list[CatDetection] = []
         for prediction in predictions:
             if prediction.candidate is None or prediction.cat_probability < self.min_probability:
                 continue
+            bbox_xywh = tuple(float(value) for value in prediction.candidate.bbox_xywh)
+            if candidates is not None and self._source_explains_candidate(frame, bbox_xywh, reference_frames):
+                continue
+            context_debug = dict((context.debug or {}) if context else {})
+            context_debug.pop("projector_source_frame", None)
+            context_debug.pop("projector_source_reference_frames", None)
             detections.append(
                 CatDetection(
-                    bbox_xywh=tuple(float(value) for value in prediction.candidate.bbox_xywh),
+                    bbox_xywh=bbox_xywh,
                     score=float(prediction.cat_probability),
                     source=prediction.candidate.source,
                     model_id=str(prediction.model_path or self.model_id),
                     frame_index=context.frame_index if context else None,
                     timestamp_seconds=context.timestamp_seconds if context else None,
                     mask=None,
-                    debug={"backend": self.source, "features": prediction.features},
+                    debug={
+                        "backend": detector_source,
+                        "features": prediction.features,
+                        **context_debug,
+                    },
                 )
             )
         return detections

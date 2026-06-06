@@ -144,6 +144,8 @@ LIVE_JOB_COMMAND: list[str] | None = None
 _CURRENT_MODEL_ON_DEMAND_CACHE: dict[Path, dict[str, Any] | None] = {}
 _CURRENT_MODEL_INFO_CACHE: dict[str, Any] | None = None
 _CURRENT_MODEL_DETECTOR: Any | None = None
+_PROJECTOR_SOURCE_OFFSET_CACHE: dict[tuple[Path, str], tuple[float, float, tuple[float, ...]]] = {}
+_SOURCE_VIDEO_CAPTURE_CACHE: dict[str, tuple[Any, float]] = {}
 _CAT_DETECTION_MODULE: Any | None = None
 _CAT_MEASUREMENT_MODULE: Any | None = None
 DEFAULT_REVIEW_FRAME_FPS = 30.0
@@ -715,6 +717,8 @@ def _model_overlay_from_row(row: dict[str, Any], *, role: str, label: str) -> di
     backend = str(row.get("detector_backend") or "")
     model_id = str(row.get("detector_model_id") or "")
     measurement_source = str(row.get("measurement_source") or "")
+    if role in {"current_model", "original_model"} and bbox is None and measurement_point is None:
+        return None
     if not any((bbox, measurement_point, probability is not None, top_height_cm is not None, backend, model_id)):
         return None
     model_created_at = str(row.get("model_created_at") or "")
@@ -1146,6 +1150,232 @@ def _current_model_detector() -> Any | None:
     return _CURRENT_MODEL_DETECTOR
 
 
+def _source_video_for_recording(recording_dir: Path) -> str | None:
+    manifest = _manifest_for_recording_dir(recording_dir)
+    video_url = str(manifest.get("video_url") or "").strip()
+    if not video_url:
+        return None
+    parsed = urlparse(video_url)
+    basename = Path(parsed.path).name
+    local_candidates = [
+        REPO_ROOT / "tmp" / "cat-tv-youtube-trimmed" / basename,
+        REPO_ROOT / "tmp" / "cat-tv-youtube-seeds" / basename,
+        Path("/config/www/cat-tv") / basename,
+        STATE_ROOT / "source-videos" / basename,
+        STATE_ROOT / "videos" / basename,
+    ]
+    for candidate in local_candidates:
+        if candidate.exists() and candidate.stat().st_size > 0:
+            return str(candidate)
+    if parsed.scheme in {"http", "https"}:
+        return video_url
+    return None
+
+
+def _source_video_capture(source_video: str) -> tuple[Any, float] | None:
+    try:
+        import cv2  # type: ignore[import-not-found]
+    except Exception:
+        return None
+    cached = _SOURCE_VIDEO_CAPTURE_CACHE.get(source_video)
+    if cached is not None:
+        return cached
+    capture = cv2.VideoCapture(source_video)
+    if not capture.isOpened():
+        return None
+    fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+    frame_count = float(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0)
+    duration = frame_count / fps if fps > 0 and frame_count > 0 else 0.0
+    _SOURCE_VIDEO_CAPTURE_CACHE[source_video] = (capture, duration)
+    return capture, duration
+
+
+def _source_frame_at(source_video: str, seconds: float) -> Image.Image | None:
+    try:
+        import cv2  # type: ignore[import-not-found]
+    except Exception:
+        return None
+    cached = _source_video_capture(source_video)
+    if cached is None:
+        return None
+    capture, duration = cached
+    seek_seconds = max(0.0, float(seconds))
+    if duration > 1.0:
+        seek_seconds %= duration
+    capture.set(cv2.CAP_PROP_POS_MSEC, seek_seconds * 1000.0)
+    ok, frame = capture.read()
+    if not ok or frame is None:
+        return None
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    return Image.fromarray(rgb)
+
+
+def _review_frame_elapsed_seconds(recording_dir: Path, image_path: Path) -> float | None:
+    match = re.match(r"(?:chunk|source)_(\d+)_(\d+)\.(?:jpe?g|png|webp)$", image_path.name, re.IGNORECASE)
+    if not match:
+        return None
+    chunk_index = int(match.group(1))
+    frame_index = int(match.group(2))
+    chunk_path = recording_dir / f"chunk_{chunk_index:04d}.mp4"
+    if not chunk_path.exists():
+        return None
+    frame_times = _ffprobe_frame_times(chunk_path)
+    if frame_times:
+        offset_seconds = frame_times[min(frame_index, len(frame_times) - 1)]
+    else:
+        offset_seconds = frame_index / _chunk_frame_rate(chunk_path)
+    manifest = _manifest_for_recording_dir(recording_dir)
+    segment_seconds = _float_or_none(manifest.get("segment_seconds")) or 5.0
+    return chunk_index * segment_seconds + offset_seconds
+
+
+def _projector_source_match_score(camera_gray: Any, source_gray: Any, detector_module: Any) -> float:
+    import cv2  # type: ignore[import-not-found]
+    import numpy as local_np
+
+    height, width = camera_gray.shape
+    source_points = local_np.float32([[0, 0], [1279, 0], [1279, 719], [0, 719]])
+    camera_points = local_np.float32(detector_module._projector_polygon_for_size(width, height))
+    homography = cv2.getPerspectiveTransform(source_points, camera_points)
+    warped = cv2.warpPerspective(cv2.resize(source_gray, (1280, 720)), homography, (width, height))
+    fit_mask = detector_module._projection_mask(width, height)
+    fit_mask[int(height * 0.69) :, :] = False
+    fit_mask[:, int(width * 0.82) :] = False
+    scale, offset = detector_module._robust_linear_match(warped, camera_gray, fit_mask)
+    expected = local_np.clip(scale * warped.astype(local_np.float32) + offset, 0, 255)
+    diff = local_np.abs(expected.astype(local_np.int16) - camera_gray.astype(local_np.int16))[fit_mask]
+    return float(local_np.percentile(diff, 75)) + float(local_np.mean(diff)) * 0.2
+
+
+def _best_projector_source_time(
+    camera_frame: Image.Image,
+    source_video: str,
+    detector_module: Any,
+) -> tuple[float, float, list[float]] | None:
+    try:
+        import cv2  # type: ignore[import-not-found]
+    except Exception:
+        return None
+    cached = _source_video_capture(source_video)
+    if cached is None:
+        return None
+    capture, duration = cached
+    if duration <= 1.0:
+        return None
+    camera_gray = np.asarray(camera_frame.convert("L"), dtype=np.uint8)
+
+    def score_at(second: float) -> tuple[float, float] | None:
+        capture.set(cv2.CAP_PROP_POS_MSEC, max(0.0, second) * 1000.0)
+        ok, frame = capture.read()
+        if not ok or frame is None:
+            return None
+        source_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        return (_projector_source_match_score(camera_gray, source_gray, detector_module), second)
+
+    coarse: list[tuple[float, float]] = []
+    step = 5.0
+    second = 0.0
+    while second < duration:
+        scored = score_at(second)
+        if scored is not None:
+            coarse.append(scored)
+        second += step
+    if not coarse:
+        return None
+    best_second = min(coarse, key=lambda item: item[0])[1]
+    refined: list[tuple[float, float]] = []
+    for delta_index in range(-20, 21):
+        candidate_second = (best_second + delta_index * 0.25) % duration
+        scored = score_at(candidate_second)
+        if scored is not None:
+            refined.append(scored)
+    best_score, best_time = min(refined or coarse, key=lambda item: item[0])
+    reference_times = {best_time}
+    for _score, coarse_second in sorted(coarse, key=lambda item: item[0])[:5]:
+        reference_times.add(coarse_second)
+    for _score, coarse_second in sorted(coarse, key=lambda item: item[0])[:3]:
+        for delta in (-2.0, -1.0, 0.0, 1.0, 2.0):
+            reference_times.add((coarse_second + delta) % duration)
+    return best_time, best_score, sorted(reference_times)
+
+
+def _source_frame_for_review_image(image_path: Path) -> tuple[Image.Image, dict[str, Any]] | None:
+    _chunk_path, recording_dir = _recording_context(image_path)
+    if recording_dir is None:
+        return None
+    source_video = _source_video_for_recording(recording_dir)
+    if not source_video:
+        return None
+    elapsed = _review_frame_elapsed_seconds(recording_dir, image_path)
+    if elapsed is None:
+        return None
+    detector_module = __import__("scripts.cat_projector_frame_detector", fromlist=["dummy"])
+    cache_key = (recording_dir.resolve(), source_video)
+    cached_offset = _PROJECTOR_SOURCE_OFFSET_CACHE.get(cache_key)
+    if cached_offset is None:
+        sync_path = recording_dir / "review_source_sync.json"
+        sync = _read_json(sync_path)
+        if sync.get("source_video") == source_video and sync.get("source_offset_seconds") not in {None, ""}:
+            cached_offset = (
+                float(sync["source_offset_seconds"]),
+                float(sync.get("source_sync_match_score") or 0.0),
+                tuple(float(value) for value in sync.get("reference_times_seconds") or []),
+            )
+            _PROJECTOR_SOURCE_OFFSET_CACHE[cache_key] = cached_offset
+    if cached_offset is None:
+        with Image.open(image_path) as image:
+            match = _best_projector_source_time(image.convert("RGB"), source_video, detector_module)
+        if match is None:
+            return None
+        best_time, match_score, reference_times = match
+        capture = _source_video_capture(source_video)
+        duration = capture[1] if capture is not None else 0.0
+        offset = best_time - elapsed
+        if duration > 1.0:
+            offset %= duration
+        cached_offset = (offset, match_score, tuple(reference_times))
+        _PROJECTOR_SOURCE_OFFSET_CACHE[cache_key] = cached_offset
+        try:
+            _write_json(
+                recording_dir / "review_source_sync.json",
+                {
+                    "kind": "cat_projector_review_source_sync_v1",
+                    "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                    "source_video": source_video,
+                    "source_offset_seconds": round(offset, 6),
+                    "source_sync_match_score": round(match_score, 6),
+                    "reference_times_seconds": [round(value, 3) for value in reference_times],
+                    "calibration_frame": str(image_path),
+                },
+            )
+        except Exception:
+            pass
+    source_offset, match_score, cached_reference_times = cached_offset
+    reference_times = list(cached_reference_times)
+    capture = _source_video_capture(source_video)
+    duration = capture[1] if capture is not None else 0.0
+    source_seconds = elapsed + source_offset
+    if duration > 1.0:
+        source_seconds %= duration
+    source_frame = _source_frame_at(source_video, source_seconds)
+    if source_frame is None:
+        return None
+    reference_frames = [
+        frame
+        for second in reference_times
+        if (frame := _source_frame_at(source_video, second)) is not None
+    ]
+    return source_frame, {
+        "recording_dir": str(recording_dir),
+        "source_video": source_video,
+        "recording_elapsed_seconds": round(elapsed, 3),
+        "source_seconds": round(source_seconds, 3),
+        "source_offset_seconds": round(source_offset, 3),
+        "source_sync_match_score": round(match_score, 4),
+        "projector_source_reference_frames": reference_frames,
+    }
+
+
 def _current_model_row_for_image(image_path: Path) -> dict[str, Any] | None:
     try:
         image_path = _safe_local_path(image_path)
@@ -1157,12 +1387,21 @@ def _current_model_row_for_image(image_path: Path) -> dict[str, Any] | None:
     if detector is None:
         _CURRENT_MODEL_ON_DEMAND_CACHE[image_path] = None
         return None
+    used_source_subtraction = False
     try:
         cat_detection = _cat_detection_module()
 
         with Image.open(image_path) as image:
             rgb = image.convert("RGB")
-        context = cat_detection.DetectorContext(source_path=str(image_path))
+        context_debug: dict[str, Any] = {}
+        if getattr(detector, "source", "") == "legacy_contrast_catboost":
+            source = _source_frame_for_review_image(image_path)
+            if source is not None:
+                source_frame, source_debug = source
+                context_debug.update(source_debug)
+                context_debug["projector_source_frame"] = source_frame
+        used_source_subtraction = "projector_source_frame" in context_debug
+        context = cat_detection.DetectorContext(source_path=str(image_path), debug=context_debug)
         detections = sorted(detector.detect(rgb, context), key=lambda item: item.score, reverse=True)
     except Exception:
         print(f"[cat-projector-label-review] current model on-demand failed: {image_path}", flush=True)
@@ -1177,11 +1416,19 @@ def _current_model_row_for_image(image_path: Path) -> dict[str, Any] | None:
         row["measurement_warning"] = warning
         top_candidates.append(row)
     best = top_candidates[0] if top_candidates else {}
+    if used_source_subtraction and _float_or_none(best.get("p")) is not None and float(best["p"]) < 0.5:
+        best = {}
     latest_manifest = _read_json(REVIEW_ROOT / "rescores" / "latest.json")
     latest_model = latest_manifest.get("model") if isinstance(latest_manifest.get("model"), dict) else {}
+    detector_backend = getattr(detector, "source", "unknown")
+    best_debug = best.get("debug") if isinstance(best.get("debug"), dict) else {}
+    if best_debug.get("backend"):
+        detector_backend = str(best_debug["backend"])
+    elif used_source_subtraction:
+        detector_backend = "legacy_contrast_catboost_source_subtracted"
     result = {
         "raw_path": str(image_path),
-        "detector_backend": getattr(detector, "source", "unknown"),
+        "detector_backend": detector_backend,
         "detector_model_id": getattr(detector, "model_id", ""),
         "model_created_at": str(latest_model.get("created_at") or ""),
         "model_path": str(latest_model.get("model_path") or getattr(detector, "model_id", "")),
@@ -2411,10 +2658,9 @@ def _frame_payloads_for_review_video(
     original_model_rows = _original_model_rows_by_image()
     selected = input_paths[max(0, offset) : max(0, offset) + max(1, limit)]
     for input_path in selected:
-        if input_path not in current_model_rows:
-            on_demand_row = _current_model_row_for_image(input_path)
-            if on_demand_row:
-                current_model_rows[input_path] = on_demand_row
+        on_demand_row = _current_model_row_for_image(input_path)
+        if on_demand_row:
+            current_model_rows[input_path] = on_demand_row
     output_paths = _candidate_output_paths_for_inputs(selected) if video.output_frame_count else {}
     frames: list[dict[str, Any]] = []
     for frame_index, input_path in enumerate(selected, start=max(0, offset)):
