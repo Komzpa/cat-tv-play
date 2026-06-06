@@ -142,6 +142,7 @@ _ACTIVE_JOB_ID: str | None = None
 _JOB_LOCK = threading.Lock()
 LIVE_JOB_COMMAND: list[str] | None = None
 _CURRENT_MODEL_ON_DEMAND_CACHE: dict[Path, dict[str, Any] | None] = {}
+_CURRENT_MODEL_INFO_CACHE: dict[str, Any] | None = None
 _CURRENT_MODEL_DETECTOR: Any | None = None
 _CAT_DETECTION_MODULE: Any | None = None
 _CAT_MEASUREMENT_MODULE: Any | None = None
@@ -216,11 +217,12 @@ def _discovery_cache_key() -> tuple[str, ...]:
 
 
 def _clear_discovery_caches() -> None:
-    global _CURRENT_MODEL_DETECTOR, _DISCOVER_CASES_CACHE, _DISCOVER_VIDEOS_CACHE, _JUMP_HEIGHT_INDEX_CACHE
+    global _CURRENT_MODEL_DETECTOR, _CURRENT_MODEL_INFO_CACHE, _DISCOVER_CASES_CACHE, _DISCOVER_VIDEOS_CACHE, _JUMP_HEIGHT_INDEX_CACHE
     _DISCOVER_CASES_CACHE = None
     _DISCOVER_VIDEOS_CACHE = None
     _JUMP_HEIGHT_INDEX_CACHE = None
     _CURRENT_MODEL_DETECTOR = None
+    _CURRENT_MODEL_INFO_CACHE = None
     _CURRENT_MODEL_ON_DEMAND_CACHE.clear()
 
 
@@ -685,6 +687,19 @@ def _merge_missing_metadata_rows(
                 row[key] = value
 
 
+def _current_model_info() -> dict[str, Any]:
+    global _CURRENT_MODEL_INFO_CACHE
+    if _CURRENT_MODEL_INFO_CACHE is not None:
+        return _CURRENT_MODEL_INFO_CACHE
+    manifest = _read_json(REVIEW_ROOT / "rescores" / "latest.json")
+    model = manifest.get("model") if isinstance(manifest.get("model"), dict) else {}
+    _CURRENT_MODEL_INFO_CACHE = {
+        "model_created_at": str(model.get("created_at") or ""),
+        "model_path": str(model.get("model_path") or ""),
+    }
+    return _CURRENT_MODEL_INFO_CACHE
+
+
 def _model_overlay_from_row(row: dict[str, Any], *, role: str, label: str) -> dict[str, Any] | None:
     bbox = _parse_bbox(row.get("candidate_bbox_xywh") or row.get("best_bbox"))
     measurement_point = (
@@ -702,6 +717,13 @@ def _model_overlay_from_row(row: dict[str, Any], *, role: str, label: str) -> di
     measurement_source = str(row.get("measurement_source") or "")
     if not any((bbox, measurement_point, probability is not None, top_height_cm is not None, backend, model_id)):
         return None
+    model_created_at = str(row.get("model_created_at") or "")
+    model_path = str(row.get("model_path") or row.get("detector_model_path") or row.get("detector_model_id") or "")
+    if role == "current_model" and not model_created_at:
+        current_model = _current_model_info()
+        model_created_at = str(current_model.get("model_created_at") or "")
+        if not model_path:
+            model_path = str(current_model.get("model_path") or "")
     return {
         "role": role,
         "label": label,
@@ -709,6 +731,8 @@ def _model_overlay_from_row(row: dict[str, Any], *, role: str, label: str) -> di
         "detector_probability": probability,
         "detector_backend": backend,
         "detector_model_id": model_id,
+        "model_created_at": model_created_at,
+        "model_path": model_path,
         "measurement_source": measurement_source,
         "measurement_confidence": _float_or_none(row.get("measurement_confidence")),
         "top_height_cm": top_height_cm,
@@ -720,6 +744,171 @@ def _model_overlay_from_row(row: dict[str, Any], *, role: str, label: str) -> di
         if isinstance(row.get("review_priority_reasons"), list)
         else [],
     }
+
+
+def _row_model_probability(row: dict[str, Any]) -> float | None:
+    for key in ("detector_cat_probability", "cat_probability", "probability", "best_probability"):
+        if row.get(key) not in {None, ""}:
+            value = _float_or_none(row.get(key))
+            if value is not None:
+                return value
+    return None
+
+
+def _trusted_measurement_row(row: dict[str, Any]) -> bool:
+    if not row or _float_or_none(row.get("best_top_height_cm")) is None:
+        return False
+    backend = str(row.get("detector_backend") or "")
+    if backend.startswith("telegram_"):
+        return True
+    probability = _row_model_probability(row)
+    measurement_source = str(row.get("measurement_source") or "")
+    warning = str(row.get("best_measurement_warning") or "")
+    legacy_bbox = measurement_source == "legacy_bbox_top" or "legacy_bbox" in warning or "missing_segmentation" in warning
+    if legacy_bbox and (probability is None or probability < 0.5):
+        return False
+    if probability is not None and probability < 0.5:
+        return False
+    return True
+
+
+def _display_measurement_row(
+    metadata_row: dict[str, Any],
+    current_row: dict[str, Any],
+    original_row: dict[str, Any],
+) -> dict[str, Any]:
+    for row in (metadata_row, current_row, original_row):
+        if _trusted_measurement_row(row):
+            return row
+    return {}
+
+
+def _telegram_render_overlay_row(
+    recording_dir: Path,
+    overlay: dict[str, Any],
+    *,
+    frame_times_by_chunk: dict[int, list[float]] | None = None,
+    frame_rate_by_chunk: dict[int, float] | None = None,
+) -> tuple[Path, dict[str, Any]] | None:
+    frame_label = str(overlay.get("source_frame_label") or "")
+    if not frame_label and overlay.get("chunk") not in (None, "") and overlay.get("offset_seconds") not in (None, ""):
+        try:
+            chunk_index_for_label = int(overlay["chunk"])
+            offset_seconds = float(overlay.get("offset_seconds") or 0.0)
+            chunk_path = recording_dir / f"chunk_{chunk_index_for_label:04d}.mp4"
+            if chunk_path.exists():
+                if frame_times_by_chunk is not None:
+                    if chunk_index_for_label not in frame_times_by_chunk:
+                        frame_times_by_chunk[chunk_index_for_label] = _ffprobe_frame_times(chunk_path)
+                    frame_times = frame_times_by_chunk[chunk_index_for_label]
+                else:
+                    frame_times = _ffprobe_frame_times(chunk_path)
+                if frame_times:
+                    source_frame_index = min(
+                        range(len(frame_times)),
+                        key=lambda index: (abs(frame_times[index] - offset_seconds), index),
+                    )
+                else:
+                    if frame_rate_by_chunk is not None:
+                        if chunk_index_for_label not in frame_rate_by_chunk:
+                            frame_rate_by_chunk[chunk_index_for_label] = _chunk_frame_rate(chunk_path)
+                        frame_rate = frame_rate_by_chunk[chunk_index_for_label]
+                    else:
+                        frame_rate = _chunk_frame_rate(chunk_path)
+                    source_frame_index = max(0, int(round(offset_seconds * frame_rate)))
+                frame_label = f"chunk_{chunk_index_for_label:04d}_{source_frame_index:05d}.jpg"
+        except (TypeError, ValueError):
+            frame_label = ""
+    if not frame_label:
+        frame_label = str(overlay.get("frame_label") or "")
+    if not frame_label:
+        try:
+            frame_label = f"chunk_{int(overlay['chunk']):04d}_{int(overlay['frame_index']):05d}.jpg"
+        except (KeyError, TypeError, ValueError):
+            return None
+    if not re.match(r"chunk_\d{4}_\d{5}\.jpg\Z", frame_label):
+        return None
+    image_path = recording_dir / "review_frames" / frame_label
+    if not image_path.exists():
+        return None
+    try:
+        image_path = _safe_local_path(image_path)
+    except ValueError:
+        return None
+    bbox_xywh: tuple[float, float, float, float] | None = None
+    bbox = overlay.get("bbox")
+    if isinstance(bbox, (list, tuple)) and len(bbox) == 4:
+        try:
+            x1, y1, x2, y2 = (float(value) for value in bbox)
+            if x2 > x1 and y2 > y1:
+                bbox_xywh = (x1, y1, x2 - x1, y2 - y1)
+        except (TypeError, ValueError):
+            bbox_xywh = None
+    top_px = overlay.get("top_px")
+    measurement_point: dict[str, Any] | None = None
+    if isinstance(top_px, (list, tuple)) and len(top_px) >= 2:
+        try:
+            measurement_point = {
+                "image_x": float(top_px[0]),
+                "image_y": float(top_px[1]),
+                "wall_y_cm": _float_or_none(overlay.get("height_cm")),
+                "wall_x_cm": (
+                    float(overlay["wall_x_mm"]) / 10.0 if overlay.get("wall_x_mm") not in (None, "") else None
+                ),
+                "point_type": "telegram_render_original_top",
+                "source": "telegram_render_original",
+                "debug": {
+                    "recording_dir": str(recording_dir),
+                    "frame_label": frame_label,
+                    "render_frame_label": overlay.get("render_frame_label") or overlay.get("frame_label"),
+                    "chunk": overlay.get("chunk"),
+                    "frame_index": overlay.get("frame_index"),
+                    "offset_seconds": overlay.get("offset_seconds"),
+                },
+            }
+        except (TypeError, ValueError):
+            measurement_point = None
+    model_path = str(overlay.get("model_path") or "")
+    model_id = Path(model_path).name if model_path else "cat_projector_telegram_render"
+    return image_path, {
+        "detector_cat_probability": str(overlay.get("cat_probability") or ""),
+        "candidate_bbox_xywh": _bbox_dict_to_csv(bbox_xywh) if bbox_xywh else "",
+        "candidate_reason": str(overlay.get("reason") or "telegram_render_original"),
+        "detector_backend": "telegram_render_original",
+        "detector_model_id": model_id,
+        "measurement_source": "telegram_render_original",
+        "measurement_confidence": "",
+        "best_top_height_cm": str(overlay.get("height_cm") or ""),
+        "best_top_wall_x_cm": (
+            str(float(overlay["wall_x_mm"]) / 10.0) if overlay.get("wall_x_mm") not in (None, "") else ""
+        ),
+        "best_measurement_point": measurement_point,
+        "best_measurement_warning": "",
+        "review_priority_score": "8",
+        "review_priority_reasons": ["telegram render original model"],
+        "notes": f"telegram render original: {overlay.get('height_cm', '?')} cm",
+    }
+
+
+def _telegram_render_stats_for_payload(payload: dict[str, Any], recording_dir: Path) -> dict[str, Any] | None:
+    render_stats = payload.get("render_stats")
+    if isinstance(render_stats, dict) and isinstance(render_stats.get("original_model_overlays"), list):
+        return render_stats
+    for marker_name in ("telegram_live_notification.json", "telegram_notification.json"):
+        marker_path = recording_dir / marker_name
+        try:
+            marker = json.loads(marker_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(marker, dict):
+            continue
+        marker_render_stats = marker.get("render_stats")
+        if isinstance(marker_render_stats, dict) and isinstance(
+            marker_render_stats.get("original_model_overlays"),
+            list,
+        ):
+            return marker_render_stats
+    return render_stats if isinstance(render_stats, dict) else None
 
 
 def _telegram_jump_highlight_rows_by_image() -> dict[Path, dict[str, Any]]:
@@ -757,6 +946,23 @@ def _telegram_jump_highlight_rows_by_image() -> dict[Path, dict[str, Any]]:
         review_frames_dir = recording_dir / "review_frames"
         if not review_frames_dir.exists():
             continue
+        render_stats = _telegram_render_stats_for_payload(payload, recording_dir)
+        if isinstance(render_stats, dict) and isinstance(render_stats.get("original_model_overlays"), list):
+            frame_times_by_chunk: dict[int, list[float]] = {}
+            frame_rate_by_chunk: dict[int, float] = {}
+            for overlay in render_stats["original_model_overlays"]:
+                if not isinstance(overlay, dict):
+                    continue
+                row = _telegram_render_overlay_row(
+                    recording_dir,
+                    overlay,
+                    frame_times_by_chunk=frame_times_by_chunk,
+                    frame_rate_by_chunk=frame_rate_by_chunk,
+                )
+                if row is None:
+                    continue
+                image_path, image_row = row
+                rows[image_path] = image_row
         try:
             chunk_index = int(highlight["chunk"])
             offset_seconds = float(highlight.get("offset_seconds") or 0.0)
@@ -807,6 +1013,8 @@ def _telegram_jump_highlight_rows_by_image() -> dict[Path, dict[str, Any]]:
             try:
                 image_path = _safe_local_path(image_path)
             except ValueError:
+                continue
+            if image_path in rows:
                 continue
             match = re.match(r"chunk_\d+_(\d+)\.", image_path.name)
             frame_index = int(match.group(1)) if match else peak_frame_index
@@ -969,10 +1177,14 @@ def _current_model_row_for_image(image_path: Path) -> dict[str, Any] | None:
         row["measurement_warning"] = warning
         top_candidates.append(row)
     best = top_candidates[0] if top_candidates else {}
+    latest_manifest = _read_json(REVIEW_ROOT / "rescores" / "latest.json")
+    latest_model = latest_manifest.get("model") if isinstance(latest_manifest.get("model"), dict) else {}
     result = {
         "raw_path": str(image_path),
         "detector_backend": getattr(detector, "source", "unknown"),
         "detector_model_id": getattr(detector, "model_id", ""),
+        "model_created_at": str(latest_model.get("created_at") or ""),
+        "model_path": str(latest_model.get("model_path") or getattr(detector, "model_id", "")),
         "detector_cat_probability": str(best.get("p") or ""),
         "candidate_bbox_xywh": str(best.get("bbox") or ""),
         "candidate_reason": str(best.get("source") or "current_model_on_demand"),
@@ -2209,13 +2421,16 @@ def _frame_payloads_for_review_video(
         case_id = _case_id_for_path(input_path)
         saved = _load_label_for_case(case_id)
         row = metadata_by_path.get(input_path, {})
+        current_model_row = current_model_rows.get(input_path, {})
+        original_model_row = original_model_rows.get(input_path, {})
+        display_row = _display_measurement_row(row, current_model_row, original_model_row)
         current_model_overlay = _model_overlay_from_row(
-            current_model_rows.get(input_path, {}),
+            current_model_row,
             role="current_model",
             label="current model",
         )
         original_model_overlay = _model_overlay_from_row(
-            original_model_rows.get(input_path, {}),
+            original_model_row,
             role="original_model",
             label="original capture",
         )
@@ -2224,12 +2439,14 @@ def _frame_payloads_for_review_video(
             if probability not in {None, ""}:
                 break
             try:
-                if row.get(key) not in {None, ""}:
-                    probability = float(row[key])
+                if display_row.get(key) not in {None, ""}:
+                    probability = float(display_row[key])
                     break
             except ValueError:
                 pass
-        bbox = saved.get("candidate_bbox_xywh") or _parse_bbox(row.get("candidate_bbox_xywh") or row.get("best_bbox"))
+        bbox = saved.get("candidate_bbox_xywh") or _parse_bbox(
+            display_row.get("candidate_bbox_xywh") or display_row.get("best_bbox")
+        )
         label_cat_present = saved.get("label_cat_present") or row.get("label_cat_present") or None
         label_candidate_is_cat = saved.get("label_candidate_is_cat") or row.get("label_candidate_is_cat") or None
         output_path = output_paths.get(input_path)
@@ -2256,26 +2473,28 @@ def _frame_payloads_for_review_video(
                     overlay for overlay in (current_model_overlay, original_model_overlay) if overlay is not None
                 ],
                 "detector_probability": probability,
-                "detector_backend": row.get("detector_backend") or "",
-                "detector_model_id": row.get("detector_model_id") or "",
-                "measurement_source": row.get("measurement_source") or "",
-                "measurement_confidence": _float_or_none(row.get("measurement_confidence")),
-                "best_top_height_cm": _float_or_none(row.get("best_top_height_cm")),
-                "best_top_wall_x_cm": _float_or_none(row.get("best_top_wall_x_cm")),
-                "legacy_bbox_top_height_cm": _float_or_none(row.get("legacy_bbox_top_height_cm")),
-                "measurement_point": row.get("best_measurement_point")
-                if isinstance(row.get("best_measurement_point"), dict)
+                "detector_backend": display_row.get("detector_backend") or "",
+                "detector_model_id": display_row.get("detector_model_id") or "",
+                "model_created_at": display_row.get("model_created_at") or None,
+                "model_path": display_row.get("model_path") or None,
+                "measurement_source": display_row.get("measurement_source") or "",
+                "measurement_confidence": _float_or_none(display_row.get("measurement_confidence")),
+                "best_top_height_cm": _float_or_none(display_row.get("best_top_height_cm")),
+                "best_top_wall_x_cm": _float_or_none(display_row.get("best_top_wall_x_cm")),
+                "legacy_bbox_top_height_cm": _float_or_none(display_row.get("legacy_bbox_top_height_cm")),
+                "measurement_point": display_row.get("best_measurement_point")
+                if isinstance(display_row.get("best_measurement_point"), dict)
                 else None,
-                "best_measurement_warning": row.get("best_measurement_warning") or "",
-                "tracker_status": row.get("tracker_status") or "",
-                "tracker_reason": row.get("tracker_reason") or "",
-                "tracker_confirmed": bool(row.get("tracker_confirmed"))
-                if row.get("tracker_confirmed") not in {None, ""}
+                "best_measurement_warning": display_row.get("best_measurement_warning") or "",
+                "tracker_status": display_row.get("tracker_status") or "",
+                "tracker_reason": display_row.get("tracker_reason") or "",
+                "tracker_confirmed": bool(display_row.get("tracker_confirmed"))
+                if display_row.get("tracker_confirmed") not in {None, ""}
                 else False,
-                "tracker_height_cm": _float_or_none(row.get("tracker_height_cm")),
-                "review_priority_score": _float_or_none(row.get("review_priority_score")),
-                "review_priority_reasons": row.get("review_priority_reasons")
-                if isinstance(row.get("review_priority_reasons"), list)
+                "tracker_height_cm": _float_or_none(display_row.get("tracker_height_cm")),
+                "review_priority_score": _float_or_none(display_row.get("review_priority_score")),
+                "review_priority_reasons": display_row.get("review_priority_reasons")
+                if isinstance(display_row.get("review_priority_reasons"), list)
                 else [],
                 "review_status": saved.get("review_status") or row.get("review_status") or "unreviewed",
                 "human_label": saved.get("label")

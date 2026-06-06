@@ -2651,6 +2651,39 @@
       return { color: "#ffd33d", fill: "rgba(255,211,61,0.10)", dash: [9, 5] };
     }
 
+    function shortModelTimestamp(value) {
+      if (!value) return "";
+      const text = String(value);
+      const match = text.match(/(\d{2}:\d{2})(?::\d{2})?/);
+      if (match) return match[1];
+      return text.length > 16 ? text.slice(0, 16) : text;
+    }
+
+    function shortModelId(overlay) {
+      const value = overlay?.model_path || overlay?.detector_model_id || overlay?.detector_backend || "";
+      if (!value) return "";
+      return String(value).split(/[\\/]/).pop().replace(/cat_projector_candidate_detector_/g, "");
+    }
+
+    function overlayEvidenceLabel(overlay) {
+      const base = overlay?.role === "current_model"
+        ? "current"
+        : overlay?.role === "original_model"
+          ? "original"
+          : (overlay?.label || overlay?.role || "model");
+      const height = Number(overlay?.top_height_cm);
+      const probability = Number(overlay?.detector_probability);
+      const parts = [base];
+      if (Number.isFinite(height)) parts.push(`${height.toFixed(1)} cm`);
+      if (Number.isFinite(probability)) parts.push(`p=${probability.toFixed(2)}`);
+      const createdAt = shortModelTimestamp(overlay?.model_created_at);
+      if (createdAt) parts.push(`trained ${createdAt}`);
+      const modelId = shortModelId(overlay);
+      if (modelId && !createdAt) parts.push(modelId);
+      if (overlay?.detector_backend && overlay.detector_backend !== modelId) parts.push(overlay.detector_backend);
+      return parts.join(" · ");
+    }
+
     function updateReviewPlayerBar() {
       const video = activeReviewVideo();
       const frame = activeReviewFrame();
@@ -3067,7 +3100,8 @@
       const measurement = typeof item.best_top_height_cm === "number" ? `${item.best_top_height_cm.toFixed(1)} cm · ${item.measurement_source || "measurement"}` : "no wall measurement";
       const overlayLines = reviewModelOverlays(item).map(overlay => {
         const backend = overlay.detector_backend || overlay.measurement_source || "unknown";
-        return `<div class="review-item-meta">${escapeHtml(overlay.label || overlay.role || "model")}: bbox ${escapeHtml(overlayBBoxText(overlay))} · top ${escapeHtml(overlayPointText(overlay))} · ${escapeHtml(backend)}</div>`;
+        const trained = overlay.model_created_at ? ` · trained ${shortModelTimestamp(overlay.model_created_at)}` : "";
+        return `<div class="review-item-meta">${escapeHtml(overlayEvidenceLabel(overlay))}: bbox ${escapeHtml(overlayBBoxText(overlay))} · top ${escapeHtml(overlayPointText(overlay))} · ${escapeHtml(backend)}${escapeHtml(trained)}</div>`;
       }).join("") || `<div class="review-item-meta">model overlays: none</div>`;
       const manualMaskCount = manualCatAnnotationCount();
       const layerSummary = reviewLayerSummary(item, manualMaskCount) || "none";
@@ -3674,8 +3708,7 @@
       ctx.fillRect(x, y, width, height);
       ctx.strokeRect(x, y, width, height);
       ctx.setLineDash([]);
-      const probability = typeof overlay.detector_probability === "number" ? ` p=${overlay.detector_probability.toFixed(2)}` : "";
-      const label = `${overlay.label || overlay.role || "model"}${probability}`;
+      const label = overlayEvidenceLabel(overlay);
       ctx.font = `${18 * ui}px system-ui`;
       ctx.textBaseline = "bottom";
       ctx.fillStyle = "rgba(0,0,0,0.72)";

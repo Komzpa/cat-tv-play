@@ -777,6 +777,108 @@ def test_timeline_materializes_requested_recording_frame_label(tmp_path: Path, m
     assert all(frame["original_model_overlay"] is None for frame in non_peak_frames)
 
 
+def test_frame_payload_uses_telegram_render_original_overlays_per_frame(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = tmp_path / "state"
+    recording = state / "recordings" / "20260606T033955_session"
+    frame_dir = recording / "review_frames"
+    frame_dir.mkdir(parents=True)
+    frames = [
+        frame_dir / "chunk_0114_00095.jpg",
+        frame_dir / "chunk_0114_00096.jpg",
+    ]
+    for frame in frames:
+        server.Image.new("RGB", (80, 60), (40, 40, 40)).save(frame)
+    (recording / "chunk_0114.mp4").write_bytes(b"fake chunk")
+    (state / "sessions.jsonl").write_text(
+        json.dumps(
+            {
+                "kind": "cat_projector_telegram_live_notification_sent",
+                "telegram_live_action": "sent",
+                "recording_dir": str(recording.resolve()),
+                "jump_highlight": {
+                    "bbox": [520, 368, 672, 508],
+                    "chunk": 114,
+                    "height_cm": 115.7,
+                    "offset_seconds": 4.0,
+                    "top_px": [618.0, 378.0],
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (recording / "telegram_live_notification.json").write_text(
+        json.dumps(
+            {
+                "render_stats": {
+                    "original_model_overlays": [
+                        {
+                            "frame_label": "chunk_0114_00095.jpg",
+                            "source_frame_label": "chunk_0114_00095.jpg",
+                            "chunk": 114,
+                            "frame_index": 95,
+                            "offset_seconds": 4.75,
+                            "bbox": [500, 360, 640, 506],
+                            "top_px": [604.0, 369.0],
+                            "height_cm": 111.2,
+                            "wall_x_mm": -80.0,
+                            "cat_probability": 0.78,
+                            "model_path": "/models/original.cbm",
+                            "reason": "telegram_render_detector",
+                        },
+                        {
+                            "frame_label": "chunk_0114_00096.jpg",
+                            "source_frame_label": "chunk_0114_00096.jpg",
+                            "chunk": 114,
+                            "frame_index": 96,
+                            "offset_seconds": 4.8,
+                            "bbox": [520, 368, 672, 508],
+                            "top_px": [618.0, 378.0],
+                            "height_cm": 115.7,
+                            "wall_x_mm": -74.6,
+                            "cat_probability": 0.83,
+                            "model_path": "/models/original.cbm",
+                            "reason": "telegram_render_detector",
+                        },
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    original_allowed = server.ALLOWED_ROOTS
+    original_state = server.STATE_ROOT
+    try:
+        server.STATE_ROOT = state
+        server.ALLOWED_ROOTS = (tmp_path, state)
+        monkeypatch.setattr(server, "_current_model_row_for_image", lambda _path: None)  # noqa: SLF001
+        video = server.ReviewVideo(
+            id=server._video_id_for_path(recording),  # noqa: SLF001
+            label=recording.name,
+            source="recordings",
+            mtime=recording.stat().st_mtime,
+            source_recording_dir=recording.resolve(),
+            source_video_path=(recording / "chunk_0114.mp4").resolve(),
+        )
+
+        payloads = server._frame_payloads_for_review_video(video, [frame.resolve() for frame in frames])  # noqa: SLF001
+    finally:
+        server.ALLOWED_ROOTS = original_allowed
+        server.STATE_ROOT = original_state
+        server._clear_discovery_caches()  # noqa: SLF001
+
+    assert [frame["label"] for frame in payloads] == ["chunk_0114_00095.jpg", "chunk_0114_00096.jpg"]
+    assert payloads[0]["original_model_overlay"]["bbox_xywh"] == (500.0, 360.0, 140.0, 146.0)
+    assert payloads[0]["original_model_overlay"]["detector_backend"] == "telegram_render_original"
+    assert payloads[0]["original_model_overlay"]["detector_probability"] == 0.78
+    assert payloads[0]["measurement_point"]["source"] == "telegram_render_original"
+    assert payloads[1]["original_model_overlay"]["bbox_xywh"] == (520.0, 368.0, 152.0, 140.0)
+    assert payloads[1]["original_model_overlay"]["top_height_cm"] == 115.7
+
+
 def test_frame_payload_adds_on_demand_current_model_overlay(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
