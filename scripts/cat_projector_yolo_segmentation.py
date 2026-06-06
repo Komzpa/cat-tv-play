@@ -176,17 +176,23 @@ def train(args: argparse.Namespace) -> int:
     )
 
     model = YOLO(str(base_model))
-    result = model.train(
-        data=str(dataset_yaml),
-        epochs=args.epochs,
-        imgsz=args.imgsz,
-        batch=args.batch,
-        device=args.device,
-        project=str(run_root),
-        name=run_name,
-        exist_ok=True,
-        seed=args.seed,
-    )
+    train_kwargs: dict[str, Any] = {
+        "data": str(dataset_yaml),
+        "epochs": args.epochs,
+        "imgsz": args.imgsz,
+        "batch": args.batch,
+        "device": args.device,
+        "project": str(run_root),
+        "name": run_name,
+        "exist_ok": True,
+        "seed": args.seed,
+        "optimizer": args.optimizer,
+    }
+    for key in ("lr0", "lrf", "warmup_epochs", "freeze"):
+        value = getattr(args, key)
+        if value is not None:
+            train_kwargs[key] = value
+    result = model.train(**train_kwargs)
     best = run_dir / "weights" / "best.pt"
     if args.out:
         out = args.out.expanduser()
@@ -628,6 +634,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     train_parser.add_argument("--batch", type=int, default=8)
     train_parser.add_argument("--device", default=None)
     train_parser.add_argument("--seed", type=int, default=20260523)
+    train_parser.add_argument("--optimizer", default="auto")
+    train_parser.add_argument("--lr0", type=float)
+    train_parser.add_argument("--lrf", type=float)
+    train_parser.add_argument("--warmup-epochs", type=float)
+    train_parser.add_argument("--freeze", type=int)
     train_parser.add_argument("--allow-download-base", action="store_true")
     train_parser.add_argument(
         "--allow-new-sher-lineage",
@@ -647,7 +658,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     eval_parser.add_argument("--legacy-metadata", type=Path)
     eval_parser.add_argument("--legacy-threshold", type=float, default=0.5)
     eval_parser.add_argument("--device", default=None)
-    eval_parser.add_argument("--confidence-threshold", type=float, default=0.25)
+    eval_parser.add_argument("--confidence-threshold", type=float, default=0.55)
     eval_parser.add_argument("--low-confidence-threshold", type=float, default=0.55)
     eval_parser.add_argument("--calibration", type=Path, default=DEFAULT_CALIBRATION)
     eval_parser.add_argument("--high-jump-cm", type=float, default=120.0)

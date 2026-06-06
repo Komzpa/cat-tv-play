@@ -156,7 +156,8 @@ python3 scripts/cat_projector_yolo_segmentation.py train \
   --dataset ~/.openclaw/state/cat-tv-learning/exports/sher-yolo-seg-20260523T013502Z/dataset.yaml \
   --base-model ~/.openclaw/state/cat-tv-learning/models/sher-yolo-seg-first.pt \
   --out ~/.openclaw/state/cat-tv-learning/models/sher-yolo-seg.pt \
-  --epochs 80 --imgsz 960 --batch 8 --device cuda:0
+  --epochs 80 --imgsz 960 --batch 8 --device cuda:0 \
+  --optimizer AdamW --lr0 0.0002 --lrf 0.1 --warmup-epochs 0
 ```
 
 Each run writes command/config, git state, dataset hash/summary, base model hash,
@@ -170,13 +171,19 @@ the old model for many CPU epochs. To intentionally bootstrap a new lineage,
 pass `--allow-new-sher-lineage` directly or `YOLO_ALLOW_NEW_LINEAGE=1` through
 Make.
 
+The Make target defaults to a conservative fine-tune recipe (`AdamW`,
+`lr0=0.0002`, `lrf=0.1`, `warmup_epochs=0`). If validation drops while the
+learning rate climbs during warmup, stop the run and lower the fine-tune
+learning rate instead of letting a long CPU run overwrite a good parent model.
+
 Evaluate and generate visual error reports:
 
 ```bash
 python3 scripts/cat_projector_yolo_segmentation.py eval \
   --dataset ~/.openclaw/state/cat-tv-learning/exports/sher-yolo-seg-20260523T013502Z/dataset.yaml \
   --model ~/.openclaw/state/cat-tv-learning/models/sher-yolo-seg.pt \
-  --out ~/.openclaw/state/cat-tv-learning/evals/sher-yolo-seg-$(date -u +%Y%m%dT%H%M%SZ)
+  --out ~/.openclaw/state/cat-tv-learning/evals/sher-yolo-seg-$(date -u +%Y%m%dT%H%M%SZ) \
+  --confidence-threshold 0.55
 ```
 
 The eval report records cat-presence precision/recall, false positives on hard
@@ -185,6 +192,11 @@ positives, false negatives, low-confidence true positives, and other nontrivial
 prediction cases. Do not trust live jump height until segmentation beats the
 legacy baseline on hard negatives and the reviewed val split has acceptable
 presence recall plus mask IoU.
+
+For the June 6, 2026 contour repair export, the safe operating point for the
+gentle fine-tuned Sher model was `--confidence-threshold 0.55`: it kept recall
+well above the previous Sher checkpoint while holding hard-negative false
+positives close to the old model.
 
 ## Active Learning Priority
 

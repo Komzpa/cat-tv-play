@@ -577,6 +577,52 @@ def test_yolo_train_allows_explicit_generic_new_lineage(tmp_path: Path) -> None:
     )
 
 
+def test_yolo_train_parses_gentle_fine_tune_knobs(tmp_path: Path) -> None:
+    dataset_yaml = tmp_path / "dataset.yaml"
+    dataset_yaml.write_text("path: .\ntrain: images/train\nval: images/val\nnames:\n  0: cat\n", encoding="utf-8")
+    args = yolo_seg.parse_args(
+        [
+            "train",
+            "--dataset",
+            str(dataset_yaml),
+            "--base-model",
+            str(tmp_path / "sher-yolo-seg-first.pt"),
+            "--optimizer",
+            "AdamW",
+            "--lr0",
+            "0.0002",
+            "--lrf",
+            "0.1",
+            "--warmup-epochs",
+            "0",
+            "--freeze",
+            "10",
+        ]
+    )
+
+    assert args.optimizer == "AdamW"
+    assert args.lr0 == 0.0002
+    assert args.lrf == 0.1
+    assert args.warmup_epochs == 0
+    assert args.freeze == 10
+
+
+def test_yolo_eval_defaults_to_safe_sher_confidence_threshold(tmp_path: Path) -> None:
+    args = yolo_seg.parse_args(
+        [
+            "eval",
+            "--dataset",
+            str(tmp_path / "dataset.yaml"),
+            "--model",
+            str(tmp_path / "model.pt"),
+            "--out",
+            str(tmp_path / "eval"),
+        ]
+    )
+
+    assert args.confidence_threshold == 0.55
+
+
 def test_yolo_report_renderer_consumes_fake_eval(tmp_path: Path) -> None:
     manifest = {"dataset_hash": "abc", "item_count": 1}
     eval_data = {
