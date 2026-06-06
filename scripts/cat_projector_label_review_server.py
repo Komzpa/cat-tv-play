@@ -717,8 +717,6 @@ def _model_overlay_from_row(row: dict[str, Any], *, role: str, label: str) -> di
     backend = str(row.get("detector_backend") or "")
     model_id = str(row.get("detector_model_id") or "")
     measurement_source = str(row.get("measurement_source") or "")
-    if role in {"current_model", "original_model"} and bbox is None and measurement_point is None:
-        return None
     if not any((bbox, measurement_point, probability is not None, top_height_cm is not None, backend, model_id)):
         return None
     model_created_at = str(row.get("model_created_at") or "")
@@ -2658,6 +2656,8 @@ def _frame_payloads_for_review_video(
     original_model_rows = _original_model_rows_by_image()
     selected = input_paths[max(0, offset) : max(0, offset) + max(1, limit)]
     for input_path in selected:
+        if input_path in current_model_rows:
+            continue
         on_demand_row = _current_model_row_for_image(input_path)
         if on_demand_row:
             current_model_rows[input_path] = on_demand_row
