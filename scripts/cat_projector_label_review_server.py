@@ -610,6 +610,28 @@ def _parse_bbox(raw: Any) -> tuple[float, float, float, float] | None:
     return (x, y, w, h)
 
 
+def _normalise_polygon(raw: Any) -> list[dict[str, float]]:
+    if not isinstance(raw, list) or len(raw) < 3:
+        return []
+    points: list[dict[str, float]] = []
+    for point in raw:
+        try:
+            if isinstance(point, dict):
+                x = float(point["x"])
+                y = float(point["y"])
+            elif isinstance(point, (list, tuple)) and len(point) >= 2:
+                x = float(point[0])
+                y = float(point[1])
+            else:
+                return []
+        except (KeyError, TypeError, ValueError):
+            return []
+        if not (math.isfinite(x) and math.isfinite(y)):
+            return []
+        points.append({"x": round(x, 2), "y": round(y, 2)})
+    return points if len(points) >= 3 else []
+
+
 def _read_csv_rows(path: Path) -> list[dict[str, str]]:
     if not path.exists():
         return []
@@ -663,6 +685,10 @@ def _probe_rows_by_image(root: Path) -> dict[Path, dict[str, str]]:
                 "legacy_bbox_top_height_cm": str(row.get("legacy_bbox_top_height_cm") or ""),
                 "best_measurement_point": row.get("best_measurement_point"),
                 "best_measurement_warning": str(row.get("best_measurement_warning") or ""),
+                "best_has_mask": bool(row.get("best_has_mask")),
+                "best_mask_polygon": row.get("best_mask_polygon")
+                if isinstance(row.get("best_mask_polygon"), list)
+                else [],
                 "tracker_status": str(row.get("tracker_status") or ""),
                 "tracker_reason": str(row.get("tracker_reason") or ""),
                 "tracker_confirmed": row.get("tracker_confirmed"),
@@ -704,6 +730,7 @@ def _current_model_info() -> dict[str, Any]:
 
 def _model_overlay_from_row(row: dict[str, Any], *, role: str, label: str) -> dict[str, Any] | None:
     bbox = _parse_bbox(row.get("candidate_bbox_xywh") or row.get("best_bbox"))
+    polygon = _normalise_polygon(row.get("best_mask_polygon") or row.get("mask_polygon") or row.get("polygon"))
     measurement_point = (
         row.get("best_measurement_point") if isinstance(row.get("best_measurement_point"), dict) else None
     )
@@ -717,7 +744,10 @@ def _model_overlay_from_row(row: dict[str, Any], *, role: str, label: str) -> di
     backend = str(row.get("detector_backend") or "")
     model_id = str(row.get("detector_model_id") or "")
     measurement_source = str(row.get("measurement_source") or "")
-    if not any((bbox, measurement_point, probability is not None, top_height_cm is not None, backend, model_id)):
+    has_mask = bool(row.get("best_has_mask") or polygon)
+    if not any(
+        (bbox, polygon, measurement_point, probability is not None, top_height_cm is not None, backend, model_id)
+    ):
         return None
     model_created_at = str(row.get("model_created_at") or "")
     model_path = str(row.get("model_path") or row.get("detector_model_path") or row.get("detector_model_id") or "")
@@ -730,9 +760,11 @@ def _model_overlay_from_row(row: dict[str, Any], *, role: str, label: str) -> di
         "role": role,
         "label": label,
         "bbox_xywh": bbox,
+        "polygon": polygon,
         "detector_probability": probability,
         "detector_backend": backend,
         "detector_model_id": model_id,
+        "has_mask": has_mask,
         "model_created_at": model_created_at,
         "model_path": model_path,
         "measurement_source": measurement_source,
@@ -1439,6 +1471,7 @@ def _current_model_row_for_image(image_path: Path) -> dict[str, Any] | None:
         "best_source": str(best.get("source") or ""),
         "best_measurement_point": best.get("measurement_point"),
         "best_measurement_warning": str(best.get("measurement_warning") or ""),
+        "best_mask_polygon": best.get("mask_polygon") if isinstance(best.get("mask_polygon"), list) else [],
         "measurement_source": str((best.get("measurement_point") or {}).get("point_type") or ""),
         "measurement_confidence": str((best.get("measurement_point") or {}).get("confidence") or ""),
         "notes": f"current model on-demand: {len(detections)} candidates",

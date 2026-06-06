@@ -36,7 +36,10 @@ truth.
 - `FakeSegmentationDetector`: deterministic mask backend for tests and smoke
   checks. It never downloads weights.
 - `LegacyContrastDetector`: wraps the old contrast/components + CatBoost scorer.
-  Use it explicitly for fallback/debug and hard-negative mining.
+  Use it explicitly for fallback/debug and hard-negative mining. When source
+  subtraction supplies residual components, the legacy path carries the
+  component mask through `CatDetection`; CatBoost still ranks the candidate, but
+  measurement uses the residual contour instead of the bbox top.
 
 Active-learning rescoring accepts:
 
@@ -74,12 +77,15 @@ wall-plane homography.
 Probe rows now include both:
 
 - `best_measurement_point`, `measurement_source`, `best_top_height_cm`
+- `best_has_mask` and `best_mask_polygon` when the detector produced a contour
 - `legacy_bbox_top_height_cm` for comparison/debug
 - `tracker_status`, `tracker_reason`, `tracker_confirmed`, and
   `tracker_height_cm` from the wall-plane physics gate
 
-Review overlays should make the measurement source visible. A mask-based point
-is the trusted path; bbox-top is a warning/debug fallback.
+Review overlays should make the measurement source visible. Model overlays may
+carry both `polygon` and `bbox_xywh`; the polygon is the evidence layer when
+present, while the bbox is retained for compatibility and labels. A mask-based
+point is the trusted path; bbox-top is a warning/debug fallback.
 
 ## Dataset Export
 

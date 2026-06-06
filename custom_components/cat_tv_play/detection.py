@@ -51,6 +51,7 @@ class CatDetection:
         return int(np.asarray(self.mask, dtype=bool).sum())
 
     def to_debug_row(self) -> dict[str, Any]:
+        mask_polygon = self.mask_polygon or _polygon_from_mask(self.mask)
         return {
             "bbox": _format_bbox_xywh(self.bbox_xywh),
             "p": round(float(self.score), 4),
@@ -58,6 +59,7 @@ class CatDetection:
             "model_id": self.model_id,
             "has_mask": self.has_mask,
             "mask_area_px": self.mask_area_px(),
+            "mask_polygon": _serialise_polygon(mask_polygon),
             "debug": self.debug,
         }
 
@@ -218,7 +220,7 @@ class LegacyContrastDetector:
                     model_id=str(prediction.model_path or self.model_id),
                     frame_index=context.frame_index if context else None,
                     timestamp_seconds=context.timestamp_seconds if context else None,
-                    mask=None,
+                    mask=getattr(prediction.candidate, "mask", None),
                     debug={
                         "backend": detector_source,
                         "features": prediction.features,
@@ -324,6 +326,47 @@ def build_detector(config: DetectorConfig) -> CatDetector:
 
 def _format_bbox_xywh(bbox: BBoxXYWH) -> str:
     return ",".join(str(int(round(float(value)))) for value in bbox)
+
+
+def _serialise_polygon(points: tuple[tuple[float, float], ...]) -> list[dict[str, float]]:
+    return [{"x": round(float(x), 2), "y": round(float(y), 2)} for x, y in points]
+
+
+def _polygon_from_mask(mask: np.ndarray | None, *, max_vertices: int = 64) -> tuple[tuple[float, float], ...]:
+    if mask is None:
+        return ()
+    mask_bool = np.asarray(mask, dtype=bool)
+    if mask_bool.ndim != 2 or not mask_bool.any():
+        return ()
+    try:
+        import cv2
+    except Exception:
+        return _bbox_polygon_from_mask(mask_bool)
+    contours, _hierarchy = cv2.findContours(mask_bool.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return _bbox_polygon_from_mask(mask_bool)
+    contour = max(contours, key=cv2.contourArea)
+    if len(contour) < 3:
+        return _bbox_polygon_from_mask(mask_bool)
+    epsilon = max(1.0, 0.01 * cv2.arcLength(contour, True))
+    simplified = cv2.approxPolyDP(contour, epsilon, True).reshape(-1, 2)
+    if len(simplified) > max_vertices:
+        step = max(1, int(np.ceil(len(simplified) / max_vertices)))
+        simplified = simplified[::step][:max_vertices]
+    if len(simplified) < 3:
+        return _bbox_polygon_from_mask(mask_bool)
+    return tuple((float(x), float(y)) for x, y in simplified)
+
+
+def _bbox_polygon_from_mask(mask: np.ndarray) -> tuple[tuple[float, float], ...]:
+    ys, xs = np.nonzero(mask)
+    if len(ys) == 0:
+        return ()
+    left = float(xs.min())
+    top = float(ys.min())
+    right = float(xs.max() + 1)
+    bottom = float(ys.max() + 1)
+    return ((left, top), (right, top), (right, bottom), (left, bottom))
 
 
 def _mask_in_frame_coordinates(

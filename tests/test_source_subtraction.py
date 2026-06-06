@@ -59,6 +59,10 @@ def test_source_subtracted_candidates_ignore_projected_prey_and_keep_cat() -> No
     x, y, width, height = best.bbox_xywh
     assert x <= 625 <= x + width
     assert y <= 435 <= y + height
+    assert best.mask is not None
+    assert best.mask.shape == (720, 1280)
+    assert best.mask[500, 650]
+    assert not best.mask[250, 535]
     assert all(not (390 <= candidate.bbox_xywh[0] <= 470 and candidate.bbox_xywh[1] < 320) for candidate in candidates)
     assert cv2 is not None
 

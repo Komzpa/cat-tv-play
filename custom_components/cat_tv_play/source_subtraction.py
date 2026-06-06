@@ -37,6 +37,7 @@ class SourceSubtractionCandidate:
     top_y_px: float
     area_px: int
     source: str = "source_subtracted_projector_residual"
+    mask: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -526,12 +527,14 @@ def detect_source_subtracted_candidates(
         if top_point is None:
             continue
         top_x_px, top_y_px = top_point
+        component_mask = labels == label
         candidates.append(
             SourceSubtractionCandidate(
                 bbox_xywh=(float(left), float(top), float(candidate_width), float(candidate_height)),
                 top_x_px=top_x_px,
                 top_y_px=top_y_px,
                 area_px=int(area),
+                mask=component_mask.copy(),
             )
         )
     return sorted(candidates, key=lambda item: item.area_px, reverse=True)

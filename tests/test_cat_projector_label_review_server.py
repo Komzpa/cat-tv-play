@@ -678,6 +678,12 @@ def test_timeline_materializes_requested_recording_frame_label(tmp_path: Path, m
                         "raw_path": str(recording / "review_frames" / "chunk_0095_00069.jpg"),
                         "best_probability": 0.91,
                         "best_bbox": "10,11,12,13",
+                        "best_mask_polygon": [
+                            {"x": 10, "y": 11},
+                            {"x": 22, "y": 11},
+                            {"x": 22, "y": 24},
+                            {"x": 10, "y": 24},
+                        ],
                         "detector_backend": "current_segmentation",
                         "detector_model_id": "current-model-test",
                         "measurement_source": "current_mask_top",
@@ -737,6 +743,12 @@ def test_timeline_materializes_requested_recording_frame_label(tmp_path: Path, m
     assert explicit_label == "chunk_0095_00069.jpg"
     assert explicit_frames[69]["candidate_bbox_xywh"] == (10.0, 11.0, 12.0, 13.0)
     assert explicit_frames[69]["current_model_overlay"]["bbox_xywh"] == (10.0, 11.0, 12.0, 13.0)
+    assert explicit_frames[69]["current_model_overlay"]["polygon"] == [
+        {"x": 10.0, "y": 11.0},
+        {"x": 22.0, "y": 11.0},
+        {"x": 22.0, "y": 24.0},
+        {"x": 10.0, "y": 24.0},
+    ]
     assert explicit_frames[69]["current_model_overlay"]["detector_backend"] == "current_segmentation"
     assert explicit_frames[69]["current_model_overlay"]["measurement_point"]["image_x"] == 16.0
     assert explicit_frames[69]["best_top_height_cm"] == 77.7
@@ -893,6 +905,12 @@ def test_frame_payload_adds_on_demand_current_model_overlay(
         return {
             "detector_cat_probability": "0.87",
             "candidate_bbox_xywh": "10,11,12,13",
+            "best_mask_polygon": [
+                {"x": 10, "y": 11},
+                {"x": 22, "y": 11},
+                {"x": 22, "y": 24},
+                {"x": 10, "y": 24},
+            ],
             "detector_backend": "current_model_test",
             "detector_model_id": "current-model-v1",
             "measurement_source": "current_bbox_top",
@@ -927,6 +945,12 @@ def test_frame_payload_adds_on_demand_current_model_overlay(
 
     assert frames[0]["current_model_overlay"]["role"] == "current_model"
     assert frames[0]["current_model_overlay"]["bbox_xywh"] == (10.0, 11.0, 12.0, 13.0)
+    assert frames[0]["current_model_overlay"]["polygon"] == [
+        {"x": 10.0, "y": 11.0},
+        {"x": 22.0, "y": 11.0},
+        {"x": 22.0, "y": 24.0},
+        {"x": 10.0, "y": 24.0},
+    ]
     assert frames[0]["current_model_overlay"]["detector_backend"] == "current_model_test"
     assert frames[0]["current_model_overlay"]["measurement_point"]["image_x"] == 16.0
     assert frames[0]["model_overlays"] == [frames[0]["current_model_overlay"]]

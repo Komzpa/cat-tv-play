@@ -2598,7 +2598,7 @@
     }
 
     function overlayHasGeometry(overlay) {
-      return Boolean(overlay?.bbox_xywh || overlay?.measurement_point);
+      return Boolean((normaliseOverlayPolygon(overlay).length >= 3) || overlay?.bbox_xywh || overlay?.measurement_point);
     }
 
     function annotationHasCatGeometry(annotation) {
@@ -3694,10 +3694,18 @@
       return values.map(Number);
     }
 
-    function drawModelOverlayBBox(overlay, ui, index) {
+    function normaliseOverlayPolygon(overlay) {
+      const raw = overlay?.polygon || overlay?.contour || [];
+      if (!Array.isArray(raw)) return [];
+      return raw.map(point => rawImagePoint(point)).filter(point =>
+        Number.isFinite(point.x) && Number.isFinite(point.y)
+      );
+    }
+
+    function drawModelOverlayGeometry(overlay, ui, index) {
       const values = normaliseBboxValues(overlay?.bbox_xywh);
-      if (!values) return;
-      const [x, y, width, height] = values.map(Number);
+      const polygon = normaliseOverlayPolygon(overlay);
+      if (!values && polygon.length < 3) return;
       const style = overlayStyle(overlay?.role);
       const dash = (style.dash || []).map(value => value * ui);
       ctx.save();
@@ -3705,23 +3713,42 @@
       ctx.fillStyle = style.fill;
       ctx.lineWidth = 3 * ui;
       ctx.setLineDash(dash);
-      ctx.fillRect(x, y, width, height);
-      ctx.strokeRect(x, y, width, height);
+      let labelX = 0;
+      let labelYBase = 0;
+      if (polygon.length >= 3) {
+        ctx.beginPath();
+        ctx.moveTo(polygon[0].x, polygon[0].y);
+        for (const point of polygon.slice(1)) ctx.lineTo(point.x, point.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        labelX = Math.min(...polygon.map(point => point.x));
+        labelYBase = Math.min(...polygon.map(point => point.y));
+      }
+      if (values) {
+        const [x, y, width, height] = values.map(Number);
+        if (polygon.length < 3) ctx.fillRect(x, y, width, height);
+        ctx.strokeRect(x, y, width, height);
+        if (polygon.length < 3) {
+          labelX = x;
+          labelYBase = y;
+        }
+      }
       ctx.setLineDash([]);
       const label = overlayEvidenceLabel(overlay);
       ctx.font = `${18 * ui}px system-ui`;
       ctx.textBaseline = "bottom";
       ctx.fillStyle = "rgba(0,0,0,0.72)";
-      const labelY = Math.max(0, y - (26 + index * 28) * ui);
-      ctx.fillRect(x, labelY, Math.max(130 * ui, ctx.measureText(label).width + 14 * ui), 24 * ui);
+      const labelY = Math.max(0, labelYBase - (26 + index * 28) * ui);
+      ctx.fillRect(labelX, labelY, Math.max(130 * ui, ctx.measureText(label).width + 14 * ui), 24 * ui);
       ctx.fillStyle = style.color;
-      ctx.fillText(label, x + 7 * ui, labelY + 20 * ui);
+      ctx.fillText(label, labelX + 7 * ui, labelY + 20 * ui);
       ctx.restore();
     }
 
     function drawModelOverlays(ui) {
       const item = activeReviewCase();
-      reviewModelOverlays(item).forEach((overlay, index) => drawModelOverlayBBox(overlay, ui, index));
+      reviewModelOverlays(item).forEach((overlay, index) => drawModelOverlayGeometry(overlay, ui, index));
     }
 
     function drawMeasurementMarker(point, label, color, ui, labelIndex = 0) {

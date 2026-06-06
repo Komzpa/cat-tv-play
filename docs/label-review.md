@@ -69,6 +69,9 @@ been rescored yet reuse the sent `jump_highlight` record from `sessions.jsonl`,
 so the exact bbox/top point that triggered the message is still visible as the
 original overlay on the linked frame. The current and original model layers may
 coincide, but they stay separate in the API/UI so disagreements are visible.
+Model overlays may carry a contour `polygon` as well as `bbox_xywh`; the UI draws
+the contour without copying it into the manual mask layer unless the operator
+explicitly saves a human annotation.
 
 Use the bottom timeline to scrub. Suspicious and reviewed frames are marked, and
 the left queue lists the next suspect frames with human-readable reasons. The

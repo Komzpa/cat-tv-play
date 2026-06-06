@@ -303,6 +303,7 @@ def _score_one(path_raw: str) -> dict[str, Any]:
         "best_measurement_point": best.get("measurement_point"),
         "best_measurement_warning": best.get("measurement_warning") or "",
         "best_has_mask": bool(best.get("has_mask")),
+        "best_mask_polygon": best.get("mask_polygon") if isinstance(best.get("mask_polygon"), list) else [],
         "source_size_px": {"width": rgb.width, "height": rgb.height},
         "top_candidates": top_candidates,
     }

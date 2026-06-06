@@ -29,6 +29,9 @@ measurement = _load_module(
 active_learning = _load_module(
     "cat_projector_active_learning_test", ROOT / "scripts" / "cat_projector_active_learning.py"
 )
+frame_detector = _load_module(
+    "cat_projector_frame_detector_test", ROOT / "scripts" / "cat_projector_frame_detector.py"
+)
 export_yolo = _load_module(
     "cat_projector_yolo_export_test", ROOT / "scripts" / "export_cat_projector_yolo_segmentation.py"
 )
@@ -48,6 +51,28 @@ def test_fake_segmentation_detector_returns_mask_detection() -> None:
     assert rows[0].score == 0.82
     assert rows[0].frame_index == 7
     assert rows[0].source == "fake_segmentation"
+
+
+def test_detection_debug_row_serialises_mask_polygon() -> None:
+    mask = np.zeros((80, 120), dtype=bool)
+    mask[30:70, 40:75] = True
+    row = detection.CatDetection(
+        bbox_xywh=(40.0, 30.0, 35.0, 40.0),
+        score=0.9,
+        source="test",
+        model_id="test-model",
+        mask=mask,
+    ).to_debug_row()
+
+    assert row["has_mask"] is True
+    assert row["mask_area_px"] == int(mask.sum())
+    assert len(row["mask_polygon"]) >= 4
+    xs = [point["x"] for point in row["mask_polygon"]]
+    ys = [point["y"] for point in row["mask_polygon"]]
+    assert min(xs) <= 40
+    assert max(xs) >= 74
+    assert min(ys) <= 30
+    assert max(ys) >= 69
 
 
 def test_yolo_eval_reads_all_segmentation_polygons(tmp_path: Path) -> None:
@@ -149,6 +174,53 @@ def test_active_learning_auto_with_segmentation_model_selects_segmentation(tmp_p
 
     assert config["backend"] == "segmentation"
     assert config["requested_backend"] == "auto"
+
+
+def test_legacy_source_subtracted_candidate_mask_becomes_detection_mask() -> None:
+    mask = np.zeros((80, 120), dtype=bool)
+    mask[30:70, 40:75] = True
+    candidate = frame_detector.Candidate(
+        bbox_xywh=(40.0, 30.0, 35.0, 40.0),
+        top_x_px=57.0,
+        top_y_px=30.0,
+        area_px=int(mask.sum()),
+        source="source_subtracted_projector_residual",
+        mask=mask,
+    )
+
+    class FakeLegacy:
+        def detect_source_subtracted_candidate_components(self, *_args, **_kwargs):
+            return [candidate]
+
+        def score_candidates(self, *_args, **_kwargs):
+            return [
+                SimpleNamespace(
+                    candidate=candidate,
+                    cat_probability=0.91,
+                    model_path="/tmp/fake.cbm",
+                    features={"area_ratio": 0.01},
+                )
+            ]
+
+    detector = object.__new__(detection.LegacyContrastDetector)
+    detector._legacy = FakeLegacy()  # noqa: SLF001
+    detector._model = object()  # noqa: SLF001
+    detector._metadata = {"model_path": "/tmp/fake.cbm"}  # noqa: SLF001
+    detector.model_id = "/tmp/fake.cbm"
+    detector.min_probability = 0.0
+
+    rows = detector.detect(
+        Image.new("RGB", (120, 80), (200, 200, 200)),
+        detection.DetectorContext(debug={"projector_source_frame": Image.new("RGB", (120, 80), "white")}),
+    )
+
+    assert len(rows) == 1
+    assert rows[0].has_mask
+    assert rows[0].mask is mask
+    point, warning = active_learning._measurement_for_detection(rows[0])  # noqa: SLF001
+    assert warning == ""
+    assert point.point_type == "mask_top_p5"
+    assert point.source == "segmentation_mask"
 
 
 def test_mask_top_measurement_ignores_single_noise_pixel() -> None:

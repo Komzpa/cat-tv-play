@@ -114,6 +114,7 @@ class Candidate:
     top_y_px: float
     area_px: int
     source: str
+    mask: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -383,6 +384,7 @@ def detect_source_subtracted_candidate_components(
         if candidate_width > int(width * 0.28) or candidate_height > int(height * 0.36):
             continue
         top_xs = xs[ys == ys.min()]
+        component_mask = labels == label
         candidates.append(
             Candidate(
                 bbox_xywh=(float(left), float(top), float(candidate_width), float(candidate_height)),
@@ -390,6 +392,7 @@ def detect_source_subtracted_candidate_components(
                 top_y_px=float(top),
                 area_px=int(len(xs)),
                 source="source_subtracted_projector_residual",
+                mask=component_mask.copy(),
             )
         )
     return sorted(candidates, key=lambda item: item.area_px, reverse=True)
