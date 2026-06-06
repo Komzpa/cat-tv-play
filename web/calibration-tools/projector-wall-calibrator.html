@@ -2577,10 +2577,26 @@
 
     function reviewModelOverlays(frame) {
       const overlays = [];
+      if (Array.isArray(frame?.model_overlays) && frame.model_overlays.length) {
+        overlays.push(...frame.model_overlays);
+      }
       if (frame?.current_model_overlay) overlays.push(frame.current_model_overlay);
       if (frame?.original_model_overlay) overlays.push(frame.original_model_overlay);
-      if (!overlays.length && (frame?.candidate_bbox_xywh || frame?.measurement_point)) {
-        overlays.push({
+      const seen = new Set();
+      const unique = overlays.filter(overlay => {
+        const key = JSON.stringify([
+          overlay?.role || "",
+          overlay?.label || "",
+          overlay?.bbox_xywh || null,
+          overlay?.polygon || null,
+          overlay?.detector_probability ?? null
+        ]);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      if (!unique.length && (frame?.candidate_bbox_xywh || frame?.measurement_point)) {
+        unique.push({
           role: "previous_model",
           label: "previous model",
           bbox_xywh: frame.candidate_bbox_xywh || null,
@@ -2594,7 +2610,7 @@
           measurement_warning: frame.best_measurement_warning || ""
         });
       }
-      return overlays;
+      return unique;
     }
 
     function overlayHasGeometry(overlay) {
@@ -2623,7 +2639,7 @@
         .filter(overlayHasGeometry)
         .filter(overlay => !["current_model", "original_model"].includes(overlay.role || ""))
         .length;
-      if (legacyCount) layers.push(`${legacyCount} legacy`);
+      if (legacyCount) layers.push(`${legacyCount} extra`);
       return layers.join(" + ");
     }
 
@@ -2647,6 +2663,7 @@
 
     function overlayStyle(role) {
       if (role === "current_model") return { color: "#58a6ff", fill: "rgba(88,166,255,0.10)", dash: [] };
+      if (role === "current_model_candidate") return { color: "#79c0ff", fill: "rgba(121,192,255,0.06)", dash: [5, 5] };
       if (role === "original_model") return { color: "#ffa657", fill: "rgba(255,166,87,0.10)", dash: [9, 5] };
       return { color: "#ffd33d", fill: "rgba(255,211,61,0.10)", dash: [9, 5] };
     }
@@ -2668,6 +2685,8 @@
     function overlayEvidenceLabel(overlay) {
       const base = overlay?.role === "current_model"
         ? "current"
+        : overlay?.role === "current_model_candidate"
+          ? (overlay?.label || "current candidate")
         : overlay?.role === "original_model"
           ? "original"
           : (overlay?.label || overlay?.role || "model");

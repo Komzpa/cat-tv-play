@@ -1052,7 +1052,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--allow-fake-detector", action="store_true", help="Allow backend=fake for tests/dev smoke only."
     )
     parser.add_argument("--device", default=None)
-    parser.add_argument("--confidence-threshold", type=float, default=0.5)
+    parser.add_argument(
+        "--confidence-threshold",
+        type=float,
+        default=0.2,
+        help=(
+            "Detector inference threshold for review/rescore. Keep this below the "
+            "alert/jump acceptance threshold so low-confidence full-frame cats are "
+            "still visible to the review UI instead of being hidden behind projector-plane false positives."
+        ),
+    )
     parser.add_argument("--output-root", type=Path, default=RESCORES_ROOT)
     parser.add_argument("--run-id", default="")
     parser.add_argument("--jobs", type=int, default=min(32, os.cpu_count() or 1))

@@ -254,7 +254,8 @@ For the modern path, pass a local segmentation model:
 ```bash
 python3 scripts/cat_projector_active_learning.py \
   --detector-backend segmentation \
-  --segmentation-model /path/to/sher-yolo-seg.pt
+  --segmentation-model /path/to/sher-yolo-seg.pt \
+  --confidence-threshold 0.2
 ```
 
 Local live jobs inherit `CAT_PROJECTOR_SEGMENTATION_MODEL` when it is set.
@@ -262,6 +263,11 @@ Without that model path, the default `auto` backend falls back to the legacy
 contrast/CatBoost detector so existing local jobs stay runnable. Use
 `--detector-backend segmentation` when a missing segmentation model should be a
 hard failure.
+
+Review rescoring intentionally uses a lower detector threshold than strict
+alert/eval acceptance. The UI needs to show low-confidence full-frame cats and
+additional YOLO candidates, especially when a projector-plane false positive is
+the most confident candidate.
 
 The legacy contrast/CatBoost detector remains available with
 `--detector-backend legacy` for fallback/debug and hard-negative mining.

@@ -678,6 +678,8 @@ def _probe_rows_by_image(root: Path) -> dict[Path, dict[str, str]]:
                 "candidate_reason": str(row.get("best_source") or "probe_rows"),
                 "detector_backend": str(row.get("detector_backend") or ""),
                 "detector_model_id": str(row.get("detector_model_id") or ""),
+                "model_created_at": str(row.get("model_created_at") or ""),
+                "model_path": str(row.get("model_path") or row.get("detector_model_path") or row.get("detector_model_id") or ""),
                 "measurement_source": str(row.get("measurement_source") or ""),
                 "measurement_confidence": str(row.get("measurement_confidence") or ""),
                 "best_top_height_cm": str(row.get("best_top_height_cm") or ""),
@@ -697,6 +699,7 @@ def _probe_rows_by_image(root: Path) -> dict[Path, dict[str, str]]:
                 "review_priority_reasons": row.get("review_priority_reasons")
                 if isinstance(row.get("review_priority_reasons"), list)
                 else [],
+                "top_candidates": row.get("top_candidates") if isinstance(row.get("top_candidates"), list) else [],
                 "notes": f"probe_rows: {row.get('candidate_count', '?')} candidates",
             }
     return rows
@@ -778,6 +781,37 @@ def _model_overlay_from_row(row: dict[str, Any], *, role: str, label: str) -> di
         if isinstance(row.get("review_priority_reasons"), list)
         else [],
     }
+
+
+def _model_overlays_from_top_candidates(row: dict[str, Any], *, start_index: int = 1, limit: int = 6) -> list[dict[str, Any]]:
+    candidates = row.get("top_candidates") if isinstance(row.get("top_candidates"), list) else []
+    overlays: list[dict[str, Any]] = []
+    for index, candidate in enumerate(candidates[start_index:limit], start=start_index + 1):
+        if not isinstance(candidate, dict):
+            continue
+        overlay = _model_overlay_from_row(
+            {
+                "candidate_bbox_xywh": candidate.get("bbox"),
+                "best_mask_polygon": candidate.get("mask_polygon") if isinstance(candidate.get("mask_polygon"), list) else [],
+                "best_measurement_point": candidate.get("measurement_point")
+                if isinstance(candidate.get("measurement_point"), dict)
+                else None,
+                "detector_cat_probability": candidate.get("p"),
+                "detector_backend": candidate.get("source") or row.get("detector_backend"),
+                "detector_model_id": candidate.get("model_id") or row.get("detector_model_id"),
+                "model_created_at": row.get("model_created_at"),
+                "model_path": row.get("model_path"),
+                "measurement_source": (candidate.get("measurement_point") or {}).get("point_type")
+                if isinstance(candidate.get("measurement_point"), dict)
+                else row.get("measurement_source"),
+                "measurement_confidence": candidate.get("p"),
+            },
+            role="current_model_candidate",
+            label=f"current candidate #{index}",
+        )
+        if overlay is not None:
+            overlays.append(overlay)
+    return overlays
 
 
 def _row_model_probability(row: dict[str, Any]) -> float | None:
@@ -1799,9 +1833,38 @@ def _discover_cases(limit: int) -> list[ReviewCase]:
     return cases[:limit]
 
 
-def _case_to_payload(case: ReviewCase, include_size: bool = False) -> dict[str, Any]:
+def _case_to_payload(
+    case: ReviewCase,
+    include_size: bool = False,
+    *,
+    metadata_rows_by_image: dict[Path, dict[str, Any]] | None = None,
+    current_model_rows_by_image: dict[Path, dict[str, Any]] | None = None,
+    original_model_rows_by_image: dict[Path, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     image_token = _encode_path(case.image_path)
     video_token = _encode_path(case.source_video_path) if case.source_video_path else None
+    metadata_rows_by_image = metadata_rows_by_image if metadata_rows_by_image is not None else _review_metadata_rows_by_image()
+    current_model_rows_by_image = (
+        current_model_rows_by_image if current_model_rows_by_image is not None else _current_model_rows_by_image()
+    )
+    original_model_rows_by_image = (
+        original_model_rows_by_image if original_model_rows_by_image is not None else _original_model_rows_by_image()
+    )
+    metadata_row = metadata_rows_by_image.get(case.image_path, {})
+    current_model_row = current_model_rows_by_image.get(case.image_path, {})
+    original_model_row = original_model_rows_by_image.get(case.image_path, {})
+    display_row = _display_measurement_row(metadata_row, current_model_row, original_model_row)
+    current_model_overlay = _model_overlay_from_row(
+        current_model_row,
+        role="current_model",
+        label="current model",
+    )
+    original_model_overlay = _model_overlay_from_row(
+        original_model_row,
+        role="original_model",
+        label="original capture",
+    )
+    top_candidate_overlays = _model_overlays_from_top_candidates(current_model_row)
     payload: dict[str, Any] = {
         "id": case.id,
         "kind": LABEL_NAMESPACE + "_case_v1",
@@ -1814,6 +1877,31 @@ def _case_to_payload(case: ReviewCase, include_size: bool = False) -> dict[str, 
         "source_recording_dir": str(case.source_recording_dir) if case.source_recording_dir else None,
         "detector_probability": case.detector_probability,
         "candidate_bbox_xywh": case.candidate_bbox_xywh,
+        "current_model_overlay": current_model_overlay,
+        "original_model_overlay": original_model_overlay,
+        "model_overlays": [
+            overlay
+            for overlay in (current_model_overlay, *top_candidate_overlays, original_model_overlay)
+            if overlay is not None
+        ],
+        "detector_backend": display_row.get("detector_backend") or "",
+        "detector_model_id": display_row.get("detector_model_id") or "",
+        "model_created_at": display_row.get("model_created_at") or None,
+        "model_path": display_row.get("model_path") or None,
+        "measurement_source": display_row.get("measurement_source") or "",
+        "measurement_confidence": _float_or_none(display_row.get("measurement_confidence")),
+        "best_top_height_cm": _float_or_none(display_row.get("best_top_height_cm")),
+        "best_top_wall_x_cm": _float_or_none(display_row.get("best_top_wall_x_cm")),
+        "legacy_bbox_top_height_cm": _float_or_none(display_row.get("legacy_bbox_top_height_cm")),
+        "measurement_point": display_row.get("best_measurement_point")
+        if isinstance(display_row.get("best_measurement_point"), dict)
+        else None,
+        "best_measurement_warning": display_row.get("best_measurement_warning") or "",
+        "tracker_status": display_row.get("tracker_status") or "",
+        "tracker_reason": display_row.get("tracker_reason") or "",
+        "tracker_confirmed": bool(display_row.get("tracker_confirmed"))
+        if display_row.get("tracker_confirmed") not in {None, ""}
+        else False,
         "uncertainty_score": round(case.uncertainty_score(), 4),
         "review_status": case.review_status,
         "human_label": case.human_label,
@@ -2713,6 +2801,7 @@ def _frame_payloads_for_review_video(
             role="original_model",
             label="original capture",
         )
+        top_candidate_overlays = _model_overlays_from_top_candidates(current_model_row)
         probability = saved.get("detector_probability")
         for key in ("detector_cat_probability", "cat_probability", "probability", "best_probability"):
             if probability not in {None, ""}:
@@ -2749,7 +2838,9 @@ def _frame_payloads_for_review_video(
                 "current_model_overlay": current_model_overlay,
                 "original_model_overlay": original_model_overlay,
                 "model_overlays": [
-                    overlay for overlay in (current_model_overlay, original_model_overlay) if overlay is not None
+                    overlay
+                    for overlay in (current_model_overlay, *top_candidate_overlays, original_model_overlay)
+                    if overlay is not None
                 ],
                 "detector_probability": probability,
                 "detector_backend": display_row.get("detector_backend") or "",
@@ -3588,7 +3679,19 @@ class CatProjectorLabelReviewHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/cat-projector-label-review/cases":
             query = parse_qs(parsed.query)
             limit = int(query.get("limit", ["300"])[0])
-            cases = [_case_to_payload(case, include_size=True) for case in _discover_cases(limit)]
+            metadata_rows = _review_metadata_rows_by_image()
+            current_rows = _current_model_rows_by_image()
+            original_rows = _original_model_rows_by_image()
+            cases = [
+                _case_to_payload(
+                    case,
+                    include_size=True,
+                    metadata_rows_by_image=metadata_rows,
+                    current_model_rows_by_image=current_rows,
+                    original_model_rows_by_image=original_rows,
+                )
+                for case in _discover_cases(limit)
+            ]
             self._send_json({"kind": LABEL_NAMESPACE + "_queue_v1", "cases": cases})
             return
         if parsed.path == "/api/cat-projector-label-review/videos":

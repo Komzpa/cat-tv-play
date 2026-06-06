@@ -48,7 +48,7 @@ python3 scripts/cat_projector_active_learning.py \
   --detector-backend segmentation \
   --segmentation-model /path/to/sher-yolo-seg.pt \
   --device cuda:0 \
-  --confidence-threshold 0.5
+  --confidence-threshold 0.2
 ```
 
 If `--detector-backend auto` is used with `--segmentation-model` or
@@ -197,6 +197,12 @@ For the June 6, 2026 contour repair export, the safe operating point for the
 gentle fine-tuned Sher model was `--confidence-threshold 0.55`: it kept recall
 well above the previous Sher checkpoint while holding hard-negative false
 positives close to the old model.
+
+That `0.55` threshold is the strict eval/acceptance point, not the review
+rescore threshold. Active-learning rescoring should run lower, currently `0.2`,
+so low-confidence full-frame cats remain visible in the review UI instead of
+being hidden by a more confident projector-plane false positive. Jump-height
+acceptance still has its own `--height-min-probability` gate.
 
 ## Active Learning Priority
 

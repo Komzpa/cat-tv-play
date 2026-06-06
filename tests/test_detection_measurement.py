@@ -623,6 +623,13 @@ def test_yolo_eval_defaults_to_safe_sher_confidence_threshold(tmp_path: Path) ->
     assert args.confidence_threshold == 0.55
 
 
+def test_active_learning_defaults_keep_low_confidence_full_frame_cats_reviewable() -> None:
+    args = active_learning.parse_args([])
+
+    assert args.confidence_threshold == 0.2
+    assert args.height_min_probability == 0.5
+
+
 def test_yolo_report_renderer_consumes_fake_eval(tmp_path: Path) -> None:
     manifest = {"dataset_hash": "abc", "item_count": 1}
     eval_data = {

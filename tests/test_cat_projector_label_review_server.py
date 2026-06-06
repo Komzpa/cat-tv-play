@@ -686,6 +686,8 @@ def test_timeline_materializes_requested_recording_frame_label(tmp_path: Path, m
                         ],
                         "detector_backend": "current_segmentation",
                         "detector_model_id": "current-model-test",
+                        "model_created_at": "2026-06-06T17:56:42+00:00",
+                        "model_path": "/tmp/current-model-test.pt",
                         "measurement_source": "current_mask_top",
                         "best_top_height_cm": 77.7,
                         "best_measurement_point": {
@@ -695,6 +697,30 @@ def test_timeline_materializes_requested_recording_frame_label(tmp_path: Path, m
                             "point_type": "current_mask_top",
                             "source": "current_segmentation",
                         },
+                        "top_candidates": [
+                            {
+                                "p": 0.91,
+                                "bbox": "10,11,12,13",
+                                "source": "current_segmentation",
+                                "mask_polygon": [
+                                    {"x": 10, "y": 11},
+                                    {"x": 22, "y": 11},
+                                    {"x": 22, "y": 24},
+                                    {"x": 10, "y": 24},
+                                ],
+                            },
+                            {
+                                "p": 0.37,
+                                "bbox": "40,41,42,43",
+                                "source": "current_segmentation",
+                                "mask_polygon": [
+                                    {"x": 40, "y": 41},
+                                    {"x": 82, "y": 41},
+                                    {"x": 82, "y": 84},
+                                    {"x": 40, "y": 84},
+                                ],
+                            },
+                        ],
                     }
                 ]
             ),
@@ -706,6 +732,12 @@ def test_timeline_materializes_requested_recording_frame_label(tmp_path: Path, m
             video_id,
             requested_frame_label="chunk_0095_00069.jpg",
         )
+        explicit_case = next(
+            case
+            for case in server._discover_cases(500)  # noqa: SLF001
+            if case.image_path == (recording / "review_frames" / "chunk_0095_00069.jpg").resolve()
+        )
+        explicit_case_payload = server._case_to_payload(explicit_case, include_size=True)  # noqa: SLF001
     finally:
         server.STATE_ROOT = original_state
         server.DATASET_ROOT = original_dataset
@@ -753,7 +785,26 @@ def test_timeline_materializes_requested_recording_frame_label(tmp_path: Path, m
     assert explicit_frames[69]["current_model_overlay"]["measurement_point"]["image_x"] == 16.0
     assert explicit_frames[69]["best_top_height_cm"] == 77.7
     assert explicit_frames[69]["original_model_overlay"] is None
-    assert [overlay["role"] for overlay in explicit_frames[69]["model_overlays"]] == ["current_model"]
+    assert [overlay["role"] for overlay in explicit_frames[69]["model_overlays"]] == [
+        "current_model",
+        "current_model_candidate",
+    ]
+    assert explicit_frames[69]["model_overlays"][1]["bbox_xywh"] == (40.0, 41.0, 42.0, 43.0)
+    assert explicit_case_payload["detector_backend"] == "current_segmentation"
+    assert explicit_case_payload["model_created_at"] == "2026-06-06T17:56:42+00:00"
+    assert explicit_case_payload["model_path"] == "/tmp/current-model-test.pt"
+    assert explicit_case_payload["best_top_height_cm"] == 77.7
+    assert explicit_case_payload["current_model_overlay"]["detector_backend"] == "current_segmentation"
+    assert [overlay["role"] for overlay in explicit_case_payload["model_overlays"]] == [
+        "current_model",
+        "current_model_candidate",
+    ]
+    assert explicit_case_payload["current_model_overlay"]["polygon"] == [
+        {"x": 10.0, "y": 11.0},
+        {"x": 22.0, "y": 11.0},
+        {"x": 22.0, "y": 24.0},
+        {"x": 10.0, "y": 24.0},
+    ]
     assert len(explicit_frames) == 92
     for frame in explicit_frames:
         if frame["label"] == "chunk_0095_00069.jpg":
