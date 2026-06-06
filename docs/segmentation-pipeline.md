@@ -138,13 +138,13 @@ Current real export evidence from May 23, 2026:
 
 ## Training And Evaluation
 
-Training is explicit and local. The normal command refuses to download a base
-model; point it at a local YOLO segmentation `.pt`:
+Training is explicit and local. Routine refreshes must fine-tune from the
+latest Sher checkpoint, not from generic YOLO weights:
 
 ```bash
 make train-sher-yolo-seg \
   YOLO_EXPORT=~/.openclaw/state/cat-tv-learning/exports/sher-yolo-seg-20260523T013502Z \
-  YOLO_BASE_MODEL=/path/to/local/yolo11n-seg.pt \
+  YOLO_BASE_MODEL=~/.openclaw/state/cat-tv-learning/models/sher-yolo-seg-first.pt \
   YOLO_MODEL=~/.openclaw/state/cat-tv-learning/models/sher-yolo-seg.pt \
   YOLO_DEVICE=cuda:0
 ```
@@ -154,13 +154,21 @@ Equivalent direct command:
 ```bash
 python3 scripts/cat_projector_yolo_segmentation.py train \
   --dataset ~/.openclaw/state/cat-tv-learning/exports/sher-yolo-seg-20260523T013502Z/dataset.yaml \
-  --base-model /path/to/local/yolo11n-seg.pt \
+  --base-model ~/.openclaw/state/cat-tv-learning/models/sher-yolo-seg-first.pt \
   --out ~/.openclaw/state/cat-tv-learning/models/sher-yolo-seg.pt \
   --epochs 80 --imgsz 960 --batch 8 --device cuda:0
 ```
 
 Each run writes command/config, git state, dataset hash/summary, base model hash,
-metrics, and model path under `~/.openclaw/state/cat-tv-learning/yolo-runs/`.
+training mode, parent model hash for fine-tunes, metrics, and model path under
+`~/.openclaw/state/cat-tv-learning/yolo-runs/`.
+
+Generic YOLO segmentation weights such as `yolo11n-seg.pt` are only for a new
+Sher lineage/bootstrap. The train command refuses those weights by default
+because they discard the room-specific Sher checkpoint and can look worse than
+the old model for many CPU epochs. To intentionally bootstrap a new lineage,
+pass `--allow-new-sher-lineage` directly or `YOLO_ALLOW_NEW_LINEAGE=1` through
+Make.
 
 Evaluate and generate visual error reports:
 

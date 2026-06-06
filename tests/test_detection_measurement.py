@@ -530,6 +530,53 @@ def test_yolo_train_refuses_missing_base_model_before_ultralytics_import(tmp_pat
         raise AssertionError("training unexpectedly accepted a missing base model")
 
 
+def test_yolo_train_refuses_generic_base_without_new_lineage_flag(tmp_path: Path) -> None:
+    dataset_yaml = tmp_path / "dataset.yaml"
+    dataset_yaml.write_text("path: .\ntrain: images/train\nval: images/val\nnames:\n  0: cat\n", encoding="utf-8")
+    base_model = tmp_path / "base" / "yolo11n-seg.pt"
+    base_model.parent.mkdir()
+    base_model.write_bytes(b"not a real model")
+    args = yolo_seg.parse_args(
+        [
+            "train",
+            "--dataset",
+            str(dataset_yaml),
+            "--base-model",
+            str(base_model),
+            "--run-root",
+            str(tmp_path / "runs"),
+        ]
+    )
+
+    try:
+        yolo_seg.train(args)
+    except ValueError as exc:
+        assert "--allow-new-sher-lineage" in str(exc)
+        assert "latest Sher .pt" in str(exc)
+    else:
+        raise AssertionError("training unexpectedly accepted a generic YOLO base")
+
+
+def test_yolo_train_classifies_existing_sher_model_as_fine_tune(tmp_path: Path) -> None:
+    model = tmp_path / "models" / "sher-yolo-seg-first.pt"
+    model.parent.mkdir()
+    model.write_bytes(b"not a real model")
+
+    assert (
+        yolo_seg._training_mode_for_base_model(model, allow_new_sher_lineage=False)  # noqa: SLF001
+        == "fine_tune_existing_sher"
+    )
+
+
+def test_yolo_train_allows_explicit_generic_new_lineage(tmp_path: Path) -> None:
+    model = tmp_path / "models" / "base" / "yolo11n-seg.pt"
+
+    assert (
+        yolo_seg._training_mode_for_base_model(model, allow_new_sher_lineage=True)  # noqa: SLF001
+        == "new_sher_lineage_from_generic_yolo"
+    )
+
+
 def test_yolo_report_renderer_consumes_fake_eval(tmp_path: Path) -> None:
     manifest = {"dataset_hash": "abc", "item_count": 1}
     eval_data = {

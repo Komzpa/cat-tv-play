@@ -115,11 +115,37 @@ def _require_local_file(path: Path, label: str) -> Path:
     return path
 
 
+def _looks_like_generic_yolo_segmentation_base(path: Path) -> bool:
+    expanded = path.expanduser()
+    name = expanded.name.lower()
+    return (
+        expanded.parent.name == "base"
+        or (name.startswith("yolo") and name.endswith("-seg.pt"))
+        or (name.startswith("yolo") and name.endswith("seg.pt"))
+    )
+
+
+def _training_mode_for_base_model(base_model: Path, *, allow_new_sher_lineage: bool) -> str:
+    if not _looks_like_generic_yolo_segmentation_base(base_model):
+        return "fine_tune_existing_sher"
+    if allow_new_sher_lineage:
+        return "new_sher_lineage_from_generic_yolo"
+    raise ValueError(
+        "base model looks like generic YOLO segmentation weights, not an existing Sher checkpoint: "
+        f"{base_model}. Routine Sher refreshes must fine-tune from the latest Sher .pt. "
+        "Pass --allow-new-sher-lineage only when intentionally bootstrapping a fresh lineage."
+    )
+
+
 def train(args: argparse.Namespace) -> int:
     dataset_yaml = _require_local_file(args.dataset, "dataset")
     base_model = args.base_model.expanduser()
     if not base_model.exists() and not args.allow_download_base:
         raise FileNotFoundError(f"base model must be a local file unless --allow-download-base is set: {base_model}")
+    training_mode = _training_mode_for_base_model(
+        base_model,
+        allow_new_sher_lineage=args.allow_new_sher_lineage,
+    )
     try:
         import ultralytics
         from ultralytics import YOLO
@@ -136,6 +162,15 @@ def train(args: argparse.Namespace) -> int:
         "path": str(base_model),
         "sha256": _sha256_path(base_model) if base_model.exists() else None,
     }
+    provenance["training_mode"] = training_mode
+    provenance["parent_model"] = (
+        {
+            "path": str(base_model),
+            "sha256": _sha256_path(base_model) if base_model.exists() else None,
+        }
+        if training_mode == "fine_tune_existing_sher"
+        else None
+    )
     (run_dir / "train_config.json").write_text(
         json.dumps(provenance, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
@@ -594,6 +629,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     train_parser.add_argument("--device", default=None)
     train_parser.add_argument("--seed", type=int, default=20260523)
     train_parser.add_argument("--allow-download-base", action="store_true")
+    train_parser.add_argument(
+        "--allow-new-sher-lineage",
+        action="store_true",
+        help=(
+            "permit training from generic YOLO segmentation weights. Omit this for routine refreshes, "
+            "which should fine-tune from the latest Sher .pt."
+        ),
+    )
     train_parser.set_defaults(func=train)
 
     eval_parser = subparsers.add_parser("eval")
