@@ -1621,8 +1621,19 @@ def test_active_learning_aligns_current_frame_to_calibration_reference(tmp_path:
     alignment = rows[0]["best_measurement_point"]["debug"]["coordinate_transform"]["alignment"]
     assert summary["frame_alignment"]["applied_frame_count"] == 1
     assert alignment["applied"] is True
+    assert len(alignment["current_to_calibration"]) == 2
+    assert len(alignment["current_to_calibration"][0]) == 3
+    assert len(alignment["calibration_to_current"]) == 2
+    assert len(alignment["calibration_to_current"][0]) == 3
     assert abs(alignment["aligned_calibration_image_x"] - 50.0) < 2.0
     assert abs(alignment["aligned_calibration_image_y"] - 40.0) < 2.0
+    aligned_x = alignment["aligned_calibration_image_x"]
+    aligned_y = alignment["aligned_calibration_image_y"]
+    calibration_to_current = alignment["calibration_to_current"]
+    remapped_x = calibration_to_current[0][0] * aligned_x + calibration_to_current[0][1] * aligned_y + calibration_to_current[0][2]
+    remapped_y = calibration_to_current[1][0] * aligned_x + calibration_to_current[1][1] * aligned_y + calibration_to_current[1][2]
+    assert abs(remapped_x - 57.0) < 2.0
+    assert abs(remapped_y - 50.0) < 2.0
     assert abs(rows[0]["best_top_height_cm"] - 120.0) < 2.0
 
 

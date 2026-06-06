@@ -666,10 +666,29 @@ def _apply_alignment_to_point(
 
     matrix = alignment["current_to_calibration"]
     mapped = matrix @ np.array([calibration_x, calibration_y, 1.0], dtype=float)
-    debug = {key: value for key, value in alignment.items() if key not in {"current_to_calibration"}}
+    debug = _alignment_debug_payload(alignment)
     debug["aligned_calibration_image_x"] = round(float(mapped[0]), 2)
     debug["aligned_calibration_image_y"] = round(float(mapped[1]), 2)
     return float(mapped[0]), float(mapped[1]), debug
+
+
+def _affine_matrix_payload(matrix: Any) -> list[list[float]]:
+    import numpy as np
+
+    return [[float(value) for value in row] for row in np.asarray(matrix, dtype=float).tolist()]
+
+
+def _alignment_debug_payload(alignment: dict[str, Any]) -> dict[str, Any]:
+    debug = {key: value for key, value in alignment.items() if key not in {"current_to_calibration"}}
+    matrix = alignment.get("current_to_calibration")
+    if matrix is not None:
+        import cv2  # type: ignore[import-not-found]
+        import numpy as np
+
+        matrix_array = np.asarray(matrix, dtype=float)
+        debug["current_to_calibration"] = _affine_matrix_payload(matrix_array)
+        debug["calibration_to_current"] = _affine_matrix_payload(cv2.invertAffineTransform(matrix_array))
+    return debug
 
 
 def _with_wall_coordinates_for_frame(
