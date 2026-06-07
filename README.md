@@ -1,5 +1,8 @@
 # Cat TV Play
 
+<img width="1241" height="1441" alt="image" src="https://github.com/user-attachments/assets/94c1fd09-a159-492d-8f35-fb6a051bb20f" />
+
+
 Cat TV Play is a Home Assistant custom integration for projector or TV play
 sessions for cats.
 
