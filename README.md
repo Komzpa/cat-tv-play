@@ -16,7 +16,9 @@ House-specific automations should react to the Cat TV session service result,
 `sensor.cat_tv_play_session`, or local helper states. Avoid using
 `automation.trigger` to call another policy automation directly; in Home
 Assistant that can run the target automation's action body even when the target
-automation is disabled.
+automation is disabled. Keep house-specific side effects room-scoped: a
+living-room projector session should not directly move bedroom, closet,
+separator, or bed-inside covers.
 
 ## Status
 
