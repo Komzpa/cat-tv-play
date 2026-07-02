@@ -22,6 +22,8 @@ def test_runtime_parse_args_disables_residual_occluder_fallback_by_default() -> 
 
     assert args.enable_residual_occluder_fallback is False
     assert args.camera_snapshot_timeout == 2.0
+    assert args.safety_negative_review_interval == 60.0
+    assert args.safety_negative_review_max_frames_per_day == 720
 
 
 def test_runtime_parse_args_can_enable_residual_occluder_fallback() -> None:
@@ -34,6 +36,43 @@ def test_runtime_parse_args_can_disable_residual_occluder_fallback() -> None:
     args = overlay_server.parse_args(["--source-video", "source.mp4", "--disable-residual-occluder-fallback"])
 
     assert args.enable_residual_occluder_fallback is False
+
+
+def test_safety_negative_review_rows_stop_at_daily_frame_cap(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(overlay_server, "SAFETY_REVIEW_ROOT", tmp_path / "safety-review")
+    camera = Image.new("RGB", (32, 32), "white")
+    person = overlay_server.PersonDetection(
+        bbox_xyxy=(1.0, 2.0, 12.0, 14.0),
+        confidence=0.8,
+        source="test",
+    )
+    result = overlay_server.SafetyOverlayResult("active")
+
+    first = overlay_server._append_safety_negative_review_rows(
+        camera_image=camera,
+        raw_people=[person],
+        people=[person],
+        result=result,
+        source_filter_skipped=[],
+        performance={"safety_sample_index": 1},
+        source_video="source.mp4",
+        max_frames_per_day=1,
+    )
+    second = overlay_server._append_safety_negative_review_rows(
+        camera_image=camera,
+        raw_people=[person],
+        people=[person],
+        result=result,
+        source_filter_skipped=[],
+        performance={"safety_sample_index": 2},
+        source_video="source.mp4",
+        max_frames_per_day=1,
+    )
+
+    assert first == 1
+    assert second == 0
+    frames_dir = overlay_server.SAFETY_REVIEW_ROOT / overlay_server.time.strftime("%Y%m%d") / "frames"
+    assert len(list(frames_dir.iterdir())) == 1
 
 
 def test_projector_active_gate_idles_only_on_explicit_off_states() -> None:

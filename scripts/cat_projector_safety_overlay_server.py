@@ -70,6 +70,8 @@ DEFAULT_HUMAN_DETECTOR_MODEL = DEFAULT_HUMAN_DETECTOR_DIR / "MobileNetSSD_deploy
 DEFAULT_LEARNING_ROOT = Path("~/.openclaw/state/cat-tv-learning").expanduser()
 SAFETY_REVIEW_ROOT = DEFAULT_LEARNING_ROOT / "safety-review"
 PERSON_CLASS_ID = 15
+DEFAULT_SAFETY_NEGATIVE_REVIEW_INTERVAL = 60.0
+DEFAULT_SAFETY_NEGATIVE_REVIEW_MAX_FRAMES_PER_DAY = 720
 DEFAULT_HA_ACTIVE_ENTITIES = (
     "input_boolean.cat_projector_session",
     "binary_sensor.cat_projector_display_active",
@@ -503,6 +505,7 @@ def _append_safety_negative_review_rows(
     source_filter_skipped: list[dict[str, Any]],
     performance: dict[str, Any],
     source_video: str,
+    max_frames_per_day: int,
 ) -> int:
     if camera_image is None:
         return 0
@@ -510,6 +513,8 @@ def _append_safety_negative_review_rows(
         return 0
     run_dir = SAFETY_REVIEW_ROOT / time.strftime("%Y%m%d")
     frames_dir = run_dir / "frames"
+    if max_frames_per_day > 0 and _safety_negative_review_frame_count(frames_dir) >= max_frames_per_day:
+        return 0
     frames_dir.mkdir(parents=True, exist_ok=True)
     labels_path = run_dir / "labels.csv"
     fieldnames = [
@@ -587,6 +592,12 @@ def _append_safety_negative_review_rows(
             writer.writeheader()
         writer.writerows(rows)
     return len(rows)
+
+
+def _safety_negative_review_frame_count(frames_dir: Path) -> int:
+    if not frames_dir.exists():
+        return 0
+    return sum(1 for _path in frames_dir.glob("safety_*.jpg"))
 
 
 def _build_residual_views(
@@ -1710,6 +1721,7 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
                 source_filter_skipped=source_filter_skipped,
                 performance=performance,
                 source_video=str(args.source_video),
+                max_frames_per_day=args.safety_negative_review_max_frames_per_day,
             )
             if rows_written:
                 last_negative_review_at = now
@@ -2061,7 +2073,17 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--eye-safety-prediction-padding-px", type=float, default=16.0)
     parser.add_argument("--eye-safety-max-prediction-px", type=float, default=220.0)
     parser.add_argument("--max-active-overlay-age", type=float, default=0.9)
-    parser.add_argument("--safety-negative-review-interval", type=float, default=2.0)
+    parser.add_argument(
+        "--safety-negative-review-interval",
+        type=float,
+        default=DEFAULT_SAFETY_NEGATIVE_REVIEW_INTERVAL,
+    )
+    parser.add_argument(
+        "--safety-negative-review-max-frames-per-day",
+        type=int,
+        default=DEFAULT_SAFETY_NEGATIVE_REVIEW_MAX_FRAMES_PER_DAY,
+        help="Maximum generated safety-review camera frames per local day; use 0 to disable the cap.",
+    )
     parser.add_argument("--person-track-max-missing-seconds", type=float, default=1.0)
     parser.add_argument("--person-track-max-speed-px-s", type=float, default=1800.0)
     parser.add_argument("--person-track-smoothing-alpha", type=float, default=0.65)

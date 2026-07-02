@@ -267,6 +267,15 @@ box forward for a bounded missing window using the measured velocity, then lets
 it expire. This smooths detector dropouts without returning to a long static
 black-square hold.
 
+Safety-negative review frames under
+`~/.openclaw/state/cat-tv-learning/safety-review/YYYYMMDD/frames/` are generated
+debug/training candidates, not the canonical recording source. The server
+samples them at most once per minute by default and stops after 720 generated
+frames per local day; use `--safety-negative-review-interval` and
+`--safety-negative-review-max-frames-per-day` only for deliberate short debug
+runs. For disk cleanup, keep the small `labels.csv` files and remove old
+`frames/` directories before touching raw session recordings.
+
 ## Jump Tracking
 
 Review tooling should transform measurement points into wall centimeters before
