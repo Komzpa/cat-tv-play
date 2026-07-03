@@ -1478,11 +1478,7 @@ def _build_detector(args: argparse.Namespace) -> MobileNetPersonDetector | Unava
 
 def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> None:
     detector = _build_detector(args)
-    source_reference_frames = _sample_source_reference_frames(
-        str(args.source_video),
-        source_size=args.source_size,
-        max_frames=args.source_reference_frames,
-    )
+    source_reference_frames: list[Image.Image] | None = None
     active_gate = ProjectorActiveGate(
         ha_url=args.ha_url,
         ha_config_path=args.ha_config_path,
@@ -1540,6 +1536,13 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
             )
             time.sleep(args.inactive_sample_interval)
             continue
+
+        if source_reference_frames is None:
+            source_reference_frames = _sample_source_reference_frames(
+                str(args.source_video),
+                source_size=args.source_size,
+                max_frames=args.source_reference_frames,
+            )
 
         source_frame, source_frame_index, source_updated_at = runtime.source_frame_snapshot()
         if source_frame is None:
@@ -1826,7 +1829,7 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
 
 
 def _run_status_only(args: argparse.Namespace, *, state: SafetyOverlayState) -> None:
-    capture = _open_video_capture(str(args.source_video))
+    capture: Any | None = None
     status_interval = 1.0 / max(1, args.fps)
     source_interval = 1.0 / max(1, args.source_tracking_fps)
     runtime = SafetyRuntime()
@@ -1843,6 +1846,8 @@ def _run_status_only(args: argparse.Namespace, *, state: SafetyOverlayState) -> 
             snapshot = runtime.snapshot()
             worker_idle = bool(snapshot.performance.get("safety_worker_idle"))
             if not worker_idle and started >= next_source_at:
+                if capture is None:
+                    capture = _open_video_capture(str(args.source_video))
                 frame_index += 1
                 source_frame = _frame_from_capture(capture, source_size=args.source_size)
                 runtime.update_source_frame(source_frame, frame_index)
@@ -1891,7 +1896,8 @@ def _run_status_only(args: argparse.Namespace, *, state: SafetyOverlayState) -> 
                 time.sleep(target_interval - elapsed)
     finally:
         runtime.stop()
-        capture.release()
+        if capture is not None:
+            capture.release()
 
 
 def _expire_stale_active_result(

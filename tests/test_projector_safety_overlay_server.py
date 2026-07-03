@@ -105,6 +105,38 @@ def test_projector_active_gate_idles_only_on_explicit_off_states() -> None:
     )
 
 
+def test_safety_worker_does_not_sample_source_references_while_projector_inactive(monkeypatch) -> None:
+    class IdleGate:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def active(self, now: float) -> bool:
+            del now
+            return False
+
+        def debug(self) -> dict[str, object]:
+            return {"projector_active_gate_active": False}
+
+    runtime = overlay_server.SafetyRuntime()
+    args = overlay_server.parse_args(["--source-video", "source.mp4"])
+    args.inactive_sample_interval = 0.01
+    monkeypatch.setattr(overlay_server, "ProjectorActiveGate", IdleGate)
+    monkeypatch.setattr(
+        overlay_server,
+        "_sample_source_reference_frames",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("source references sampled while idle")),
+    )
+
+    def stop_after_snapshot(snapshot: overlay_server.SafetyComputationSnapshot) -> None:
+        runtime.stop()
+        original_update(snapshot)
+
+    original_update = runtime.update_snapshot
+    monkeypatch.setattr(runtime, "update_snapshot", stop_after_snapshot)
+
+    overlay_server._run_safety_worker(args, runtime=runtime)
+
+
 def test_source_filter_rejects_projected_video_content() -> None:
     source = Image.new("RGB", (1280, 720), "white")
     ImageDraw.Draw(source).ellipse((520, 160, 760, 360), fill="black")
