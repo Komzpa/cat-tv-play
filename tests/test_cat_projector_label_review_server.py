@@ -28,6 +28,14 @@ sys.modules[ACTIVE_LEARNING_SPEC.name] = active_learning
 ACTIVE_LEARNING_SPEC.loader.exec_module(active_learning)
 
 
+def test_recordings_root_uses_explicit_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    recordings_root = tmp_path / "cold-recordings"
+    monkeypatch.setenv("CAT_TV_RECORDINGS_ROOT", str(recordings_root))
+    monkeypatch.setattr(server, "RECORDINGS_ROOT_OVERRIDE", None)
+
+    assert server._recordings_root() == recordings_root  # noqa: SLF001
+
+
 def test_fake_smoke_builds_review_queue_and_action_records(tmp_path: Path) -> None:
     assert server.run_fake_smoke(tmp_path) == 0
     label_files = sorted((tmp_path / "state" / "label-review" / "labels").glob("*.json"))

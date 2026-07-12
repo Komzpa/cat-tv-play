@@ -54,6 +54,11 @@ Household frames are never uploaded by this tool. The server accepts local file
 paths or its own file tokens and rejects paths outside the configured corpus and
 state roots.
 
+Set `CAT_TV_RECORDINGS_ROOT` when raw session recordings are stored outside
+`~/.openclaw/state/cat-tv-learning/recordings`. The review backend adds that
+explicit root to its scan and file allowlists; labels, queues, models, and other
+small review state remain under `~/.openclaw/state/cat-tv-learning`.
+
 ## Video-First Review Workflow
 
 Review mode is meant to be used like a normal annotated video player. Open the

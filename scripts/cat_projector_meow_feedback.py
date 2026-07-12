@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -24,6 +25,9 @@ sys.modules[_FEEDBACK_SPEC.name] = feedback
 _FEEDBACK_SPEC.loader.exec_module(feedback)
 
 STATE_ROOT = Path("~/.openclaw/state/cat-tv-learning").expanduser()
+DEFAULT_RECORDINGS_ROOT = Path(
+    os.environ.get("CAT_TV_RECORDINGS_ROOT", str(STATE_ROOT / "recordings"))
+).expanduser()
 DEFAULT_EVENT_ROOT = Path("/srv/cold-storage/hass/audio/vigi_audio_events")
 
 
@@ -38,7 +42,7 @@ def _latest_outcome_ledger() -> Path:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--outcomes", type=Path, default=None, help="Existing meow outcome JSONL ledger.")
-    parser.add_argument("--recordings-root", type=Path, default=STATE_ROOT / "recordings")
+    parser.add_argument("--recordings-root", type=Path, default=DEFAULT_RECORDINGS_ROOT)
     parser.add_argument(
         "--out-dir",
         type=Path,

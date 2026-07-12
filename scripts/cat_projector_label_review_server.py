@@ -61,6 +61,18 @@ def _default_dataset_root() -> Path:
 
 DATASET_ROOT = _default_dataset_root()
 STATE_ROOT = Path("~/.openclaw/state/cat-tv-learning").expanduser()
+RECORDINGS_ROOT_OVERRIDE: Path | None = None
+
+
+def _recordings_root() -> Path:
+    if RECORDINGS_ROOT_OVERRIDE is not None:
+        return RECORDINGS_ROOT_OVERRIDE
+    configured = os.environ.get("CAT_TV_RECORDINGS_ROOT")
+    if configured:
+        return Path(configured).expanduser()
+    return STATE_ROOT / "recordings"
+
+
 REVIEW_ROOT = STATE_ROOT / "label-review"
 LABELS_ROOT = REVIEW_ROOT / "labels"
 MASKS_ROOT = REVIEW_ROOT / "masks"
@@ -120,7 +132,7 @@ SCAN_ROOTS = (
     STATE_ROOT / "jump-review",
     STATE_ROOT / "batch_reviews",
     STATE_ROOT / "telegram-clips",
-    STATE_ROOT / "recordings",
+    _recordings_root(),
     STATE_ROOT / "datasets",
 )
 
@@ -128,6 +140,7 @@ ALLOWED_ROOTS = (
     WEB_ROOT,
     DATASET_ROOT,
     STATE_ROOT,
+    _recordings_root(),
     REVIEW_ROOT,
 )
 
@@ -489,7 +502,7 @@ def _build_jump_height_index() -> dict[str, dict[str, Any]]:
     candidate_files: list[Path] = []
     for root, patterns in (
         (STATE_ROOT / "batch_reviews", ("**/scan_results.json", "**/render_summary*.json", "**/summary.json")),
-        (STATE_ROOT / "recordings", ("*/telegram*_notification.json",)),
+        (_recordings_root(), ("*/telegram*_notification.json",)),
         (STATE_ROOT / "jump-heights", ("*/measurements*.json",)),
         (STATE_ROOT / "jump-observations", ("*.measurements.json",)),
     ):
@@ -1598,7 +1611,7 @@ def _manifest_for_recording_dir(recording_dir: Path) -> dict[str, Any]:
 
 
 def _recording_dir_for_timestamp(timestamp: str) -> Path | None:
-    recordings_root = STATE_ROOT / "recordings"
+    recordings_root = _recordings_root()
     if not recordings_root.exists() or not timestamp:
         return None
     matches = sorted(recordings_root.glob(f"{timestamp}_*"))
@@ -1650,11 +1663,11 @@ def _reprocessed_outputs() -> tuple[tuple[Path, frozenset[str], tuple[Path, ...]
 
 
 def _recording_chunk_index_for_date(batch_date: str) -> dict[int, tuple[Path, ...]]:
-    cache_key = (STATE_ROOT, batch_date)
+    recordings_root = _recordings_root()
+    cache_key = (recordings_root, batch_date)
     cached = _RECORDING_CHUNK_INDEX_CACHE.get(cache_key)
     if cached is not None:
         return cached
-    recordings_root = STATE_ROOT / "recordings"
     index: dict[int, list[Path]] = {}
     if recordings_root.exists():
         for recording_dir in recordings_root.glob(f"{batch_date}T*"):
@@ -2514,7 +2527,7 @@ def _discover_videos(limit: int) -> list[ReviewVideo]:
             )
             videos[video_id] = _merge_review_video(videos.get(video_id), update)
 
-    recordings_root = STATE_ROOT / "recordings"
+    recordings_root = _recordings_root()
     if recordings_root.exists():
         for recording_dir in recordings_root.iterdir():
             if not recording_dir.is_dir():
@@ -3952,6 +3965,8 @@ def run_fake_smoke(tmp_root: Path) -> int:
     original_jobs = globals()["JOBS_ROOT"]
     original_video_status = globals()["VIDEO_STATUS_ROOT"]
     original_training_datasets = globals()["TRAINING_DATASETS_ROOT"]
+    original_recordings_override = globals()["RECORDINGS_ROOT_OVERRIDE"]
+    original_sam_endpoint = globals()["SAM_ENDPOINT"]
     original_scan_roots = globals()["SCAN_ROOTS"]
     original_allowed = globals()["ALLOWED_ROOTS"]
     try:
@@ -3969,6 +3984,8 @@ def run_fake_smoke(tmp_root: Path) -> int:
         globals()["JOBS_ROOT"] = fake_review / "jobs"
         globals()["VIDEO_STATUS_ROOT"] = fake_review / "videos"
         globals()["TRAINING_DATASETS_ROOT"] = fake_state / "datasets"
+        globals()["RECORDINGS_ROOT_OVERRIDE"] = fake_state / "recordings"
+        globals()["SAM_ENDPOINT"] = ""
         globals()["SCAN_ROOTS"] = (fake_dataset / "datasets",)
         globals()["ALLOWED_ROOTS"] = (fake_dataset, fake_state, fake_review)
         for directory in (LABELS_ROOT, MASKS_ROOT, QUEUE_ROOT, JOBS_ROOT, VIDEO_STATUS_ROOT):
@@ -4134,6 +4151,8 @@ def run_fake_smoke(tmp_root: Path) -> int:
         globals()["JOBS_ROOT"] = original_jobs
         globals()["VIDEO_STATUS_ROOT"] = original_video_status
         globals()["TRAINING_DATASETS_ROOT"] = original_training_datasets
+        globals()["RECORDINGS_ROOT_OVERRIDE"] = original_recordings_override
+        globals()["SAM_ENDPOINT"] = original_sam_endpoint
         globals()["SCAN_ROOTS"] = original_scan_roots
         globals()["ALLOWED_ROOTS"] = original_allowed
 

@@ -276,6 +276,12 @@ frames per local day; use `--safety-negative-review-interval` and
 runs. For disk cleanup, keep the small `labels.csv` files and remove old
 `frames/` directories before touching raw session recordings.
 
+Raw session recordings can live on a separate mounted filesystem. Set
+`CAT_TV_RECORDINGS_ROOT` for the recorder, review backend, and offline tooling;
+keep labels, models, queues, and other small mutable state under
+`~/.openclaw/state/cat-tv-learning`. A service using a separate filesystem must
+require that mount and fail closed when its filesystem marker is absent.
+
 ## Jump Tracking
 
 Review tooling should transform measurement points into wall centimeters before
