@@ -8,8 +8,12 @@ the browser never uploads household frames to a cloud API.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import io
 import json
 import os
+import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -20,6 +24,10 @@ from PIL import Image
 
 _PREDICTOR: Any | None = None
 _MODEL_INFO: dict[str, Any] = {}
+_PREDICTOR_LOCK = threading.RLock()
+# SamPredictor owns one image embedding. Keep only that embedding's content
+# key; replacing it on a miss bounds memory while repeated prompts stay cheap.
+_CACHED_IMAGE_KEY: str | None = None
 
 
 def _normalise_point(point: Any) -> tuple[float, float] | None:
@@ -83,35 +91,39 @@ def _bbox(mask: np.ndarray) -> dict[str, float]:
 
 def _load_predictor() -> Any:
     global _PREDICTOR
-    if _PREDICTOR is not None:
+    with _PREDICTOR_LOCK:
+        if _PREDICTOR is not None:
+            return _PREDICTOR
+
+        checkpoint = os.environ.get("CAT_PROJECTOR_SAM_CHECKPOINT", "").strip()
+        if not checkpoint:
+            raise RuntimeError("CAT_PROJECTOR_SAM_CHECKPOINT is required")
+        checkpoint_path = Path(checkpoint).expanduser()
+        if not checkpoint_path.is_file():
+            raise RuntimeError(f"SAM checkpoint not found: {checkpoint_path}")
+
+        model_type = os.environ.get("CAT_PROJECTOR_SAM_MODEL_TYPE", "vit_b").strip() or "vit_b"
+        device = os.environ.get("CAT_PROJECTOR_SAM_DEVICE", "auto").strip() or "auto"
+
+        try:
+            import torch  # type: ignore[import-not-found]
+            from segment_anything import SamPredictor, sam_model_registry  # type: ignore[import-not-found]
+        except Exception as exc:
+            raise RuntimeError("Install official Segment Anything dependencies: torch and segment-anything") from exc
+
+        if device == "auto":
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = sam_model_registry[model_type](checkpoint=str(checkpoint_path))
+        model.to(device=device)
+        _PREDICTOR = SamPredictor(model)
+        _MODEL_INFO.update({"model_type": model_type, "checkpoint": str(checkpoint_path), "device": device})
         return _PREDICTOR
-
-    checkpoint = os.environ.get("CAT_PROJECTOR_SAM_CHECKPOINT", "").strip()
-    if not checkpoint:
-        raise RuntimeError("CAT_PROJECTOR_SAM_CHECKPOINT is required")
-    checkpoint_path = Path(checkpoint).expanduser()
-    if not checkpoint_path.is_file():
-        raise RuntimeError(f"SAM checkpoint not found: {checkpoint_path}")
-
-    model_type = os.environ.get("CAT_PROJECTOR_SAM_MODEL_TYPE", "vit_b").strip() or "vit_b"
-    device = os.environ.get("CAT_PROJECTOR_SAM_DEVICE", "auto").strip() or "auto"
-
-    try:
-        import torch  # type: ignore[import-not-found]
-        from segment_anything import SamPredictor, sam_model_registry  # type: ignore[import-not-found]
-    except Exception as exc:
-        raise RuntimeError("Install official Segment Anything dependencies: torch and segment-anything") from exc
-
-    if device == "auto":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = sam_model_registry[model_type](checkpoint=str(checkpoint_path))
-    model.to(device=device)
-    _PREDICTOR = SamPredictor(model)
-    _MODEL_INFO.update({"model_type": model_type, "checkpoint": str(checkpoint_path), "device": device})
-    return _PREDICTOR
 
 
 def segment(payload: dict[str, Any]) -> dict[str, Any]:
+    global _CACHED_IMAGE_KEY
+
+    started = time.perf_counter()
     positives = [_normalise_point(point) for point in payload.get("positive_points") or []]
     positives = [point for point in positives if point is not None]
     negatives = [_normalise_point(point) for point in payload.get("negative_points") or []]
@@ -123,24 +135,47 @@ def segment(payload: dict[str, Any]) -> dict[str, Any]:
     if not image_path.is_file():
         raise ValueError(f"image_path does not exist: {image_path}")
 
-    predictor = _load_predictor()
-    with Image.open(image_path) as image:
-        rgb = np.asarray(image.convert("RGB"))
+    hash_started = time.perf_counter()
+    image_bytes = image_path.read_bytes()
+    image_key = hashlib.sha256(image_bytes).hexdigest()
+    hash_ms = (time.perf_counter() - hash_started) * 1000
 
-    predictor.set_image(rgb)
+    decode_started = time.perf_counter()
+    with Image.open(io.BytesIO(image_bytes)) as image:
+        rgb = np.asarray(image.convert("RGB"))
+    decode_ms = (time.perf_counter() - decode_started) * 1000
+
     points = positives + negatives
     point_coords = np.asarray(points, dtype=np.float32)
     point_labels = np.asarray([1] * len(positives) + [0] * len(negatives), dtype=np.int32)
-    masks, scores, _logits = predictor.predict(
-        point_coords=point_coords,
-        point_labels=point_labels,
-        multimask_output=True,
-    )
+
+    with _PREDICTOR_LOCK:
+        model_started = time.perf_counter()
+        predictor = _load_predictor()
+        model_load_ms = (time.perf_counter() - model_started) * 1000
+        cache_hit = image_key == _CACHED_IMAGE_KEY
+        set_image_ms = 0.0
+        if not cache_hit:
+            set_image_started = time.perf_counter()
+            predictor.set_image(rgb)
+            set_image_ms = (time.perf_counter() - set_image_started) * 1000
+            _CACHED_IMAGE_KEY = image_key
+
+        predict_started = time.perf_counter()
+        masks, scores, _logits = predictor.predict(
+            point_coords=point_coords,
+            point_labels=point_labels,
+            multimask_output=True,
+        )
+        predict_ms = (time.perf_counter() - predict_started) * 1000
+
+    postprocess_started = time.perf_counter()
     order = np.argsort(scores)[::-1]
     best_mask = masks[int(order[0])].astype(bool)
     polygon = _component_polygon(best_mask)
     if len(polygon) < 3:
         raise ValueError("SAM returned an empty mask")
+    postprocess_ms = (time.perf_counter() - postprocess_started) * 1000
     return {
         "kind": "cat_projector_label_review_mask_v1",
         "source": "official_segment_anything",
@@ -148,6 +183,22 @@ def segment(payload: dict[str, Any]) -> dict[str, Any]:
         "bbox_xywh": _bbox(best_mask),
         "score": round(float(scores[int(order[0])]), 4),
         "model": _MODEL_INFO,
+        "cache": {
+            "hit": cache_hit,
+            "key": image_key[:16],
+            "capacity": 1,
+        },
+        "timing": {
+            "hash_ms": round(hash_ms, 3),
+            "decode_ms": round(decode_ms, 3),
+            "model_load_ms": round(model_load_ms, 3),
+            "set_image_ms": round(set_image_ms, 3),
+            "predict_ms": round(predict_ms, 3),
+            "postprocess_ms": round(postprocess_ms, 3),
+            "total_ms": round((time.perf_counter() - started) * 1000, 3),
+            "image_width": int(rgb.shape[1]),
+            "image_height": int(rgb.shape[0]),
+        },
     }
 
 
