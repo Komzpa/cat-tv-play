@@ -228,8 +228,14 @@ python3 scripts/cat_projector_safety_overlay_server.py \
   --port 8787 \
   --status-only \
   --ha-url http://192.168.100.128:8123 \
-  --ha-config-path ~/Dropbox/Reemxy/tasks-loop/Config/config.py
+  --ha-config-path ~/Dropbox/Reemxy/tasks-loop/Config/config.py \
+  --ha-source-video-entity input_text.cat_projector_video_url
 ```
+
+In status-only mode, `--ha-source-video-entity` makes source subtraction follow
+the URL stored for the active session. Keep `--source-video` as the startup and
+HA-read-error fallback; a rotation must not leave the camera filter decoding a
+different clip.
 
 When the Home Assistant active gate is configured, the camera/detector worker
 idles while both `input_boolean.cat_projector_session` and

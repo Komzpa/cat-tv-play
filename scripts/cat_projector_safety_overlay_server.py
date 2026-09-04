@@ -366,6 +366,58 @@ class ProjectorActiveGate:
         }
 
 
+class ProjectorSourceVideo:
+    def __init__(
+        self,
+        *,
+        fallback_source: str,
+        ha_url: str | None,
+        ha_config_path: Path | None,
+        entity_id: str | None,
+        poll_interval_seconds: float,
+        timeout_seconds: float,
+    ) -> None:
+        self._fallback_source = fallback_source
+        self._ha_url = ha_url
+        self._ha_config_path = ha_config_path
+        self._entity_id = entity_id
+        self._poll_interval_seconds = max(0.1, poll_interval_seconds)
+        self._timeout_seconds = max(0.1, timeout_seconds)
+        self._token: str | None = None
+        self._next_check = 0.0
+        self._source = fallback_source
+        self._error: str | None = None
+
+    def source(self, now: float) -> str:
+        if not self._ha_url or not self._ha_config_path or not self._entity_id:
+            return self._source
+        if now < self._next_check:
+            return self._source
+        self._next_check = now + self._poll_interval_seconds
+        try:
+            if self._token is None:
+                self._token = _load_ha_token(self._ha_config_path.expanduser())
+            candidate = _read_ha_state(
+                self._ha_url,
+                self._token,
+                self._entity_id,
+                timeout=self._timeout_seconds,
+            ).strip()
+            if candidate not in {"", "unknown", "unavailable"}:
+                self._source = candidate
+            self._error = None
+        except Exception as exc:
+            self._error = str(exc)
+        return self._source
+
+    def debug(self) -> dict[str, Any]:
+        return {
+            "source_video_entity": self._entity_id,
+            "source_video": self._source,
+            "source_video_error": self._error,
+        }
+
+
 def _parse_projector_polygon(value: str) -> tuple[tuple[float, float], ...]:
     if not value:
         return DEFAULT_PROJECTOR_POLYGON
@@ -1061,6 +1113,7 @@ class SafetyRuntime:
         self._source_frame: Image.Image | None = None
         self._source_frame_index = 0
         self._source_updated_at: float | None = None
+        self._source_video: str | None = None
         self._snapshot = SafetyComputationSnapshot()
         self._stop = False
 
@@ -1072,15 +1125,16 @@ class SafetyRuntime:
         with self._lock:
             return self._stop
 
-    def update_source_frame(self, source_frame: Image.Image, frame_index: int) -> None:
+    def update_source_frame(self, source_frame: Image.Image, frame_index: int, source_video: str) -> None:
         with self._lock:
             self._source_frame = source_frame
             self._source_frame_index = frame_index
             self._source_updated_at = time.monotonic()
+            self._source_video = source_video
 
-    def source_frame_snapshot(self) -> tuple[Image.Image | None, int, float | None]:
+    def source_frame_snapshot(self) -> tuple[Image.Image | None, int, float | None, str | None]:
         with self._lock:
-            return self._source_frame, self._source_frame_index, self._source_updated_at
+            return self._source_frame, self._source_frame_index, self._source_updated_at, self._source_video
 
     def update_snapshot(self, snapshot: SafetyComputationSnapshot) -> None:
         with self._lock:
@@ -1479,6 +1533,7 @@ def _build_detector(args: argparse.Namespace) -> MobileNetPersonDetector | Unava
 def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> None:
     detector = _build_detector(args)
     source_reference_frames: list[Image.Image] | None = None
+    source_reference_video: str | None = None
     active_gate = ProjectorActiveGate(
         ha_url=args.ha_url,
         ha_config_path=args.ha_config_path,
@@ -1537,17 +1592,18 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
             time.sleep(args.inactive_sample_interval)
             continue
 
-        if source_reference_frames is None:
+        source_frame, source_frame_index, source_updated_at, source_video = runtime.source_frame_snapshot()
+        if source_frame is None or source_video is None:
+            time.sleep(min(0.02, max(0.001, args.camera_sample_interval)))
+            continue
+
+        if source_reference_frames is None or source_video != source_reference_video:
             source_reference_frames = _sample_source_reference_frames(
-                str(args.source_video),
+                source_video,
                 source_size=args.source_size,
                 max_frames=args.source_reference_frames,
             )
-
-        source_frame, source_frame_index, source_updated_at = runtime.source_frame_snapshot()
-        if source_frame is None:
-            time.sleep(min(0.02, max(0.001, args.camera_sample_interval)))
-            continue
+            source_reference_video = source_video
 
         started = time.monotonic()
         sample_index += 1
@@ -1692,6 +1748,7 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
             "detector_ms": round(detector_ms, 1) if detector_ms is not None else None,
             "source_filter_ms": round(source_filter_ms, 1) if source_filter_ms is not None else None,
             "source_frame_index": source_frame_index,
+            "source_video": source_video,
             "source_frame_age_ms": (
                 round((finished - source_updated_at) * 1000.0, 1) if source_updated_at is not None else None
             ),
@@ -1723,7 +1780,7 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
                 result=result,
                 source_filter_skipped=source_filter_skipped,
                 performance=performance,
-                source_video=str(args.source_video),
+                source_video=source_video,
                 max_frames_per_day=args.safety_negative_review_max_frames_per_day,
             )
             if rows_written:
@@ -1772,7 +1829,7 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
             started = time.monotonic()
             frame_index += 1
             source_frame = _frame_from_capture(capture, source_size=args.source_size)
-            runtime.update_source_frame(source_frame, frame_index)
+            runtime.update_source_frame(source_frame, frame_index, str(args.source_video))
             snapshot = runtime.snapshot()
             result = snapshot.result
             rendered_started = time.monotonic()
@@ -1830,9 +1887,18 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
 
 def _run_status_only(args: argparse.Namespace, *, state: SafetyOverlayState) -> None:
     capture: Any | None = None
+    active_source_video: str | None = None
     status_interval = 1.0 / max(1, args.fps)
     source_interval = 1.0 / max(1, args.source_tracking_fps)
     runtime = SafetyRuntime()
+    source_video = ProjectorSourceVideo(
+        fallback_source=str(args.source_video),
+        ha_url=args.ha_url,
+        ha_config_path=args.ha_config_path,
+        entity_id=args.ha_source_video_entity,
+        poll_interval_seconds=args.ha_source_video_poll_interval,
+        timeout_seconds=args.ha_active_timeout,
+    )
     safety_worker = threading.Thread(target=_run_safety_worker, args=(args,), kwargs={"runtime": runtime})
     safety_worker.daemon = True
     safety_worker.start()
@@ -1846,11 +1912,16 @@ def _run_status_only(args: argparse.Namespace, *, state: SafetyOverlayState) -> 
             snapshot = runtime.snapshot()
             worker_idle = bool(snapshot.performance.get("safety_worker_idle"))
             if not worker_idle and started >= next_source_at:
-                if capture is None:
-                    capture = _open_video_capture(str(args.source_video))
+                selected_source_video = source_video.source(started)
+                if capture is None or selected_source_video != active_source_video:
+                    if capture is not None:
+                        capture.release()
+                    capture = _open_video_capture(selected_source_video)
+                    active_source_video = selected_source_video
+                    frame_index = 0
                 frame_index += 1
                 source_frame = _frame_from_capture(capture, source_size=args.source_size)
-                runtime.update_source_frame(source_frame, frame_index)
+                runtime.update_source_frame(source_frame, frame_index, active_source_video)
                 next_source_at = started + source_interval
                 snapshot = runtime.snapshot()
             elif worker_idle:
@@ -1880,6 +1951,7 @@ def _run_status_only(args: argparse.Namespace, *, state: SafetyOverlayState) -> 
                 "safety_result_age_ms": safety_age_ms,
                 "max_active_overlay_age_ms": round(args.max_active_overlay_age * 1000.0, 1),
                 "hls_encoder_enabled": False,
+                **source_video.debug(),
             }
             state.update(
                 result,
@@ -2039,6 +2111,11 @@ def serve(args: argparse.Namespace) -> int:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-video", required=True, help="Local path or URL to the Cat TV source video")
+    parser.add_argument(
+        "--ha-source-video-entity",
+        help="Home Assistant entity whose state is the active source URL in status-only mode",
+    )
+    parser.add_argument("--ha-source-video-poll-interval", type=float, default=1.0)
     parser.add_argument("--camera-snapshot-url", default=DEFAULT_CAMERA_SNAPSHOT_URL)
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8787)

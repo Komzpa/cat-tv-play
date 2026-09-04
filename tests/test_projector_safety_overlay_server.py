@@ -24,6 +24,31 @@ def test_runtime_parse_args_disables_residual_occluder_fallback_by_default() -> 
     assert args.camera_snapshot_timeout == 2.0
     assert args.safety_negative_review_interval == 60.0
     assert args.safety_negative_review_max_frames_per_day == 720
+    assert args.ha_source_video_entity is None
+    assert args.ha_source_video_poll_interval == 1.0
+
+
+def test_projector_source_video_tracks_ha_entity_and_keeps_last_good_source(monkeypatch) -> None:
+    values = iter(["http://ha/local/cat-tv/flies.mp4", "unavailable"])
+    monkeypatch.setattr(overlay_server, "_load_ha_token", lambda path: "token")
+    monkeypatch.setattr(
+        overlay_server,
+        "_read_ha_state",
+        lambda *args, **kwargs: next(values),
+    )
+    source = overlay_server.ProjectorSourceVideo(
+        fallback_source="http://ha/local/cat-tv/october.mp4",
+        ha_url="http://ha",
+        ha_config_path=Path("config.py"),
+        entity_id="input_text.cat_projector_video_url",
+        poll_interval_seconds=1.0,
+        timeout_seconds=1.0,
+    )
+
+    assert source.source(1.0) == "http://ha/local/cat-tv/flies.mp4"
+    assert source.source(1.5) == "http://ha/local/cat-tv/flies.mp4"
+    assert source.source(2.0) == "http://ha/local/cat-tv/flies.mp4"
+    assert source.debug()["source_video_error"] is None
 
 
 def test_runtime_parse_args_can_enable_residual_occluder_fallback() -> None:
