@@ -14,6 +14,7 @@ import base64
 import csv
 import hashlib
 import importlib.util
+import ipaddress
 import json
 import math
 import mimetypes
@@ -42,6 +43,8 @@ WEB_ROOT = REPO_ROOT / "web"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+import cat_tv_play_config as site_config  # noqa: E402
+
 
 def _default_dataset_root() -> Path:
     configured = os.environ.get("CAT_TV_LEARNING_ROOT")
@@ -52,15 +55,15 @@ def _default_dataset_root() -> Path:
     if repo_dataset.exists():
         return repo_dataset
 
-    tasks_loop_dataset = Path("~/Dropbox/Reemxy/tasks-loop/datasets/cat-tv-learning").expanduser()
-    if tasks_loop_dataset.exists():
-        return tasks_loop_dataset
+    for extra in site_config.extra_corpus_roots():
+        if extra.exists():
+            return extra
 
     return repo_dataset
 
 
 DATASET_ROOT = _default_dataset_root()
-STATE_ROOT = Path("~/.openclaw/state/cat-tv-learning").expanduser()
+STATE_ROOT = site_config.learning_root()
 RECORDINGS_ROOT_OVERRIDE: Path | None = None
 
 
@@ -2942,13 +2945,13 @@ def _is_local_sam_endpoint(endpoint: str) -> bool:
     if parsed.scheme not in {"http", "https"}:
         return False
     host = (parsed.hostname or "").lower()
-    if host in {"localhost", "127.0.0.1", "::1"}:
+    if host == "localhost":
         return True
-    return (
-        host.startswith("10.")
-        or host.startswith("192.168.")
-        or any(host.startswith(f"172.{octet}.") for octet in range(16, 32))
-    )
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_private
 
 
 def _segment_with_optional_sam(

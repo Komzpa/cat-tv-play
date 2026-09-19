@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 import time
 import urllib.request
 from pathlib import Path
@@ -14,11 +15,17 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+import cat_tv_play_config as site_config  # noqa: E402
+
 DEFAULT_STATUS_URL = "http://127.0.0.1:8787/status.json"
 DEFAULT_CAMERA_FRAME_URL = "http://127.0.0.1:8787/camera.jpg"
 DEFAULT_DEBUG_CAMERA_URL = "http://127.0.0.1:8787/debug-camera.jpg"
-DEFAULT_CAMERA_SNAPSHOT_URL = "http://192.168.100.39:8081/shot.jpg"
-DEFAULT_ADB_SERIAL = "192.168.100.39:5555"
+DEFAULT_CAMERA_SNAPSHOT_URL = site_config.camera_snapshot_url()
+DEFAULT_ADB_SERIAL = site_config.camera_adb_serial()
 RESIDUAL_ONLY_SOURCE = "source_subtracted_human_occluder"
 
 

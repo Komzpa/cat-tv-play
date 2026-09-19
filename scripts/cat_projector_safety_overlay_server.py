@@ -27,6 +27,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+import cat_tv_play_config as site_config  # noqa: E402
+
 
 def _load_projector_safety_module() -> Any:
     path = REPO_ROOT / "custom_components" / "cat_tv_play" / "projector_safety.py"
@@ -57,17 +59,17 @@ SafetyOverlayResult = projector_safety.SafetyOverlayResult
 compute_eye_safety_overlay = projector_safety.compute_eye_safety_overlay
 render_eye_safety_overlay = projector_safety.render_eye_safety_overlay
 
-DEFAULT_CAMERA_SNAPSHOT_URL = "http://192.168.100.39:8081/shot.jpg"
+DEFAULT_CAMERA_SNAPSHOT_URL = site_config.camera_snapshot_url()
 DEFAULT_PROJECTOR_POLYGON = (
     (40.22, 57.27),
     (937.92, 101.0),
     (908.0, 599.0),
     (48.16, 680.97),
 )
-DEFAULT_HUMAN_DETECTOR_DIR = Path("~/.openclaw/state/cat-tv-learning/models/opencv-mobilenet-ssd").expanduser()
+DEFAULT_HUMAN_DETECTOR_DIR = site_config.models_root() / "opencv-mobilenet-ssd"
 DEFAULT_HUMAN_DETECTOR_PROTOTXT = DEFAULT_HUMAN_DETECTOR_DIR / "MobileNetSSD_deploy.prototxt"
 DEFAULT_HUMAN_DETECTOR_MODEL = DEFAULT_HUMAN_DETECTOR_DIR / "MobileNetSSD_deploy.caffemodel"
-DEFAULT_LEARNING_ROOT = Path("~/.openclaw/state/cat-tv-learning").expanduser()
+DEFAULT_LEARNING_ROOT = site_config.learning_root()
 SAFETY_REVIEW_ROOT = DEFAULT_LEARNING_ROOT / "safety-review"
 PERSON_CLASS_ID = 15
 DEFAULT_SAFETY_NEGATIVE_REVIEW_INTERVAL = 60.0

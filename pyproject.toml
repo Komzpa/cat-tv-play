@@ -9,12 +9,22 @@ dependencies = [
   "catboost",
   "numpy",
   "pillow",
+  "pyyaml",
   "scipy",
 ]
 
 [project.optional-dependencies]
 review = [
   "opencv-python-headless",
+]
+recorder = [
+  "requests",
+]
+watchdog = [
+  "websockets",
+]
+meow = [
+  "scikit-learn",
 ]
 segmentation = [
   "ultralytics",
@@ -27,6 +37,7 @@ sam = [
 test = [
   "opencv-python-headless",
   "pytest",
+  "requests",
   "ruff",
   "voluptuous",
 ]

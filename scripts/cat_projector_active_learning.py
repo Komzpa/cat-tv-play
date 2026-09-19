@@ -31,6 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+import cat_tv_play_config as site_config  # noqa: E402
 from scripts import cat_projector_frame_detector as detector  # noqa: E402
 from scripts import cat_projector_label_review_server as review  # noqa: E402
 
@@ -77,7 +78,7 @@ assert _TRACKING_SPEC.loader is not None
 sys.modules[_TRACKING_SPEC.name] = cat_tracking
 _TRACKING_SPEC.loader.exec_module(cat_tracking)
 
-STATE_ROOT = Path("~/.openclaw/state/cat-tv-learning").expanduser()
+STATE_ROOT = site_config.learning_root()
 RESCORES_ROOT = STATE_ROOT / "label-review" / "rescores"
 DEFAULT_CALIBRATION_PATH = STATE_ROOT / "calibrations" / "living_room_wall_20260514_sher_pilot.json"
 DEFAULT_SEGMENTATION_MODEL = os.environ.get("CAT_PROJECTOR_SEGMENTATION_MODEL")

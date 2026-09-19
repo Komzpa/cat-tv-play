@@ -14,6 +14,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+import cat_tv_play_config as site_config  # noqa: E402
+
 _FEEDBACK_SPEC = importlib.util.spec_from_file_location(
     "cat_tv_play_projector_feedback",
     REPO_ROOT / "custom_components" / "cat_tv_play" / "projector_feedback.py",
@@ -24,11 +26,11 @@ feedback = importlib.util.module_from_spec(_FEEDBACK_SPEC)
 sys.modules[_FEEDBACK_SPEC.name] = feedback
 _FEEDBACK_SPEC.loader.exec_module(feedback)
 
-STATE_ROOT = Path("~/.openclaw/state/cat-tv-learning").expanduser()
+STATE_ROOT = site_config.learning_root()
 DEFAULT_RECORDINGS_ROOT = Path(
     os.environ.get("CAT_TV_RECORDINGS_ROOT", str(STATE_ROOT / "recordings"))
 ).expanduser()
-DEFAULT_EVENT_ROOT = Path("/srv/cold-storage/hass/audio/vigi_audio_events")
+DEFAULT_EVENT_ROOT = site_config.audio_events_root()
 
 
 def _latest_outcome_ledger() -> Path:
@@ -66,7 +68,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--database-url",
         default="",
-        help="Postgres URL for --write-database, for example postgresql:///openclaw_acoustic.",
+        help="Postgres URL for --write-database; defaults to the configured database.url.",
     )
     parser.add_argument(
         "--event-root",

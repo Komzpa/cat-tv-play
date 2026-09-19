@@ -21,11 +21,17 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+import cat_tv_play_config as site_config  # noqa: E402
+
 OVERLAY_SERVER_PATH = REPO_ROOT / "scripts" / "cat_projector_safety_overlay_server.py"
-DEFAULT_ADB_SERIAL = "192.168.100.39:5555"
-DEFAULT_CAMERA_SNAPSHOT_URL = "http://192.168.100.39:8081/shot.jpg"
-DEFAULT_VIDEO_URL = "http://192.168.100.74:8787/stream.m3u8"
-DEFAULT_LIVE_STATUS_URL = "http://192.168.100.74:8787/status.json"
+DEFAULT_ADB_SERIAL = site_config.camera_adb_serial()
+DEFAULT_CAMERA_SNAPSHOT_URL = site_config.camera_snapshot_url()
+DEFAULT_VIDEO_URL = site_config.service_url("overlay_video_url")
+DEFAULT_LIVE_STATUS_URL = site_config.service_url("overlay_status_url")
+DEFAULT_ADVERTISE_HOST = site_config.service_url("overlay_advertise_host", "127.0.0.1")
 
 
 def _load_overlay_server() -> Any:
@@ -113,9 +119,9 @@ def _start_android_overlay(serial: str, *, video_url: str, status_url: str, sour
         "am",
         "start",
         "-a",
-        "by.openclaw.catprojectorcamera.DISPLAY_RECT",
+        site_config.projector_app_action("DISPLAY_RECT"),
         "-n",
-        "by.openclaw.catprojectorcamera/.ProjectorDisplayActivity",
+        site_config.projector_app_component("ProjectorDisplayActivity"),
         "--es",
         "video_url",
         video_url,
@@ -363,7 +369,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--video-url", default=DEFAULT_VIDEO_URL)
     parser.add_argument("--restore-status-url", default=DEFAULT_LIVE_STATUS_URL)
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--advertise-host", default="192.168.100.74")
+    parser.add_argument("--advertise-host", default=DEFAULT_ADVERTISE_HOST)
     parser.add_argument("--port", type=int, default=8798)
     parser.add_argument(
         "--source-size",

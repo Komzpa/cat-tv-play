@@ -93,7 +93,7 @@ Reviewed local masks can be exported to YOLO segmentation format:
 
 ```bash
 python3 scripts/export_cat_projector_yolo_segmentation.py \
-  --output ~/.openclaw/state/cat-tv-learning/exports/sher-yolo-seg-$(date -u +%Y%m%dT%H%M%SZ) \
+  --output $CAT_TV_LEARNING_ROOT/exports/sher-yolo-seg-$(date -u +%Y%m%dT%H%M%SZ) \
   --symlink
 ```
 
@@ -130,7 +130,7 @@ as a disagreement source.
 Current real export evidence from May 23, 2026:
 
 - export dir:
-  `~/.openclaw/state/cat-tv-learning/exports/sher-yolo-seg-20260523T013502Z`
+  `$CAT_TV_LEARNING_ROOT/exports/sher-yolo-seg-20260523T013502Z`
 - dataset hash:
   `b2560fbe2fb256d991644acc0c362c9d2ff2e0aa0e4698e9be1cc03afb0369ea`
 - frames: `463`; positives: `252`; hard negatives: `211`;
@@ -143,9 +143,9 @@ latest Sher checkpoint, not from generic YOLO weights:
 
 ```bash
 make train-sher-yolo-seg \
-  YOLO_EXPORT=~/.openclaw/state/cat-tv-learning/exports/sher-yolo-seg-20260523T013502Z \
-  YOLO_BASE_MODEL=~/.openclaw/state/cat-tv-learning/models/sher-yolo-seg-first.pt \
-  YOLO_MODEL=~/.openclaw/state/cat-tv-learning/models/sher-yolo-seg.pt \
+  YOLO_EXPORT=$CAT_TV_LEARNING_ROOT/exports/sher-yolo-seg-20260523T013502Z \
+  YOLO_BASE_MODEL=$CAT_TV_LEARNING_ROOT/models/sher-yolo-seg-first.pt \
+  YOLO_MODEL=$CAT_TV_LEARNING_ROOT/models/sher-yolo-seg.pt \
   YOLO_DEVICE=cuda:0
 ```
 
@@ -153,16 +153,16 @@ Equivalent direct command:
 
 ```bash
 python3 scripts/cat_projector_yolo_segmentation.py train \
-  --dataset ~/.openclaw/state/cat-tv-learning/exports/sher-yolo-seg-20260523T013502Z/dataset.yaml \
-  --base-model ~/.openclaw/state/cat-tv-learning/models/sher-yolo-seg-first.pt \
-  --out ~/.openclaw/state/cat-tv-learning/models/sher-yolo-seg.pt \
+  --dataset $CAT_TV_LEARNING_ROOT/exports/sher-yolo-seg-20260523T013502Z/dataset.yaml \
+  --base-model $CAT_TV_LEARNING_ROOT/models/sher-yolo-seg-first.pt \
+  --out $CAT_TV_LEARNING_ROOT/models/sher-yolo-seg.pt \
   --epochs 80 --imgsz 960 --batch 8 --device cuda:0 \
   --optimizer AdamW --lr0 0.0002 --lrf 0.1 --warmup-epochs 0
 ```
 
 Each run writes command/config, git state, dataset hash/summary, base model hash,
 training mode, parent model hash for fine-tunes, metrics, and model path under
-`~/.openclaw/state/cat-tv-learning/yolo-runs/`.
+`$CAT_TV_LEARNING_ROOT/yolo-runs/`.
 
 Generic YOLO segmentation weights such as `yolo11n-seg.pt` are only for a new
 Sher lineage/bootstrap. The train command refuses those weights by default
@@ -180,9 +180,9 @@ Evaluate and generate visual error reports:
 
 ```bash
 python3 scripts/cat_projector_yolo_segmentation.py eval \
-  --dataset ~/.openclaw/state/cat-tv-learning/exports/sher-yolo-seg-20260523T013502Z/dataset.yaml \
-  --model ~/.openclaw/state/cat-tv-learning/models/sher-yolo-seg.pt \
-  --out ~/.openclaw/state/cat-tv-learning/evals/sher-yolo-seg-$(date -u +%Y%m%dT%H%M%SZ) \
+  --dataset $CAT_TV_LEARNING_ROOT/exports/sher-yolo-seg-20260523T013502Z/dataset.yaml \
+  --model $CAT_TV_LEARNING_ROOT/models/sher-yolo-seg.pt \
+  --out $CAT_TV_LEARNING_ROOT/evals/sher-yolo-seg-$(date -u +%Y%m%dT%H%M%SZ) \
   --confidence-threshold 0.55
 ```
 

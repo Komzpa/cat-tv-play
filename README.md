@@ -11,7 +11,7 @@ optional recording/snapshot switches on for review, stores human or automation
 observations, and measures jump height on a wall from camera frames.
 
 The integration is intentionally generic. It does not assume a specific cat, a
-specific projector, OpenClaw, Frigate, Android TV, or any private entity names.
+specific projector, camera stack, Android TV, or any private entity names.
 House-specific automations should react to the Cat TV session service result,
 `sensor.cat_tv_play_session`, or local helper states. Avoid using
 `automation.trigger` to call another policy automation directly; in Home
@@ -80,7 +80,7 @@ Then call:
 ```yaml
 service: cat_tv_play.start_session
 data:
-  media_url: "http://homeassistant.local:8123/local/cat-tv/bugs.mp4"
+  media_url: "http://home-assistant.example.test:8123/local/cat-tv/bugs.mp4"
 ```
 
 Stop:
@@ -223,11 +223,11 @@ encode or serve the playable video in this mode:
 ```bash
 python3 scripts/cat_projector_safety_overlay_server.py \
   --source-video /config/www/cat-tv/current.mp4 \
-  --camera-snapshot-url http://192.168.100.39:8081/shot.jpg \
+  --camera-snapshot-url http://camera.example.test:8081/shot.jpg \
   --host 0.0.0.0 \
   --port 8787 \
   --status-only \
-  --ha-url http://192.168.100.128:8123 \
+  --ha-url http://home-assistant.example.test:8123 \
   --ha-config-path ~/Dropbox/Reemxy/tasks-loop/Config/config.py
 ```
 
@@ -244,8 +244,8 @@ path and preserves smooth native playback while black zones are drawn by the
 Android overlay:
 
 ```bash
-adb -s 192.168.100.39:5555 shell am start \
-  -a by.openclaw.catprojectorcamera.DISPLAY_RECT \
+adb -s camera.example.test:5555 shell am start \
+  -a com.example.catprojectorcamera.DISPLAY_RECT \
   --es video_url "http://<ha-host>:8123/local/cat-tv/current.mp4" \
   --es overlay_status_url "http://<overlay-host>:8787/status.json" \
   --ei source_width 1280 --ei source_height 720
@@ -268,7 +268,7 @@ it expire. This smooths detector dropouts without returning to a long static
 black-square hold.
 
 Safety-negative review frames under
-`~/.openclaw/state/cat-tv-learning/safety-review/YYYYMMDD/frames/` are generated
+`$CAT_TV_LEARNING_ROOT/safety-review/YYYYMMDD/frames/` are generated
 debug/training candidates, not the canonical recording source. The server
 samples them at most once per minute by default and stops after 720 generated
 frames per local day; use `--safety-negative-review-interval` and
@@ -279,7 +279,7 @@ runs. For disk cleanup, keep the small `labels.csv` files and remove old
 Raw session recordings can live on a separate mounted filesystem. Set
 `CAT_TV_RECORDINGS_ROOT` for the recorder, review backend, and offline tooling;
 keep labels, models, queues, and other small mutable state under
-`~/.openclaw/state/cat-tv-learning`. A service using a separate filesystem must
+`$CAT_TV_LEARNING_ROOT`. A service using a separate filesystem must
 require that mount and fail closed when its filesystem marker is absent.
 
 ## Jump Tracking
@@ -310,7 +310,7 @@ Reviewed masks can be exported for a Sher-specific YOLO segmentation model:
 
 ```bash
 python3 scripts/export_cat_projector_yolo_segmentation.py \
-  --output ~/.openclaw/state/cat-tv-learning/exports/sher-yolo-seg-$(date -u +%Y%m%dT%H%M%SZ) \
+  --output $CAT_TV_LEARNING_ROOT/exports/sher-yolo-seg-$(date -u +%Y%m%dT%H%M%SZ) \
   --symlink
 ```
 
@@ -320,12 +320,12 @@ base model:
 ```bash
 make validate-sher-yolo-seg
 make train-sher-yolo-seg \
-  YOLO_EXPORT=~/.openclaw/state/cat-tv-learning/exports/sher-yolo-seg-20260523T013502Z \
+  YOLO_EXPORT=$CAT_TV_LEARNING_ROOT/exports/sher-yolo-seg-20260523T013502Z \
   YOLO_BASE_MODEL=/path/to/local/yolo11n-seg.pt \
-  YOLO_MODEL=~/.openclaw/state/cat-tv-learning/models/sher-yolo-seg.pt
+  YOLO_MODEL=$CAT_TV_LEARNING_ROOT/models/sher-yolo-seg.pt
 make eval-sher-yolo-seg \
-  YOLO_EXPORT=~/.openclaw/state/cat-tv-learning/exports/sher-yolo-seg-20260523T013502Z \
-  YOLO_MODEL=~/.openclaw/state/cat-tv-learning/models/sher-yolo-seg.pt
+  YOLO_EXPORT=$CAT_TV_LEARNING_ROOT/exports/sher-yolo-seg-20260523T013502Z \
+  YOLO_MODEL=$CAT_TV_LEARNING_ROOT/models/sher-yolo-seg.pt
 ```
 
 Then rescore with a local segmentation model:
@@ -371,7 +371,7 @@ python3 scripts/cat_projector_label_review_server.py --host 0.0.0.0 --port 8790 
 By default it reads `CAT_TV_LEARNING_ROOT`, a repo-local
 `datasets/cat-tv-learning`, or the house `tasks-loop` dataset if present, and
 writes labels/masks/actions under
-`~/.openclaw/state/cat-tv-learning/label-review/`. Household frames stay on the
+`$CAT_TV_LEARNING_ROOT/label-review/`. Household frames stay on the
 local machine. The review backend uses
 `http://127.0.0.1:8766/segment` by default for promptable masks; set
 `CAT_PROJECTOR_SAM_ENDPOINT` only to override or explicitly clear that local
@@ -384,9 +384,9 @@ After a review pass, run the repo-owned offline active-learning iteration:
 python3 scripts/cat_projector_active_learning.py --jobs 16
 ```
 
-It trains `~/.openclaw/state/cat-tv-learning/models/cat_projector_candidate_detector_v1.cbm`,
+It trains `$CAT_TV_LEARNING_ROOT/models/cat_projector_candidate_detector_v1.cbm`,
 rescores original corpus frames, and writes the next uncertainty queue under
-`~/.openclaw/state/cat-tv-learning/label-review/rescores/`.
+`$CAT_TV_LEARNING_ROOT/label-review/rescores/`.
 
 See [docs/label-review.md](docs/label-review.md).
 
@@ -404,8 +404,55 @@ condition:
 action:
   - service: cat_tv_play.start_session
     data:
-      media_url: "http://homeassistant.local:8123/local/cat-tv/jump-ladder.mp4"
+      media_url: "http://home-assistant.example.test:8123/local/cat-tv/jump-ladder.mp4"
 ```
+
+## Site Configuration
+
+Nothing in this repository names one home. Every host, address, storage path,
+device, entity id, token location, and outbound notification command lives in
+one ignored file:
+
+```bash
+cp deploy/private.example.yml deploy/private.yml
+$EDITOR deploy/private.yml
+```
+
+`cat_tv_play_config.py` loads it. Each key also has an environment variable
+(`ENV_OVERRIDES` in that module lists them), which is how the units in
+`deploy/systemd/` pass site values without a config file; see
+[deploy/README.md](deploy/README.md). `CAT_TV_PLAY_CONFIG` points at a config
+file outside the checkout.
+
+With no configuration at all, the scripts fall back to
+`~/.local/share/cat-tv-play/learning` for state and refuse to talk to a Home
+Assistant or a camera, so a fresh checkout reaches nothing.
+
+Two integrations stay pluggable rather than assumed:
+
+- `notify.command` is the argv of whatever delivers a clip; `{text}` becomes
+  the caption and media paths are appended. Empty means no notifications.
+- the meow models read acoustic-event sidecars written by a separate audio
+  project. `cat_tv_play_audio_tagging.py` imports that project's helpers;
+  `CAT_TV_AUDIO_TAGGING_MODULE` and `CAT_TV_AUDIO_TAGGING_PATH` say where it is.
+
+## Offline Tooling
+
+Beyond the review UI and the active-learning loop, `scripts/` holds the
+session-side tools:
+
+| Script | Purpose |
+| --- | --- |
+| `cat_projector_learning_recorder.py` | records projector-camera sessions while Home Assistant reports a session, verifies chunks, and renders publishable jump clips |
+| `cat_projector_live_jump_watch.py` | watches the camera live and annotates calibrated jump peaks |
+| `cat_projector_safety_watchdog.py` | fails the lamp closed when the eye-safety overlay stops answering |
+| `cat_projector_meow_watchdog.py` | starts a session from Home Assistant meow events |
+| `measure_cat_projector_jump_height.py` | wall-plane geometry: turns annotated image points into centimeters |
+| `build_cat_projector_jump_review.py` | contact sheets and annotation templates from recorded chunks |
+| `build_cat_projector_labeling_package.py` | local labeling packages from recordings |
+| `build_cat_projector_telegram_clips.py` | a local outbox of reviewed clips |
+| `cat_projector_clip_policy.py` | camera human-presence check shared by the recorder |
+| `sher_meow_intent_model.py`, `score_cat_meow_context_model.py`, `train_sher_meow_model.py` | meow intent and context models over acoustic-event sidecars |
 
 ## Development
 

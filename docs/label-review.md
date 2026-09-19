@@ -29,7 +29,7 @@ the local API namespace `cat_projector_label_review`:
   status without modifying frame labels;
 - `GET /api/cat-projector-label-review/cases` lists loose local review frames
   from `CAT_TV_LEARNING_ROOT`, repo-local `datasets/cat-tv-learning`, and
-  `~/.openclaw/state/cat-tv-learning` recordings/reviews/datasets;
+  `$CAT_TV_LEARNING_ROOT` recordings/reviews/datasets;
 - `GET /api/cat-projector-label-review/file/<token>` serves only allowlisted
   local files from those corpus roots;
 - `POST /api/cat-projector-label-review/segment` proxies positive/negative
@@ -55,9 +55,9 @@ paths or its own file tokens and rejects paths outside the configured corpus and
 state roots.
 
 Set `CAT_TV_RECORDINGS_ROOT` when raw session recordings are stored outside
-`~/.openclaw/state/cat-tv-learning/recordings`. The review backend adds that
+`$CAT_TV_LEARNING_ROOT/recordings`. The review backend adds that
 explicit root to its scan and file allowlists; labels, queues, models, and other
-small review state remain under `~/.openclaw/state/cat-tv-learning`.
+small review state remain under `$CAT_TV_LEARNING_ROOT`.
 
 ## Video-First Review Workflow
 
@@ -157,7 +157,7 @@ not need old rendered panes to count as reviewed evidence.
 Durable state is written under:
 
 ```text
-~/.openclaw/state/cat-tv-learning/label-review/
+$CAT_TV_LEARNING_ROOT/label-review/
   labels/<case_id>.json
   masks/<case_id>/<mask_id>.json
   actions/<action_id>.json
@@ -245,10 +245,10 @@ python3 scripts/cat_projector_active_learning.py --jobs 16
 ```
 
 That legacy command materializes the current review labels into
-`~/.openclaw/state/cat-tv-learning/datasets/`, trains
-`~/.openclaw/state/cat-tv-learning/models/cat_projector_candidate_detector_v1.cbm`,
+`$CAT_TV_LEARNING_ROOT/datasets/`, trains
+`$CAT_TV_LEARNING_ROOT/models/cat_projector_candidate_detector_v1.cbm`,
 rescores all reviewable input frames, and writes fresh uncertainty data under
-`~/.openclaw/state/cat-tv-learning/label-review/rescores/`. It also remeasures
+`$CAT_TV_LEARNING_ROOT/label-review/rescores/`. It also remeasures
 per-frame jump heights from the fresh best masks/detections and writes
 `jump_heights.json` plus `jump_heights_latest.json` for the video playlist.
 Generated review UI training-package copies are excluded from the next review
@@ -314,7 +314,7 @@ target is trainable. Promotion to a trained/deployed projector-outcome model is
 blocked until the exact target has both positive and negative examples; current
 positive-only active-play rows are review evidence, not a deployable classifier.
 
-Use `--write-database --database-url postgresql:///openclaw_acoustic` for the
+Use `--write-database --database-url postgresql:///cat_tv_play` for the
 canonical training surface. It writes one projector outcome class per meow under
 the current default acoustic class set:
 `cat_meow_projector_play`, `cat_meow_projector_no_play`, or the audit bucket
@@ -341,7 +341,7 @@ Run the backend on the machine that owns the corpus, then point a
 http://<host>:8790/calibration-tools/projector-wall-calibrator.html
 ```
 
-The Darafei house package in `tasks-loop` keeps the local sidebar and systemd
+The private house package outside this repository keeps the local sidebar and systemd
 wrapper in sync, but should reference this repository as the implementation
 source.
 
@@ -364,5 +364,5 @@ visible.
 
 Stop the local backend service and remove the Home Assistant panel iframe or
 point it back to an older static calibrator copy. Human labels and masks are
-plain JSON under `~/.openclaw/state/cat-tv-learning/label-review/`; keep or move
+plain JSON under `$CAT_TV_LEARNING_ROOT/label-review/`; keep or move
 that directory deliberately before deleting it.

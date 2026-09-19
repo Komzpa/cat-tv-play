@@ -21,7 +21,10 @@ from PIL import Image, ImageDraw
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-DEFAULT_STATE_ROOT = Path("~/.openclaw/state/cat-tv-learning").expanduser()
+
+import cat_tv_play_config as site_config  # noqa: E402
+
+DEFAULT_STATE_ROOT = site_config.learning_root()
 DEFAULT_CALIBRATION = DEFAULT_STATE_ROOT / "calibrations" / "living_room_wall_20260514_sher_pilot.json"
 
 

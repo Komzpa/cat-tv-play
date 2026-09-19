@@ -20,12 +20,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+import numpy as np  # noqa: E402
+from PIL import Image, ImageDraw, ImageFont  # noqa: E402
+
+import cat_tv_play_config as site_config  # noqa: E402
 
 try:
     from catboost import CatBoostClassifier, Pool
@@ -34,8 +36,8 @@ except Exception:  # pragma: no cover - CLI reports this clearly.
     Pool = None  # type: ignore[assignment]
 
 
-DEFAULT_DATASETS_ROOT = Path("~/.openclaw/state/cat-tv-learning/datasets").expanduser()
-DEFAULT_MODELS_ROOT = Path("~/.openclaw/state/cat-tv-learning/models").expanduser()
+DEFAULT_DATASETS_ROOT = site_config.datasets_root()
+DEFAULT_MODELS_ROOT = site_config.models_root()
 DEFAULT_MODEL_PATH = DEFAULT_MODELS_ROOT / "cat_projector_candidate_detector_v1.cbm"
 DEFAULT_METADATA_PATH = DEFAULT_MODELS_ROOT / "cat_projector_candidate_detector_v1.metadata.json"
 BUNDLED_MODELS_ROOT = REPO_ROOT / "datasets" / "cat-tv-learning" / "detector-models"

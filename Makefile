@@ -1,4 +1,5 @@
-STATE_ROOT ?= $(HOME)/.openclaw/state/cat-tv-learning
+# Site data root; deploy/private.yml documents the same value for the Python entry points.
+STATE_ROOT ?= $(if $(CAT_TV_LEARNING_ROOT),$(CAT_TV_LEARNING_ROOT),$(HOME)/.local/share/cat-tv-play/learning)
 YOLO_EXPORT ?= $(STATE_ROOT)/exports/sher-yolo-seg
 YOLO_BASE_MODEL ?= $(STATE_ROOT)/models/sher-yolo-seg-first.pt
 YOLO_MODEL ?= $(STATE_ROOT)/models/sher-yolo-seg.pt

@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import sys
 from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -19,7 +20,13 @@ from typing import Any
 
 from PIL import Image
 
-STATE_ROOT = Path("~/.openclaw/state/cat-tv-learning").expanduser()
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+import cat_tv_play_config as site_config  # noqa: E402
+
+STATE_ROOT = site_config.learning_root()
 REVIEW_ROOT = STATE_ROOT / "label-review"
 LABELS_ROOT = REVIEW_ROOT / "labels"
 MASKS_ROOT = REVIEW_ROOT / "masks"
