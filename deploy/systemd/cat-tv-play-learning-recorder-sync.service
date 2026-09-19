@@ -1,0 +1,11 @@
+[Unit]
+Description=Keep the Cat TV Play learning recorder in step with the Home Assistant session
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+KillMode=process
+EnvironmentFile=%h/.config/cat-tv-play/environment
+WorkingDirectory=%h/.local/share/cat-tv-play/checkout
+ExecStart=/usr/bin/python3 %h/.local/share/cat-tv-play/checkout/scripts/cat_projector_learning_recorder.py ensure --telegram-notify

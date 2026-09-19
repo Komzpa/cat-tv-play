@@ -1,0 +1,15 @@
+[Unit]
+Description=Cat TV Play meow watchdog
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/cat-tv-play/environment
+WorkingDirectory=%h/.local/share/cat-tv-play/checkout
+ExecStart=/usr/bin/python3 %h/.local/share/cat-tv-play/checkout/scripts/cat_projector_meow_watchdog.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

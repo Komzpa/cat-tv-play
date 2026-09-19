@@ -1,0 +1,15 @@
+[Unit]
+Description=Cat TV Play promptable segmentation service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/cat-tv-play/environment
+WorkingDirectory=%h/.local/share/cat-tv-play/checkout
+ExecStart=%h/.local/share/cat-tv-play/venv-sam/bin/python %h/.local/share/cat-tv-play/checkout/scripts/cat_projector_sam_service.py --host 127.0.0.1 --port 8766 --warmup
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

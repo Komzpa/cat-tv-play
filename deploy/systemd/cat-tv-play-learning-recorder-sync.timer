@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll the Cat TV Play learning recorder while a projector session is on
+
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=15s
+AccuracySec=3s
+Unit=cat-tv-play-learning-recorder-sync.service
+
+[Install]
+WantedBy=timers.target

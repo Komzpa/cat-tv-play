@@ -1,0 +1,15 @@
+[Unit]
+Description=Cat TV Play eye-safety overlay stream
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/cat-tv-play/environment
+WorkingDirectory=%h/.local/share/cat-tv-play/checkout
+ExecStart=/usr/bin/python3 %h/.local/share/cat-tv-play/checkout/scripts/cat_projector_safety_overlay_server.py --host 127.0.0.1 --port 8787 --status-only
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
