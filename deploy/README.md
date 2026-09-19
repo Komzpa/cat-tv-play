@@ -11,7 +11,7 @@ paths the units themselves use:
 
 ```
 CAT_TV_PLAY_CONFIG=%h/.config/cat-tv-play/private.yml
-CAT_TV_LEARNING_ROOT=/var/lib/cat-tv-play/learning
+CAT_TV_STATE_ROOT=/var/lib/cat-tv-play/learning
 CAT_TV_RECORDINGS_ROOT=/var/lib/cat-tv-play/learning/recordings
 CAT_TV_HA_URL=http://home-assistant.example.test:8123
 CAT_TV_HA_TOKEN_FILE=%h/.config/cat-tv-play/ha-token

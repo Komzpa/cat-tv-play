@@ -8,7 +8,11 @@
 
 storage:
   # Small mutable state: labels, masks, review queues, trained models.
+  # Environment override: CAT_TV_STATE_ROOT.
   learning_root: /var/lib/cat-tv-play/learning
+  # Read-only frame corpus the review UI browses, when it is not the repo copy.
+  # Environment override: CAT_TV_LEARNING_ROOT, which has always meant this.
+  corpus_root: ""
   # Raw session recordings; may live on a separate mounted filesystem.
   recordings_root: /var/lib/cat-tv-play/learning/recordings
   # Empty means "derive from learning_root".

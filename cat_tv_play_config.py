@@ -31,7 +31,10 @@ EXAMPLE_CONFIG_PATH = REPO_ROOT / "deploy" / "private.example.yml"
 
 #: Dotted config key -> environment variable that overrides it.
 ENV_OVERRIDES: dict[str, str] = {
-    "storage.learning_root": "CAT_TV_LEARNING_ROOT",
+    # Historical names: CAT_TV_LEARNING_ROOT has always meant the read-only
+    # frame corpus, so the mutable state root gets its own variable.
+    "storage.learning_root": "CAT_TV_STATE_ROOT",
+    "storage.corpus_root": "CAT_TV_LEARNING_ROOT",
     "storage.recordings_root": "CAT_TV_RECORDINGS_ROOT",
     "storage.datasets_root": "CAT_TV_DATASETS_ROOT",
     "storage.models_root": "CAT_TV_MODELS_ROOT",
@@ -67,6 +70,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "storage": {
         "learning_root": "",
+        "corpus_root": "",
         "calibration_path": "",
         "recordings_root": "",
         "datasets_root": "",
@@ -251,6 +255,12 @@ def audio_events_root() -> Path:
 def model_cache_root() -> Path:
     configured = _path_or_none("storage.model_cache_root")
     return configured if configured is not None else learning_root() / "model-cache"
+
+
+def corpus_root() -> Path | None:
+    """Read-only root of labelled frames, when one is installed."""
+
+    return _path_or_none("storage.corpus_root")
 
 
 def extra_corpus_roots() -> list[Path]:

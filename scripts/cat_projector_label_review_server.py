@@ -47,9 +47,9 @@ import cat_tv_play_config as site_config  # noqa: E402
 
 
 def _default_dataset_root() -> Path:
-    configured = os.environ.get("CAT_TV_LEARNING_ROOT")
-    if configured:
-        return Path(configured).expanduser()
+    configured = site_config.corpus_root()
+    if configured is not None:
+        return configured
 
     repo_dataset = REPO_ROOT / "datasets" / "cat-tv-learning"
     if repo_dataset.exists():

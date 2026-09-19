@@ -268,7 +268,7 @@ it expire. This smooths detector dropouts without returning to a long static
 black-square hold.
 
 Safety-negative review frames under
-`$CAT_TV_LEARNING_ROOT/safety-review/YYYYMMDD/frames/` are generated
+`$CAT_TV_STATE_ROOT/safety-review/YYYYMMDD/frames/` are generated
 debug/training candidates, not the canonical recording source. The server
 samples them at most once per minute by default and stops after 720 generated
 frames per local day; use `--safety-negative-review-interval` and
@@ -279,7 +279,7 @@ runs. For disk cleanup, keep the small `labels.csv` files and remove old
 Raw session recordings can live on a separate mounted filesystem. Set
 `CAT_TV_RECORDINGS_ROOT` for the recorder, review backend, and offline tooling;
 keep labels, models, queues, and other small mutable state under
-`$CAT_TV_LEARNING_ROOT`. A service using a separate filesystem must
+`$CAT_TV_STATE_ROOT`. A service using a separate filesystem must
 require that mount and fail closed when its filesystem marker is absent.
 
 ## Jump Tracking
@@ -310,7 +310,7 @@ Reviewed masks can be exported for a Sher-specific YOLO segmentation model:
 
 ```bash
 python3 scripts/export_cat_projector_yolo_segmentation.py \
-  --output $CAT_TV_LEARNING_ROOT/exports/sher-yolo-seg-$(date -u +%Y%m%dT%H%M%SZ) \
+  --output $CAT_TV_STATE_ROOT/exports/sher-yolo-seg-$(date -u +%Y%m%dT%H%M%SZ) \
   --symlink
 ```
 
@@ -320,12 +320,12 @@ base model:
 ```bash
 make validate-sher-yolo-seg
 make train-sher-yolo-seg \
-  YOLO_EXPORT=$CAT_TV_LEARNING_ROOT/exports/sher-yolo-seg-20260523T013502Z \
+  YOLO_EXPORT=$CAT_TV_STATE_ROOT/exports/sher-yolo-seg-20260523T013502Z \
   YOLO_BASE_MODEL=/path/to/local/yolo11n-seg.pt \
-  YOLO_MODEL=$CAT_TV_LEARNING_ROOT/models/sher-yolo-seg.pt
+  YOLO_MODEL=$CAT_TV_STATE_ROOT/models/sher-yolo-seg.pt
 make eval-sher-yolo-seg \
-  YOLO_EXPORT=$CAT_TV_LEARNING_ROOT/exports/sher-yolo-seg-20260523T013502Z \
-  YOLO_MODEL=$CAT_TV_LEARNING_ROOT/models/sher-yolo-seg.pt
+  YOLO_EXPORT=$CAT_TV_STATE_ROOT/exports/sher-yolo-seg-20260523T013502Z \
+  YOLO_MODEL=$CAT_TV_STATE_ROOT/models/sher-yolo-seg.pt
 ```
 
 Then rescore with a local segmentation model:
@@ -368,11 +368,11 @@ CAT_PROJECTOR_SAM_CHECKPOINT=/path/to/sam_vit_b_01ec64.pth \
 python3 scripts/cat_projector_label_review_server.py --host 0.0.0.0 --port 8790 --allow-live-jobs
 ```
 
-By default it reads `CAT_TV_LEARNING_ROOT`, a repo-local
-`datasets/cat-tv-learning`, or the house `tasks-loop` dataset if present, and
-writes labels/masks/actions under
-`$CAT_TV_LEARNING_ROOT/label-review/`. Household frames stay on the
-local machine. The review backend uses
+By default it reads the configured corpus root (`storage.corpus_root`, or
+`CAT_TV_LEARNING_ROOT`), a repo-local `datasets/cat-tv-learning`, or any
+`storage.extra_corpus_roots` that exist, and writes labels/masks/actions under
+`$CAT_TV_STATE_ROOT/label-review/`. Household frames stay on the local
+machine and are not published with this repository. The review backend uses
 `http://127.0.0.1:8766/segment` by default for promptable masks; set
 `CAT_PROJECTOR_SAM_ENDPOINT` only to override or explicitly clear that local
 endpoint. If SAM is unavailable, manual boxes/polygons still work and the UI can
@@ -384,9 +384,9 @@ After a review pass, run the repo-owned offline active-learning iteration:
 python3 scripts/cat_projector_active_learning.py --jobs 16
 ```
 
-It trains `$CAT_TV_LEARNING_ROOT/models/cat_projector_candidate_detector_v1.cbm`,
+It trains `$CAT_TV_STATE_ROOT/models/cat_projector_candidate_detector_v1.cbm`,
 rescores original corpus frames, and writes the next uncertainty queue under
-`$CAT_TV_LEARNING_ROOT/label-review/rescores/`.
+`$CAT_TV_STATE_ROOT/label-review/rescores/`.
 
 See [docs/label-review.md](docs/label-review.md).
 
