@@ -8,10 +8,14 @@ pytest.importorskip("websockets", reason="the meow watchdog needs the websockets
 
 from scripts.cat_projector_meow_watchdog import (  # noqa: E402
     DEFAULT_BLOCKED_BROAD_LABELS,
-    DEFAULT_SOURCE_IDS,
     should_accept_meow_event,
     should_start_projector,
 )
+
+#: The gate's own fixture. DEFAULT_SOURCE_IDS is the deployment roster and is
+#: empty without a site config, so reading it here made these tests assert on
+#: whatever the installing host happened to configure.
+SOURCE_IDS = {"example_room_webcam"}
 
 
 class CatProjectorMeowWatchdogTest(unittest.TestCase):
@@ -26,7 +30,7 @@ class CatProjectorMeowWatchdogTest(unittest.TestCase):
     def test_accepts_living_room_meow_candidate(self) -> None:
         decision = should_accept_meow_event(
             self._accepted_payload(),
-            source_ids=DEFAULT_SOURCE_IDS,
+            source_ids=SOURCE_IDS,
             min_score=0.62,
             blocked_broad_labels=DEFAULT_BLOCKED_BROAD_LABELS,
             broad_block_confidence=0.25,
@@ -42,7 +46,7 @@ class CatProjectorMeowWatchdogTest(unittest.TestCase):
                 "broad_acoustic_label": "speech",
                 "broad_acoustic_confidence": 0.71,
             },
-            source_ids=DEFAULT_SOURCE_IDS,
+            source_ids=SOURCE_IDS,
             min_score=0.62,
             blocked_broad_labels=DEFAULT_BLOCKED_BROAD_LABELS,
             broad_block_confidence=0.25,
@@ -61,7 +65,7 @@ class CatProjectorMeowWatchdogTest(unittest.TestCase):
 
         decision = should_accept_meow_event(
             payload,
-            source_ids=DEFAULT_SOURCE_IDS,
+            source_ids=SOURCE_IDS,
             min_score=0.62,
             blocked_broad_labels=DEFAULT_BLOCKED_BROAD_LABELS,
             broad_block_confidence=0.25,
@@ -79,7 +83,7 @@ class CatProjectorMeowWatchdogTest(unittest.TestCase):
 
         decision = should_accept_meow_event(
             payload,
-            source_ids=DEFAULT_SOURCE_IDS,
+            source_ids=SOURCE_IDS,
             min_score=0.62,
             blocked_broad_labels=DEFAULT_BLOCKED_BROAD_LABELS,
             broad_block_confidence=0.25,
@@ -90,7 +94,7 @@ class CatProjectorMeowWatchdogTest(unittest.TestCase):
     def test_accepts_legacy_payload_without_intent_hint(self) -> None:
         decision = should_accept_meow_event(
             self._accepted_payload(),
-            source_ids=DEFAULT_SOURCE_IDS,
+            source_ids=SOURCE_IDS,
             min_score=0.62,
             blocked_broad_labels=DEFAULT_BLOCKED_BROAD_LABELS,
             broad_block_confidence=0.25,

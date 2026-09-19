@@ -67,6 +67,14 @@ class SherMeowIntentModelTest(unittest.TestCase):
         return sidecar_path
 
     def test_build_queue_uses_embeddings_and_pet_context(self) -> None:
+        # Queue building calls the acoustic tagging models, which live in the
+        # audio project rather than this repository.  The runtime already
+        # degrades to AudioTaggingUnavailable when they are absent, so a host
+        # without that project installed should skip rather than fail.
+        pytest.importorskip(
+            "acoustic_event_tagging_models",
+            reason="building the queue needs the audio project's tagging models",
+        )
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             for index in range(4):
