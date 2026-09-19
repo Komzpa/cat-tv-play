@@ -1,0 +1,77 @@
+# Copy this file to deploy/private.yml and fill it on the target installation.
+# Keep deploy/private.yml out of git: it names one home's hosts, addresses,
+# storage paths, devices, and Home Assistant entities.
+#
+# Every key below can also be supplied by the environment variable listed in
+# cat_tv_play_config.ENV_OVERRIDES, which is how the deploy/systemd units pass
+# site values without a config file. Values shown here are placeholders.
+
+storage:
+  # Small mutable state: labels, masks, review queues, trained models.
+  learning_root: /var/lib/cat-tv-play/learning
+  # Raw session recordings; may live on a separate mounted filesystem.
+  recordings_root: /var/lib/cat-tv-play/learning/recordings
+  # Empty means "derive from learning_root".
+  datasets_root: ""
+  models_root: ""
+  # Acoustic-event sidecars produced by the audio project.
+  audio_events_root: /var/lib/cat-tv-play/audio-events
+  model_cache_root: ""
+  # Extra read-only corpus roots the review backend may serve frames from.
+  extra_corpus_roots: []
+
+home_assistant:
+  url: http://home-assistant.example.test:8123
+  # Python module that exposes the long-lived access token, when one is used.
+  config_path: ""
+  entities:
+    # Entities this project owns; rename only if your package uses other ids.
+    session_boolean: input_boolean.cat_projector_session
+    session_id_text: input_text.cat_projector_session_id
+    frigate_event_id_text: input_text.cat_projector_frigate_event_id
+    video_url_text: input_text.cat_projector_video_url
+    display_active_binary_sensor: binary_sensor.cat_projector_display_active
+    start_script: script.cat_projector_start
+    lamp_on_script: script.cat_projector_lamp_on
+    lamp_off_script: script.cat_projector_lamp_off
+    # Entities owned by the house, named by whatever the device registry calls them.
+    media_player: media_player.example_projector
+    adb_media_player: media_player.example_projector_adb
+    acoustic_events_sensor: sensor.example_acoustic_events
+    treat_dispenser_button: button.example_treat_dispenser
+    vacuum_status_sensor: sensor.example_vacuum_status
+    # Booleans that mean "do not start a session now".
+    quiet_hours_booleans:
+      - input_boolean.example_sleeping
+
+camera:
+  # Camera that watches the projected wall.
+  snapshot_url: http://camera.example.test:8081/shot.jpg
+  video_url: http://camera.example.test:8081/video?fps=30
+  stream_url: http://camera.example.test:8081/video?fps=20
+  # adb target of the phone or tablet running the companion app.
+  adb_serial: camera.example.test:5555
+
+projector_app:
+  # Android application id of the companion projector/camera app.
+  package: com.example.catprojectorcamera
+
+services:
+  # Eye-safety overlay server.
+  overlay_status_url: http://127.0.0.1:8787/status.json
+  overlay_video_url: http://home-assistant.example.test:8123/local/cat-tv/source.mp4
+  overlay_advertise_host: 127.0.0.1
+  # Label review / calibration UI.
+  review_ui_url: http://127.0.0.1:8790/calibration-tools/projector-wall-calibrator.html
+  # Promptable segmentation service.
+  sam_endpoint: http://127.0.0.1:8766/segment
+
+database:
+  # Optional Postgres used by the acoustic-event write-through.
+  url: postgresql:///cat_tv_play
+
+notify:
+  # argv of a command that delivers one clip notification. "{text}" is replaced
+  # by the caption; media file paths are appended as trailing arguments. Leave
+  # empty to disable notifications.
+  command: []

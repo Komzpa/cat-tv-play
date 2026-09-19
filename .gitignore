@@ -9,3 +9,8 @@ dist/
 build/
 *.egg-info/
 
+
+# Site-specific deployment values
+deploy/private.yml
+deploy/private.*.yml
+!deploy/private.example.yml
