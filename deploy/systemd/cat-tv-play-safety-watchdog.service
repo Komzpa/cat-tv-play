@@ -2,16 +2,15 @@
 Description=Cat TV Play eye-safety lamp watchdog
 Wants=network-online.target cat-tv-play-safety-overlay.service
 After=network-online.target cat-tv-play-safety-overlay.service
-StartLimitIntervalSec=5min
-StartLimitBurst=3
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 EnvironmentFile=%h/.config/cat-tv-play/environment
 WorkingDirectory=%h/.local/share/cat-tv-play/checkout
 ExecStart=/usr/bin/python3 %h/.local/share/cat-tv-play/checkout/scripts/cat_projector_safety_watchdog.py
-Restart=on-failure
-RestartSec=10
+Restart=always
+RestartSec=5
 
 [Install]
 WantedBy=default.target

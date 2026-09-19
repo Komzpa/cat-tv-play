@@ -161,12 +161,22 @@ def _send_lamp_off(ha_url: str, token: str) -> None:
     _post_ha_service(ha_url, token, "script", "turn_on", {"entity_id": LAMP_OFF_SCRIPT_ENTITY_ID})
 
 
-def _ha_state(ha_url: str, token: str, entity_id: str) -> str:
-    payload = _fetch_json_url(
-        f"{ha_url.rstrip('/')}/api/states/{entity_id}",
-        timeout=8,
-        headers={"Authorization": f"Bearer {token}"},
-    )
+def _ha_state(ha_url: str, token: str, entity_id: str) -> str | None:
+    """Return the entity state, or None when Home Assistant is unreachable.
+
+    A safety watchdog must outlive a Home Assistant restart: a transient error
+    here used to raise and kill the process, and systemd's start limit then made
+    that death permanent.
+    """
+
+    try:
+        payload = _fetch_json_url(
+            f"{ha_url.rstrip('/')}/api/states/{entity_id}",
+            timeout=8,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    except (OSError, TimeoutError, URLError, json.JSONDecodeError):
+        return None
     return str(payload.get("state", "unknown"))
 
 
@@ -224,6 +234,13 @@ def run_once(args: argparse.Namespace) -> WatchdogDecision:
     )
     latch = _load_latch(args.state_path)
 
+    if session_state is None or display_state is None:
+        # Home Assistant is unreachable: hold the current latch instead of
+        # clearing it, and skip the lamp commands that would fail anyway.
+        decision = WatchdogDecision("none", "ha_unavailable", latch)
+        print(json.dumps({"action": decision.action, "reason": decision.reason}, sort_keys=True), flush=True)
+        return decision
+
     decision = decide_watchdog_action(
         WatchdogInputs(
             session_on=session_state == "on",
@@ -241,10 +258,15 @@ def run_once(args: argparse.Namespace) -> WatchdogDecision:
 
     _save_latch(args.state_path, decision.latch)
 
-    if decision.action == "lamp_off":
-        _send_lamp_off(args.ha_url, token)
-    elif decision.action == "lamp_on":
-        _post_ha_service(args.ha_url, token, "script", "turn_on", {"entity_id": LAMP_ON_SCRIPT_ENTITY_ID})
+    try:
+        if decision.action == "lamp_off":
+            _send_lamp_off(args.ha_url, token)
+        elif decision.action == "lamp_on":
+            _post_ha_service(args.ha_url, token, "script", "turn_on", {"entity_id": LAMP_ON_SCRIPT_ENTITY_ID})
+    except (OSError, TimeoutError, URLError) as exc:
+        payload = {"action": decision.action, "reason": f"lamp_command_failed: {exc}"}
+        print(json.dumps(payload, sort_keys=True), flush=True)
+        return decision
 
     print(json.dumps({"action": decision.action, "reason": decision.reason}, sort_keys=True), flush=True)
     return decision

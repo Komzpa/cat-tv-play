@@ -129,3 +129,48 @@ def test_lamp_off_command_uses_canonical_ha_script(monkeypatch) -> None:
     assert calls == [
         ("script", "turn_on", {"entity_id": "script.cat_projector_lamp_off"}),
     ]
+
+
+def test_ha_state_returns_none_instead_of_raising_when_home_assistant_is_down(monkeypatch) -> None:
+    def fake_fetch(url: str, *, timeout: float, headers=None):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(watchdog, "_fetch_json_url", fake_fetch)
+
+    assert watchdog._ha_state("http://ha", "token", "input_boolean.x") is None
+
+
+def test_home_assistant_outage_holds_the_latch_and_sends_no_lamp_command(monkeypatch, tmp_path) -> None:
+    latch_path = tmp_path / "latch.json"
+    watchdog._save_latch(latch_path, WatchdogLatch(lamp_held_off=True, danger_since=10.0))
+    posts: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(watchdog, "_load_token", lambda config_path: "token")
+    monkeypatch.setattr(watchdog, "_ha_state", lambda ha_url, token, entity_id: None)
+    monkeypatch.setattr(watchdog, "_read_overlay_status", lambda url, *, timeout: ("active", 100.0, None))
+    monkeypatch.setattr(watchdog, "_post_ha_service", lambda *args, **kwargs: posts.append((args[2], args[3])))
+
+    args = watchdog.parse_args(["--state-path", str(latch_path), "--once"])
+    decision = watchdog.run_once(args)
+
+    assert decision.action == "none"
+    assert decision.reason == "ha_unavailable"
+    assert posts == []
+    assert watchdog._load_latch(latch_path) == WatchdogLatch(lamp_held_off=True, danger_since=10.0)
+
+
+def test_lamp_command_failure_does_not_end_the_watchdog_loop(monkeypatch, tmp_path) -> None:
+    latch_path = tmp_path / "latch.json"
+
+    def fail_post(*args, **kwargs):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(watchdog, "_load_token", lambda config_path: "token")
+    monkeypatch.setattr(watchdog, "_ha_state", lambda ha_url, token, entity_id: "on")
+    monkeypatch.setattr(watchdog, "_read_overlay_status", lambda url, *, timeout: ("status_error", None, "camera gone"))
+    monkeypatch.setattr(watchdog, "_post_ha_service", fail_post)
+
+    args = watchdog.parse_args(["--state-path", str(latch_path), "--once", "--danger-delay-seconds", "0"])
+    decision = watchdog.run_once(args)
+
+    assert decision.action == "lamp_off"
