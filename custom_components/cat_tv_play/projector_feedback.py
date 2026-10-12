@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -226,26 +227,46 @@ def infer_recording_evidence(recording_dir: Path | None) -> RecordingEvidence:
             str(human.get("notes") or "human-reviewed projector outcome"),
         )
 
+    assessment_path = recording_dir / "behavior_assessment.json"
+    if assessment_path.exists():
+        assessment = read_json(assessment_path)
+        if isinstance(assessment, dict):
+            confidence = _float_or_default(assessment.get("confidence"), -1.0)
+            refs = assessment.get("evidence_refs")
+            model = assessment.get("model")
+            valid = (
+                assessment.get("schema") == "cat_projector_behavior_assessment.v1"
+                and assessment.get("status") == "confirmed"
+                and assessment.get("display_verified") is True
+                and assessment.get("visibility_verified") is True
+                and math.isfinite(confidence) and 0.0 <= confidence <= 1.0
+                and isinstance(refs, dict) and bool(refs)
+                and all(isinstance(value, str) and value.strip() for value in refs.values())
+                and (
+                    (isinstance(model, str) and bool(model.strip()))
+                    or (isinstance(model, dict) and any(
+                        isinstance(value, str) and value.strip() for value in model.values()
+                    ))
+                )
+            )
+            if valid and assessment.get("outcome") == "active_play":
+                return RecordingEvidence(
+                    recording_dir, "active_play", confidence,
+                    "independent_behavior_assessment",
+                    {**refs, "assessment": str(assessment_path)},
+                    "confirmed observable post-start play; does not establish pre-start intention",
+                )
+        return RecordingEvidence(recording_dir, "unknown", 0.0,
+            "unconfirmed_behavior_assessment", {"assessment": str(assessment_path)},
+            "assessment lacks confirmed observable play evidence")
+
     notification, notification_path = _notification_evidence(recording_dir)
     if notification:
-        if notification.get("jump_highlight") or _float_or_default(notification.get("max_height_cm"), 0.0) > 0:
-            return RecordingEvidence(
-                recording_dir,
-                "active_play",
-                0.95,
-                "auto_high_confidence_jump",
-                {"notification": str(notification_path)} if notification_path else {},
-                "high-confidence jump/paw projector highlight",
-            )
-        if notification.get("selection_method") == "no_jump_highlight":
-            return RecordingEvidence(
-                recording_dir,
-                "unknown",
-                0.35,
-                "verified_recording_no_jump_highlight",
-                {"notification": str(notification_path)} if notification_path else {},
-                "no jump highlight is not enough evidence for not_play",
-            )
+        return RecordingEvidence(
+            recording_dir, "unknown", 0.0, "legacy_notification_unverified",
+            {"notification": str(notification_path)} if notification_path else {},
+            "delivery marker and absent highlight are not behavior ground truth",
+        )
 
     verified_path = recording_dir / "verified.json"
     if verified_path.exists():
@@ -297,19 +318,8 @@ def projector_started_by_meow(row: dict[str, Any]) -> bool:
 
 
 def training_evidence_for_attempt(row: dict[str, Any], evidence: RecordingEvidence) -> RecordingEvidence:
-    if (
-        projector_started_by_meow(row)
-        and evidence.outcome == "unknown"
-        and evidence.source == "verified_recording_no_jump_highlight"
-    ):
-        return RecordingEvidence(
-            evidence.recording_dir,
-            NO_ACTIVE_PLAY_OUTCOME,
-            evidence.confidence,
-            evidence.source,
-            evidence.evidence_refs,
-            "projector started from meow; verified projector recording had no active play highlight",
-        )
+    # Absence of a detected highlight cannot prove absence of play. Preserve
+    # abstentions even when the source meow successfully started the projector.
     return evidence
 
 
@@ -335,6 +345,7 @@ def build_feedback_row(
         "created_at": created_at or utc_now_iso(),
         "meow": {
             "event_key": meow_event_key(row),
+            "event_id": row.get("event_id"),
             "event_at": row.get("event_at"),
             "event_at_local": row.get("event_at_local"),
             "source_id": row.get("source_id"),
@@ -349,6 +360,8 @@ def build_feedback_row(
         },
         "projector_attempt": {
             "outcome": row.get("outcome"),
+            "session_id": row.get("session_id"),
+            "link_method": row.get("link_method", "legacy_outcome_ledger"),
             "policy_decision": row.get("policy_decision"),
             "linked_to_session": linked_attempt,
             "matched_session_start_at": row.get("matched_session_start_at"),

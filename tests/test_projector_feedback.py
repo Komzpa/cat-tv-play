@@ -47,7 +47,7 @@ def _outcome_row(event_jsonl: Path, *, line: int = 1) -> dict:
     }
 
 
-def test_backfill_jump_highlight_marks_play_projector_without_overwriting_intent(tmp_path: Path) -> None:
+def test_independent_assessment_marks_play_without_overwriting_intent(tmp_path: Path) -> None:
     sidecar_path = tmp_path / "audio" / "meow.json"
     _write_json(sidecar_path, {"sher_meow_intent": {"label": "attention", "source": "human"}})
     event_jsonl = tmp_path / "events.jsonl"
@@ -56,8 +56,8 @@ def test_backfill_jump_highlight_marks_play_projector_without_overwriting_intent
     recording_dir = tmp_path / "recordings" / "session"
     _write_json(recording_dir / "manifest.json", {"created_at": "2026-05-18T10:00:02Z"})
     _write_json(
-        recording_dir / "telegram_notification.json",
-        {"jump_highlight": {"height_cm": 120.0}, "max_height_cm": 120.0},
+        recording_dir / "behavior_assessment.json",
+        _confirmed_assessment(),
     )
 
     rows = projector_feedback.build_feedback_rows([_outcome_row(event_jsonl)], recordings_root=tmp_path / "recordings")
@@ -92,7 +92,7 @@ def test_human_not_near_projector_marks_play_projector_negative(tmp_path: Path) 
     assert rows[0]["training"]["labels"] == {"meow: play_projector": "negative"}
 
 
-def test_started_projector_no_jump_highlight_marks_no_active_play_negative(tmp_path: Path) -> None:
+def test_started_projector_no_jump_highlight_abstains(tmp_path: Path) -> None:
     event_jsonl = tmp_path / "events.jsonl"
     event_jsonl.write_text(json.dumps({"sidecar_path": str(tmp_path / "missing.json")}) + "\n", encoding="utf-8")
     recording_dir = tmp_path / "recordings" / "session"
@@ -102,8 +102,8 @@ def test_started_projector_no_jump_highlight_marks_no_active_play_negative(tmp_p
 
     rows = projector_feedback.build_feedback_rows([_outcome_row(event_jsonl)], recordings_root=tmp_path / "recordings")
 
-    assert rows[0]["behavior_outcome"]["label"] == "projector_started_no_active_play"
-    assert rows[0]["training"]["labels"] == {"meow: play_projector": "negative"}
+    assert rows[0]["behavior_outcome"]["label"] == "unknown"
+    assert rows[0]["training"]["labels"] == {"meow: play_projector": "unknown"}
 
 
 def test_unlinked_no_jump_highlight_stays_unknown(tmp_path: Path) -> None:
@@ -149,7 +149,7 @@ def test_no_projector_start_near_jump_does_not_become_play_projector(tmp_path: P
 
     rows = projector_feedback.build_feedback_rows([row], recordings_root=tmp_path / "recordings")
 
-    assert rows[0]["behavior_outcome"]["label"] == "active_play"
+    assert rows[0]["behavior_outcome"]["label"] == "unknown"
     assert rows[0]["projector_attempt"]["linked_to_session"] is False
     assert rows[0]["training"]["labels"] == {"meow: play_projector": "unknown"}
 
@@ -304,3 +304,35 @@ def test_database_feedback_writes_normal_acoustic_classification_fact(monkeypatc
     assert insert_rows[0]["source"] == "cat_projector_feedback"
     assert summary["classification_upserts"] == 1
     assert summary["class_counts"] == {"cat_meow_projector_no_play": 1}
+
+
+def _confirmed_assessment():
+    return {"schema": "cat_projector_behavior_assessment.v1", "outcome": "active_play",
+        "status": "confirmed", "confidence": 0.95, "display_verified": True,
+        "visibility_verified": True, "model": {"path": "local-model", "sha256": "model-revision"},
+        "evidence_refs": {"frames": "chunk_0001.mp4"}}
+
+
+def test_assessment_failures_and_legacy_skips_abstain(tmp_path):
+    for field, value in [("display_verified", False), ("visibility_verified", False),
+            ("status", "abstain"), ("outcome", "unknown"), ("confidence", float("nan")),
+            ("confidence", 1.1), ("evidence_refs", {}), ("model", {}), ("model", {"path": ""})]:
+        assessment = _confirmed_assessment()
+        assessment[field] = value
+        _write_json(tmp_path / "behavior_assessment.json", assessment)
+        evidence = projector_feedback.infer_recording_evidence(tmp_path)
+        assert evidence.outcome == "unknown", (field, value)
+        assert projector_feedback.training_evidence_for_attempt({"outcome": "started_projector"}, evidence).outcome == "unknown"
+    (tmp_path / "behavior_assessment.json").unlink()
+    for method in ["no_jump_highlight", "no_confirmed_rendered_jump", "camera_human_detected", "rendered_jump_below_threshold"]:
+        _write_json(tmp_path / "telegram_notification.json", {"selection_method": method, "jump_highlight": {"height_cm": 120}})
+        assert projector_feedback.infer_recording_evidence(tmp_path).outcome == "unknown"
+    assert projector_feedback.infer_recording_evidence(None).outcome == "unknown"
+
+
+def test_human_feedback_overrides_independent_assessment(tmp_path):
+    _write_json(tmp_path / "behavior_assessment.json", _confirmed_assessment())
+    _write_json(tmp_path / "human_feedback.json", {"outcome": "watching_only"})
+    evidence = projector_feedback.infer_recording_evidence(tmp_path)
+    assert evidence.outcome == "watching_only"
+    assert evidence.source == "human_review"

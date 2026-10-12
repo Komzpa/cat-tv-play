@@ -41,6 +41,8 @@ def _latest_outcome_ledger() -> Path:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--from-recordings", action="store_true", help="Join persisted source meow IDs to recorded sessions; no timestamp guessing.")
+    parser.add_argument("--max-recordings", type=int, default=50, help="Bound recent exact-link recordings inspected per run.")
     parser.add_argument("--outcomes", type=Path, default=None, help="Existing meow outcome JSONL ledger.")
     parser.add_argument("--recordings-root", type=Path, default=DEFAULT_RECORDINGS_ROOT)
     parser.add_argument(
@@ -65,7 +67,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--database-url",
-        default="",
+        default=os.environ.get("HOME_AUDIO_MESH_ACTIVE_LEARNING_DATABASE_URL") or os.environ.get("HOME_AUDIO_MESH_DATABASE_URL", ""),
         help="Postgres URL for --write-database, for example postgresql:///openclaw_acoustic.",
     )
     parser.add_argument(
@@ -249,17 +251,73 @@ def write_database_feedback(
     }
 
 
+
+def outcomes_from_recordings(recordings_root: Path, event_root: Path, *, limit: int = 50) -> tuple[list[dict[str, object]], dict[str, int]]:
+    """Restore exact session-to-meow linkage in the existing feedback command."""
+    from datetime import timedelta
+    if not 1 <= limit <= 500:
+        raise ValueError("bounded recording limit required")
+    counts = {"recordings_inspected": 0, "missing_source_id": 0, "missing_source_event": 0, "exact_links": 0}
+    grouped: dict[str, tuple[int, dict[str, object]]] = {}
+    event_cache: dict[str, tuple[dict[str, object], Path, int]] = {}
+    dates_loaded: set[str] = set()
+    for manifest_path in sorted(recordings_root.glob("*/manifest.json"))[-limit:]:
+        counts["recordings_inspected"] += 1
+        manifest = feedback.read_json(manifest_path)
+        event_id = str(manifest.get("source_meow_event_id") or "")
+        created = feedback.parse_timestamp(manifest.get("created_at"))
+        if event_id in {"", "unknown", "unavailable"} or created is None:
+            counts["missing_source_id"] += 1
+            continue
+        for delta in (-1, 0, 1):
+            date = (created + timedelta(days=delta)).strftime("%Y-%m-%d")
+            if date in dates_loaded:
+                continue
+            dates_loaded.add(date)
+            for event_path in sorted(event_root.glob("*/" + date + "_*cat_meow_events.jsonl")):
+                for line_number, line in enumerate(event_path.read_text().splitlines(), 1):
+                    if not line.strip():
+                        continue
+                    event = __import__("json").loads(line)
+                    if event.get("event_id"):
+                        event_cache[str(event["event_id"])] = (event, event_path, line_number)
+        if event_id not in event_cache:
+            counts["missing_source_event"] += 1
+            continue
+        event, source_path, source_line = event_cache[event_id]
+        evidence = feedback.infer_recording_evidence(manifest_path.parent)
+        priority = 100 if evidence.source == "human_review" else 20 if evidence.outcome == "active_play" else 0
+        row = {"event_id": event_id, "event_at": event.get("started_at"),
+            "source_id": event.get("source_id"), "meow_score": event.get("meow_score"),
+            "sidecar_path": event.get("sidecar_path"), "raw_events": [event], "raw_event_count": 1,
+            "representative_source_path": str(source_path), "representative_source_line": source_line,
+            "recording_dir": str(manifest_path.parent), "session_id": manifest.get("ha_session_id"),
+            "outcome": "started_projector", "policy_decision": "persisted_exact_source_meow_session_link",
+            "link_method": "exact_source_meow_event_id", "matched_session_start_at": manifest.get("created_at")}
+        current = grouped.get(event_id)
+        if current is None or priority >= current[0]:
+            grouped[event_id] = (priority, row)
+        counts["exact_links"] += 1
+    return [item[1] for item in grouped.values()], counts
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
-    outcomes_path = args.outcomes.expanduser() if args.outcomes else _latest_outcome_ledger()
+    if args.from_recordings and args.outcomes:
+        raise ValueError("choose exact recording links or a historical outcomes ledger")
+    outcomes_path = None if args.from_recordings else (args.outcomes.expanduser() if args.outcomes else _latest_outcome_ledger())
     out_dir = (
         args.out_dir.expanduser()
         if args.out_dir
-        else (STATE_ROOT / "label-review" / "meow-feedback" / outcomes_path.stem)
+        else (STATE_ROOT / "label-review" / "meow-feedback" / (outcomes_path.stem if outcomes_path else "exact-recording-links"))
     )
     recordings_root = args.recordings_root.expanduser()
 
-    outcome_rows = feedback.iter_jsonl(outcomes_path)
+    link_summary = {}
+    if args.from_recordings:
+        outcome_rows, link_summary = outcomes_from_recordings(recordings_root, args.event_root, limit=args.max_recordings)
+    else:
+        outcome_rows = feedback.iter_jsonl(outcomes_path)
     feedback_rows = feedback.build_feedback_rows(
         outcome_rows,
         recordings_root=recordings_root,
@@ -269,7 +327,8 @@ def main(argv: list[str] | None = None) -> int:
     summary = feedback.summarize_feedback(feedback_rows)
     summary.update(
         {
-            "outcomes_path": str(outcomes_path),
+            "outcomes_path": str(outcomes_path) if outcomes_path else None,
+            "source_linkage": link_summary,
             "recordings_root": str(recordings_root),
             "out_dir": str(out_dir),
             "sidecar_write_requested": bool(args.write_sidecars),
