@@ -7,6 +7,7 @@ import argparse
 import csv
 import importlib.util
 import json
+import math
 import shutil
 import subprocess
 import sys
@@ -14,10 +15,12 @@ import tempfile
 import threading
 import time
 from dataclasses import asdict, dataclass, field
+from email.parser import BytesHeaderParser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 import numpy as np
@@ -148,6 +151,7 @@ class SafetyOverlayState:
         *,
         people: list[PersonDetection],
         source_size: tuple[int, int],
+        updated_at: float | None,
         fixed_black_rect: tuple[int, int, int, int] | None = None,
         camera_image: Image.Image | None = None,
         camera_error: str | None = None,
@@ -170,7 +174,7 @@ class SafetyOverlayState:
             "debug": result.debug,
             "performance": performance or {},
             "camera_error": camera_error,
-            "updated_at": time.time(),
+            "updated_at": updated_at,
         }
         with self._lock:
             self.payload = payload
@@ -277,9 +281,221 @@ class OverlayRequestHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
 
-def _read_camera_snapshot(url: str, *, timeout: float = 2.0) -> Image.Image:
-    with urlopen(url, timeout=timeout) as response:
-        return Image.open(response).convert("RGB")
+@dataclass(frozen=True)
+class CameraFrame:
+    jpeg: bytes
+    received_at: float
+    received_wall_at: float
+    sequence: int | None
+    age_ms: float | None
+    encode_ms: float | None = None
+    connection: int = 0
+    read_started_at: float | None = None
+
+    @property
+    def evidence_at(self) -> float:
+        local_start = self.received_at if self.read_started_at is None else min(self.read_started_at, self.received_at)
+        return local_start - (self.age_ms or 0.0) / 1000.0
+
+    @property
+    def evidence_wall_at(self) -> float:
+        return self.received_wall_at - (self.received_at - self.evidence_at)
+
+    @property
+    def key(self) -> tuple[int, int] | None:
+        return (self.connection, self.sequence) if self.sequence is not None else None
+
+
+def _camera_stream_url(snapshot_url: str, explicit_stream_url: str | None) -> str | None:
+    if explicit_stream_url:
+        return explicit_stream_url
+    parsed = urlsplit(snapshot_url)
+    if parsed.scheme in {"http", "https"} and parsed.path == "/shot.jpg":
+        return parsed._replace(path="/video").geturl()
+    return None
+
+
+def _camera_frame(
+    jpeg: bytes, headers: Any, *, connection: int = 0, required: bool = False, read_started_at: float | None = None
+) -> CameraFrame:
+    sequence_header = headers.get("X-Frame-Sequence")
+    age_header = headers.get("X-Frame-Age-Ms")
+    if required or sequence_header is not None or age_header is not None:
+        if sequence_header is None or age_header is None:
+            raise ValueError("camera frame requires X-Frame-Sequence and X-Frame-Age-Ms")
+        sequence = int(sequence_header)
+        age_ms = float(age_header)
+        if sequence < 0 or not math.isfinite(age_ms) or age_ms < 0:
+            raise ValueError("invalid camera frame sequence/age")
+    else:
+        sequence = None
+        age_ms = None
+    encode_header = headers.get("X-Frame-Encode-Ms")
+    encode_ms = float(encode_header) if encode_header is not None else None
+    if encode_ms is not None and (not math.isfinite(encode_ms) or encode_ms < 0):
+        raise ValueError("invalid camera frame encode age")
+    return CameraFrame(jpeg, time.monotonic(), time.time(), sequence, age_ms, encode_ms, connection, read_started_at)
+
+
+def _read_camera_snapshot(url: str, *, timeout: float = 2.0) -> CameraFrame:
+    request = Request(url, headers={"Cache-Control": "no-cache", "Accept-Encoding": "identity"})
+    started = time.monotonic()
+    with urlopen(request, timeout=timeout) as response:
+        jpeg = bytearray()
+        while True:
+            if time.monotonic() - started >= timeout:
+                raise TimeoutError("camera snapshot complete-frame deadline exceeded")
+            chunk = response.read1(65536)
+            if not chunk:
+                break
+            jpeg.extend(chunk)
+            if len(jpeg) > 16 * 1024 * 1024:
+                raise ValueError("camera snapshot JPEG too large")
+        if time.monotonic() - started >= timeout:
+            raise TimeoutError("camera snapshot complete-frame deadline exceeded")
+        return _camera_frame(bytes(jpeg), response.headers, read_started_at=started)
+
+
+def _iter_mjpeg_frames(response: Any, *, timeout: float, connection: int) -> Iterator[CameraFrame]:
+    if response.headers.get_content_type() != "multipart/x-mixed-replace":
+        raise ValueError("camera stream is not multipart/x-mixed-replace")
+    boundary = response.headers.get_param("boundary")
+    if not boundary or len(boundary) > 200:
+        raise ValueError("camera stream has no valid multipart boundary")
+    marker = b"--" + boundary.encode("ascii")
+    buffer = bytearray()
+    deadline = time.monotonic() + timeout
+
+    def fill() -> None:
+        if time.monotonic() >= deadline:
+            raise TimeoutError("camera stream complete-frame deadline exceeded")
+        chunk = response.read1(65536)
+        if not chunk:
+            raise EOFError("camera stream disconnected")
+        buffer.extend(chunk)
+        if time.monotonic() >= deadline:
+            raise TimeoutError("camera stream complete-frame deadline exceeded")
+
+    def line() -> bytes:
+        while True:
+            end = buffer.find(b"\r\n")
+            if end >= 0:
+                if end > 8192:
+                    raise ValueError("camera stream header line too large")
+                value = bytes(buffer[:end])
+                del buffer[:end + 2]
+                return value
+            if len(buffer) > 8192:
+                raise ValueError("camera stream header line too large")
+            fill()
+
+    while True:
+        deadline = time.monotonic() + timeout
+        boundary_line = line()
+        if boundary_line == b"":
+            boundary_line = line()
+        if boundary_line != marker:
+            raise ValueError("camera stream boundary missing or ended")
+        header_lines = bytearray()
+        while True:
+            header_line = line()
+            if not header_line:
+                break
+            header_lines.extend(header_line + b"\r\n")
+            if len(header_lines) > 16384:
+                raise ValueError("camera stream headers too large")
+        headers = BytesHeaderParser().parsebytes(bytes(header_lines))
+        size = int(headers.get("Content-Length", "0"))
+        if headers.get_content_type() != "image/jpeg" or not 0 < size <= 16 * 1024 * 1024:
+            raise ValueError("camera stream requires a bounded JPEG Content-Length")
+        while len(buffer) < size:
+            fill()
+        jpeg = bytes(buffer[:size])
+        del buffer[:size]
+        yield _camera_frame(jpeg, headers, connection=connection, required=True, read_started_at=deadline - timeout)
+
+
+class LatestCameraStream:
+    """Drain MJPEG independently of inference; retain one complete JPEG, never a FIFO."""
+
+    def __init__(self, url: str, *, timeout: float, max_age: float, on_error: Callable[[str | None], None] | None = None) -> None:
+        self.url = url
+        self.timeout = timeout
+        self.max_age = max_age
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._enabled = threading.Event()
+        self._frame: CameraFrame | None = None
+        self._error: str | None = "camera stream not connected"
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._on_error = on_error
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def close(self) -> None:
+        self._stop.set()
+        self._enabled.set()
+
+    def set_active(self, active: bool) -> None:
+        if active:
+            self._enabled.set()
+        else:
+            self._enabled.clear()
+            with self._lock:
+                self._frame = None
+                self._set_error_locked("camera stream inactive")
+
+    def latest(self, now: float) -> tuple[CameraFrame | None, str | None]:
+        with self._lock:
+            frame, error = self._frame, self._error
+        if error is not None:
+            return frame, error
+        if frame is None:
+            return None, "camera stream has no complete frame"
+        if now - frame.evidence_at > self.max_age:
+            return frame, "camera stream frame stale"
+        return frame, None
+    def _set_error_locked(self, error: str | None) -> None:
+        self._error = error
+        if self._on_error is not None:
+            self._on_error(error)
+
+    def _accept(self, frame: CameraFrame) -> bool:
+        with self._lock:
+            previous = self._frame
+            if previous is not None and previous.connection == frame.connection:
+                if frame.sequence == previous.sequence:
+                    return False
+                if frame.sequence is None or previous.sequence is None or frame.sequence < previous.sequence:
+                    raise ValueError("camera stream sequence regressed without reconnect")
+            self._frame = frame
+            self._set_error_locked(None)
+        return True
+
+    def _run(self) -> None:
+        connection = 0
+        while not self._stop.is_set():
+            if not self._enabled.wait(0.1) or self._stop.is_set():
+                continue
+            try:
+                request = Request(self.url, headers={"Cache-Control": "no-cache", "Accept-Encoding": "identity"})
+                with urlopen(request, timeout=self.timeout) as response:
+                    connection += 1
+                    for frame in _iter_mjpeg_frames(response, timeout=self.timeout, connection=connection):
+                        if self._stop.is_set() or not self._enabled.is_set():
+                            break
+                        self._accept(frame)
+            except Exception as exc:
+                with self._lock:
+                    self._set_error_locked(str(exc))
+                self._stop.wait(0.1)
+
+
+def _refresh_control_cache(refresh: Callable[[], None], interval: float, stop: threading.Event) -> None:
+    while not stop.is_set():
+        refresh()
+        stop.wait(interval)
 
 
 def _load_ha_token(config_path: Path) -> str:
@@ -330,39 +546,65 @@ class ProjectorActiveGate:
         self._poll_interval_seconds = max(0.1, poll_interval_seconds)
         self._timeout_seconds = max(0.1, timeout_seconds)
         self._token: str | None = None
-        self._next_check = 0.0
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._refreshed_at: float | None = None
         self._active = True
         self._states: dict[str, str] = {}
         self._error: str | None = None
 
-    def active(self, now: float) -> bool:
+    def start(self) -> None:
+        threading.Thread(
+            target=_refresh_control_cache,
+            args=(self.refresh, self._poll_interval_seconds, self._stop),
+            daemon=True,
+        ).start()
+
+    def close(self) -> None:
+        self._stop.set()
+
+    def refresh(self) -> None:
         if not self._ha_url or not self._ha_config_path or not self._active_entities:
-            return True
-        if now < self._next_check:
-            return self._active
-        self._next_check = now + self._poll_interval_seconds
+            return
         try:
             if self._token is None:
                 self._token = _load_ha_token(self._ha_config_path.expanduser())
-            self._states = {
+            states = {
                 entity_id: _read_ha_state(self._ha_url, self._token, entity_id, timeout=self._timeout_seconds)
                 for entity_id in self._active_entities
             }
-            self._active = _projector_active_from_states(self._states)
-            self._error = None
+            active = _projector_active_from_states(states)
+            error = None
         except Exception as exc:
-            self._active = True
-            self._error = str(exc)
-        return self._active
+            with self._lock:
+                states = dict(self._states)
+            active = True
+            error = str(exc)
+        with self._lock:
+            self._states = states
+            self._active = active
+            self._error = error
+            self._refreshed_at = time.monotonic()
 
-    def debug(self) -> dict[str, Any]:
+    def active(self, now: float) -> bool:
+        return bool(self.debug(now).get("projector_active_gate_active", True))
+
+    def debug(self, now: float | None = None) -> dict[str, Any]:
         if not self._ha_url or not self._ha_config_path or not self._active_entities:
             return {"projector_active_gate_enabled": False}
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            active, states, error = self._active, dict(self._states), self._error
+            refreshed_at = self._refreshed_at
+        if refreshed_at is None:
+            active, error = True, "Home Assistant active gate refresh pending"
+        elif now - refreshed_at > self._poll_interval_seconds + self._timeout_seconds * len(self._active_entities):
+            active, error = True, "Home Assistant active gate refresh stale"
         return {
             "projector_active_gate_enabled": True,
-            "projector_active_gate_active": self._active,
-            "projector_active_gate_states": dict(self._states),
-            "projector_active_gate_error": self._error,
+            "projector_active_gate_active": active,
+            "projector_active_gate_states": states,
+            "projector_active_gate_error": error,
         }
 
 
@@ -377,23 +619,34 @@ class ProjectorSourceVideo:
         poll_interval_seconds: float,
         timeout_seconds: float,
     ) -> None:
-        self._fallback_source = fallback_source
         self._ha_url = ha_url
         self._ha_config_path = ha_config_path
         self._entity_id = entity_id
         self._poll_interval_seconds = max(0.1, poll_interval_seconds)
         self._timeout_seconds = max(0.1, timeout_seconds)
         self._token: str | None = None
-        self._next_check = 0.0
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
         self._source = fallback_source
         self._error: str | None = None
 
-    def source(self, now: float) -> str:
+    def start(self) -> None:
+        threading.Thread(
+            target=_refresh_control_cache,
+            args=(self.refresh, self._poll_interval_seconds, self._stop),
+            daemon=True,
+        ).start()
+
+    def close(self) -> None:
+        self._stop.set()
+
+    def source(self) -> str:
+        with self._lock:
+            return self._source
+
+    def refresh(self) -> None:
         if not self._ha_url or not self._ha_config_path or not self._entity_id:
-            return self._source
-        if now < self._next_check:
-            return self._source
-        self._next_check = now + self._poll_interval_seconds
+            return
         try:
             if self._token is None:
                 self._token = _load_ha_token(self._ha_config_path.expanduser())
@@ -403,19 +656,21 @@ class ProjectorSourceVideo:
                 self._entity_id,
                 timeout=self._timeout_seconds,
             ).strip()
-            if candidate not in {"", "unknown", "unavailable"}:
-                self._source = candidate
-            self._error = None
+            with self._lock:
+                if candidate not in {"", "unknown", "unavailable"}:
+                    self._source = candidate
+                self._error = None
         except Exception as exc:
-            self._error = str(exc)
-        return self._source
+            with self._lock:
+                self._error = str(exc)
 
     def debug(self) -> dict[str, Any]:
-        return {
-            "source_video_entity": self._entity_id,
-            "source_video": self._source,
-            "source_video_error": self._error,
-        }
+        with self._lock:
+            return {
+                "source_video_entity": self._entity_id,
+                "source_video": self._source,
+                "source_video_error": self._error,
+            }
 
 
 def _parse_projector_polygon(value: str) -> tuple[tuple[float, float], ...]:
@@ -1105,6 +1360,7 @@ class SafetyComputationSnapshot:
     performance: dict[str, Any] = field(default_factory=dict)
     blackout_polygons: list[tuple[tuple[float, float], ...]] = field(default_factory=list)
     updated_at: float | None = None
+    updated_at_wall: float | None = None
 
 
 class SafetyRuntime:
@@ -1116,6 +1372,7 @@ class SafetyRuntime:
         self._source_video: str | None = None
         self._snapshot = SafetyComputationSnapshot()
         self._stop = False
+        self._camera_stream_error: str | None = None
 
     def stop(self) -> None:
         with self._lock:
@@ -1143,6 +1400,13 @@ class SafetyRuntime:
     def snapshot(self) -> SafetyComputationSnapshot:
         with self._lock:
             return self._snapshot
+    def update_camera_stream_error(self, error: str | None) -> None:
+        with self._lock:
+            self._camera_stream_error = error
+
+    def camera_stream_error(self) -> str | None:
+        with self._lock:
+            return self._camera_stream_error
 
 
 @dataclass(frozen=True)
@@ -1532,8 +1796,6 @@ def _build_detector(args: argparse.Namespace) -> MobileNetPersonDetector | Unava
 
 def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> None:
     detector = _build_detector(args)
-    source_reference_frames: list[Image.Image] | None = None
-    source_reference_video: str | None = None
     active_gate = ProjectorActiveGate(
         ha_url=args.ha_url,
         ha_config_path=args.ha_config_path,
@@ -1541,6 +1803,36 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
         poll_interval_seconds=args.ha_active_poll_interval,
         timeout_seconds=args.ha_active_timeout,
     )
+    stream_url = _camera_stream_url(args.camera_snapshot_url, args.camera_stream_url)
+    camera_stream = (
+        LatestCameraStream(
+            stream_url, timeout=args.camera_snapshot_timeout, max_age=args.camera_max_frame_age,
+            on_error=runtime.update_camera_stream_error,
+        )
+        if stream_url is not None else None
+    )
+    active_gate.start()
+    if camera_stream is not None:
+        camera_stream.start()
+    try:
+        _run_safety_samples(args, runtime=runtime, detector=detector, active_gate=active_gate, camera_stream=camera_stream)
+    finally:
+        active_gate.close()
+        if camera_stream is not None:
+            camera_stream.close()
+
+
+def _run_safety_samples(
+    args: argparse.Namespace,
+    *,
+    runtime: SafetyRuntime,
+    detector: Any,
+    active_gate: ProjectorActiveGate,
+    camera_stream: LatestCameraStream | None,
+) -> None:
+    source_reference_frames: list[Image.Image] | None = None
+    source_reference_video: str | None = None
+    last_camera_key: tuple[int, int] | None = None
     recent_eye_zone_results: list[tuple[float, SafetyOverlayResult]] = []
     held_result: SafetyOverlayResult | None = None
     held_people: list[PersonDetection] = []
@@ -1554,7 +1846,11 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
 
     while not runtime.should_stop():
         gate_checked_at = time.monotonic()
-        if not active_gate.active(gate_checked_at):
+        gate_debug = active_gate.debug(gate_checked_at)
+        if not gate_debug.get("projector_active_gate_active", True):
+            if camera_stream is not None:
+                camera_stream.set_active(False)
+            last_camera_key = None
             recent_eye_zone_results = []
             held_result = None
             held_people = []
@@ -1569,7 +1865,7 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
                     "person_count": 0,
                     "safety_worker_idle": True,
                     "idle_reason": "projector_inactive",
-                    **active_gate.debug(),
+                    **gate_debug,
                 },
             )
             runtime.update_snapshot(
@@ -1583,15 +1879,18 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
                         "safety_worker_idle": True,
                         "idle_reason": "projector_inactive",
                         "inactive_sample_interval_ms": round(args.inactive_sample_interval * 1000.0, 1),
-                        **active_gate.debug(),
+                        **gate_debug,
                     },
                     blackout_polygons=[],
                     updated_at=gate_checked_at,
+                    updated_at_wall=time.time(),
                 )
             )
             time.sleep(args.inactive_sample_interval)
             continue
 
+        if camera_stream is not None:
+            camera_stream.set_active(True)
         source_frame, source_frame_index, source_updated_at, source_video = runtime.source_frame_snapshot()
         if source_frame is None or source_video is None:
             time.sleep(min(0.02, max(0.001, args.camera_sample_interval)))
@@ -1609,6 +1908,7 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
         sample_index += 1
         camera_image: Image.Image | None = None
         camera_error: str | None = None
+        camera_frame: CameraFrame | None = None
         raw_people: list[PersonDetection] = []
         people: list[PersonDetection] = []
         source_filter_skipped: list[dict[str, Any]] = []
@@ -1619,7 +1919,21 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
 
         try:
             camera_started = time.monotonic()
-            camera_image = _read_camera_snapshot(args.camera_snapshot_url, timeout=args.camera_snapshot_timeout)
+            if camera_stream is None:
+                camera_frame = _read_camera_snapshot(args.camera_snapshot_url, timeout=args.camera_snapshot_timeout)
+            else:
+                camera_frame, stream_error = camera_stream.latest(camera_started)
+                if stream_error is not None:
+                    raise RuntimeError(stream_error)
+            if camera_frame is None:
+                raise RuntimeError("camera has no complete frame")
+            if time.monotonic() - camera_frame.evidence_at > args.camera_max_frame_age:
+                raise RuntimeError("camera frame stale")
+            if camera_frame.key is not None and camera_frame.key == last_camera_key:
+                time.sleep(min(0.02, max(0.001, args.camera_sample_interval)))
+                continue
+            last_camera_key = camera_frame.key
+            camera_image = Image.open(BytesIO(camera_frame.jpeg)).convert("RGB")
             camera_read_ms = (time.monotonic() - camera_started) * 1000.0
             detector_skipped: list[dict[str, Any]] = []
             try:
@@ -1658,6 +1972,8 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
             camera_error = str(exc)
 
         now = time.monotonic()
+        if camera_frame is not None and now - camera_frame.evidence_at > args.camera_max_frame_age:
+            camera_error = "camera frame stale after inference"
         worker_loop_ms_so_far = (now - started) * 1000.0
         horizon_seconds = _prediction_horizon_seconds(
             configured_seconds=args.eye_safety_prediction_seconds,
@@ -1717,7 +2033,7 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
                     "prediction_horizon_seconds": round(horizon_seconds, 3),
                     "prediction_padding_px": args.eye_safety_prediction_padding_px,
                     "max_prediction_px": args.eye_safety_max_prediction_px,
-                    **active_gate.debug(),
+                    **gate_debug,
                     **physics_debug,
                 },
             )
@@ -1739,12 +2055,30 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
             last_blackout_polygons = [zone.polygon for zone in result.zones]
 
         finished = time.monotonic()
+        if camera_frame is not None and finished - camera_frame.evidence_at > args.camera_max_frame_age:
+            camera_error = "camera frame stale after computation"
+            result = SafetyOverlayResult("safety_overlay_unavailable", debug={"error": camera_error})
+        if camera_error:
+            overlay_people = []
+            held_result, held_people = None, []
+            recent_eye_zone_results = []
+            previous_people, previous_people_at = [], None
+            physics_tracks = []
+            last_blackout_polygons = []
         performance = {
             "safety_sample_index": sample_index,
             "safety_worker_loop_ms": round((finished - started) * 1000.0, 1),
             "camera_sample_interval_ms": round(args.camera_sample_interval * 1000.0, 1),
             "camera_snapshot_timeout_ms": round(args.camera_snapshot_timeout * 1000.0, 1),
             "camera_read_ms": round(camera_read_ms, 1) if camera_read_ms is not None else None,
+            "camera_transport": "mjpeg" if camera_stream is not None else "snapshot",
+            "camera_frame_sequence": camera_frame.sequence if camera_frame is not None else None,
+            "camera_frame_connection": camera_frame.connection if camera_frame is not None else None,
+            "camera_frame_age_at_send_ms": camera_frame.age_ms if camera_frame is not None else None,
+            "camera_frame_encode_ms": camera_frame.encode_ms if camera_frame is not None else None,
+            "camera_frame_age_ms": (
+                round((finished - camera_frame.evidence_at) * 1000.0, 1) if camera_frame is not None else None
+            ),
             "detector_ms": round(detector_ms, 1) if detector_ms is not None else None,
             "source_filter_ms": round(source_filter_ms, 1) if source_filter_ms is not None else None,
             "source_frame_index": source_frame_index,
@@ -1760,7 +2094,7 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
             "person_track_max_missing_seconds": args.person_track_max_missing_seconds,
             "person_track_max_speed_px_s": args.person_track_max_speed_px_s,
             "person_track_smoothing_alpha": args.person_track_smoothing_alpha,
-            **active_gate.debug(),
+            **gate_debug,
             **physics_debug,
         }
         if (
@@ -1798,7 +2132,8 @@ def _run_safety_worker(args: argparse.Namespace, *, runtime: SafetyRuntime) -> N
                 camera_error=camera_error,
                 performance=performance,
                 blackout_polygons=list(last_blackout_polygons),
-                updated_at=finished,
+                updated_at=camera_frame.evidence_at if camera_frame is not None and not camera_error else finished,
+                updated_at_wall=camera_frame.evidence_wall_at if camera_frame is not None and not camera_error else time.time(),
             )
         )
         elapsed = time.monotonic() - started
@@ -1831,7 +2166,7 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
             source_frame = _frame_from_capture(capture, source_size=args.source_size)
             runtime.update_source_frame(source_frame, frame_index, str(args.source_video))
             snapshot = runtime.snapshot()
-            result = snapshot.result
+            result, camera_error = _current_safety_result(snapshot, now=time.monotonic(), args=args, stream_error=runtime.camera_stream_error())
             rendered_started = time.monotonic()
             rendered = _render_fixed_black_rect(source_frame, args.fixed_black_rect)
             rendered = render_eye_safety_overlay(rendered, result)
@@ -1850,12 +2185,7 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
             safety_age_ms = (
                 round((finished - snapshot.updated_at) * 1000.0, 1) if snapshot.updated_at is not None else None
             )
-            result = _expire_stale_active_result(
-                snapshot.result,
-                now=finished,
-                updated_at=snapshot.updated_at,
-                max_age_seconds=args.max_active_overlay_age,
-            )
+            result, camera_error = _current_safety_result(snapshot, now=finished, args=args, stream_error=runtime.camera_stream_error())
             performance = {
                 **snapshot.performance,
                 "frame_index": frame_index,
@@ -1872,9 +2202,10 @@ def _run_renderer(args: argparse.Namespace, *, output_dir: Path, state: SafetyOv
                 result,
                 people=snapshot.people if result.status == snapshot.result.status else [],
                 source_size=args.source_size,
+                updated_at=snapshot.updated_at_wall,
                 fixed_black_rect=args.fixed_black_rect,
                 camera_image=snapshot.camera_image,
-                camera_error=snapshot.camera_error,
+                camera_error=camera_error,
                 performance=performance,
             )
             elapsed = time.monotonic() - started
@@ -1899,6 +2230,7 @@ def _run_status_only(args: argparse.Namespace, *, state: SafetyOverlayState) -> 
         poll_interval_seconds=args.ha_source_video_poll_interval,
         timeout_seconds=args.ha_active_timeout,
     )
+    source_video.start()
     safety_worker = threading.Thread(target=_run_safety_worker, args=(args,), kwargs={"runtime": runtime})
     safety_worker.daemon = True
     safety_worker.start()
@@ -1911,8 +2243,9 @@ def _run_status_only(args: argparse.Namespace, *, state: SafetyOverlayState) -> 
             started = time.monotonic()
             snapshot = runtime.snapshot()
             worker_idle = bool(snapshot.performance.get("safety_worker_idle"))
+            source_debug = source_video.debug()
             if not worker_idle and started >= next_source_at:
-                selected_source_video = source_video.source(started)
+                selected_source_video = source_debug["source_video"]
                 if capture is None or selected_source_video != active_source_video:
                     if capture is not None:
                         capture.release()
@@ -1932,12 +2265,7 @@ def _run_status_only(args: argparse.Namespace, *, state: SafetyOverlayState) -> 
             safety_age_ms = (
                 round((finished - snapshot.updated_at) * 1000.0, 1) if snapshot.updated_at is not None else None
             )
-            result = _expire_stale_active_result(
-                snapshot.result,
-                now=finished,
-                updated_at=snapshot.updated_at,
-                max_age_seconds=args.max_active_overlay_age,
-            )
+            result, camera_error = _current_safety_result(snapshot, now=finished, args=args, stream_error=runtime.camera_stream_error())
             performance = {
                 **snapshot.performance,
                 "frame_index": frame_index,
@@ -1951,15 +2279,16 @@ def _run_status_only(args: argparse.Namespace, *, state: SafetyOverlayState) -> 
                 "safety_result_age_ms": safety_age_ms,
                 "max_active_overlay_age_ms": round(args.max_active_overlay_age * 1000.0, 1),
                 "hls_encoder_enabled": False,
-                **source_video.debug(),
+                **source_debug,
             }
             state.update(
                 result,
                 people=snapshot.people if result.status == snapshot.result.status else [],
                 source_size=args.source_size,
+                updated_at=snapshot.updated_at_wall,
                 fixed_black_rect=args.fixed_black_rect,
                 camera_image=snapshot.camera_image,
-                camera_error=snapshot.camera_error,
+                camera_error=camera_error,
                 performance=performance,
             )
             elapsed = time.monotonic() - started
@@ -1968,8 +2297,26 @@ def _run_status_only(args: argparse.Namespace, *, state: SafetyOverlayState) -> 
                 time.sleep(target_interval - elapsed)
     finally:
         runtime.stop()
+        source_video.close()
         if capture is not None:
             capture.release()
+
+
+def _current_safety_result(
+    snapshot: SafetyComputationSnapshot, *, now: float, args: argparse.Namespace, stream_error: str | None = None
+) -> tuple[SafetyOverlayResult, str | None]:
+    # A healthy publication loop must not make old camera evidence current.
+    if stream_error and snapshot.camera_image is not None:
+        return SafetyOverlayResult("safety_overlay_unavailable", debug={**snapshot.result.debug, "error": stream_error}), stream_error
+    if (
+        snapshot.camera_image is not None
+        and (snapshot.updated_at is None or now - snapshot.updated_at > args.camera_max_frame_age)
+    ):
+        error = snapshot.camera_error or "camera evidence stale"
+        return SafetyOverlayResult("safety_overlay_unavailable", debug={**snapshot.result.debug, "error": error}), error
+    return _expire_stale_active_result(
+        snapshot.result, now=now, updated_at=snapshot.updated_at, max_age_seconds=args.max_active_overlay_age
+    ), snapshot.camera_error
 
 
 def _expire_stale_active_result(
@@ -2117,6 +2464,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("--ha-source-video-poll-interval", type=float, default=1.0)
     parser.add_argument("--camera-snapshot-url", default=DEFAULT_CAMERA_SNAPSHOT_URL)
+    parser.add_argument("--camera-stream-url", help="Explicit direct MJPEG URL; /shot.jpg otherwise selects /video")
+    parser.add_argument("--camera-max-frame-age", type=float, default=0.9)
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--fps", type=int, default=20)
@@ -2187,6 +2536,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--inactive-sample-interval", type=float, default=2.0)
     parser.add_argument("--inactive-status-interval", type=float, default=1.0)
     args = parser.parse_args(argv)
+    if not math.isfinite(args.camera_max_frame_age) or args.camera_max_frame_age <= 0:
+        parser.error("--camera-max-frame-age must be positive and finite")
+    if not math.isfinite(args.camera_snapshot_timeout) or args.camera_snapshot_timeout <= 0:
+        parser.error("--camera-snapshot-timeout must be positive and finite")
     if len(args.source_size) != 2:
         raise SystemExit("--source-size must be WIDTHxHEIGHT")
     args.source_size = (int(args.source_size[0]), int(args.source_size[1]))

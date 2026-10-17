@@ -1,6 +1,11 @@
 import sys
+import threading
+from dataclasses import replace
 from importlib.util import module_from_spec, spec_from_file_location
+from io import BytesIO
 from pathlib import Path
+
+import pytest
 
 from PIL import Image, ImageDraw
 
@@ -45,9 +50,11 @@ def test_projector_source_video_tracks_ha_entity_and_keeps_last_good_source(monk
         timeout_seconds=1.0,
     )
 
-    assert source.source(1.0) == "http://ha/local/cat-tv/flies.mp4"
-    assert source.source(1.5) == "http://ha/local/cat-tv/flies.mp4"
-    assert source.source(2.0) == "http://ha/local/cat-tv/flies.mp4"
+    assert source.source() == "http://ha/local/cat-tv/october.mp4"
+    source.refresh()
+    assert source.source() == "http://ha/local/cat-tv/flies.mp4"
+    source.refresh()
+    assert source.source() == "http://ha/local/cat-tv/flies.mp4"
     assert source.debug()["source_video_error"] is None
 
 
@@ -135,11 +142,13 @@ def test_safety_worker_does_not_sample_source_references_while_projector_inactiv
         def __init__(self, *args, **kwargs) -> None:
             pass
 
-        def active(self, now: float) -> bool:
-            del now
-            return False
+        def start(self) -> None:
+            pass
 
-        def debug(self) -> dict[str, object]:
+        def close(self) -> None:
+            pass
+
+        def debug(self, now: float | None = None) -> dict[str, object]:
             return {"projector_active_gate_active": False}
 
     runtime = overlay_server.SafetyRuntime()
@@ -774,3 +783,204 @@ def test_runtime_defaults_prioritize_live_safety_camera_updates() -> None:
     assert args.ha_active_timeout == 1.0
     assert args.inactive_sample_interval == 2.0
     assert args.inactive_status_interval == 1.0
+
+
+def _camera_evidence(sequence: int = 1) -> overlay_server.CameraFrame:
+    jpeg = BytesIO()
+    Image.new("RGB", (64, 64), "white").save(jpeg, format="JPEG")
+    return overlay_server.CameraFrame(
+        jpeg=jpeg.getvalue(), received_at=10.0, received_wall_at=100.0,
+        sequence=sequence, age_ms=100.0, connection=1,
+    )
+
+
+def test_camera_stream_selection_only_converts_known_snapshot_endpoint() -> None:
+    choose = overlay_server._camera_stream_url
+    assert choose("http://camera:8081/shot.jpg?fps=25", None) == "http://camera:8081/video?fps=25"
+    assert choose("http://camera/other/shot.jpg", None) is None
+    assert choose("http://frigate/api/camera/latest.jpg", None) is None
+    assert choose("http://camera/snapshot", "http://camera/custom-mjpeg") == "http://camera/custom-mjpeg"
+
+
+def test_latest_camera_slot_skips_duplicates_and_accepts_reset_only_after_reconnect() -> None:
+    stream = overlay_server.LatestCameraStream("http://camera/video", timeout=2.0, max_age=0.9)
+    first = _camera_evidence()
+    newest = replace(first, sequence=2, received_at=10.2)
+    assert stream._accept(first)
+    assert stream._accept(newest)
+    assert not stream._accept(replace(newest, received_at=10.8))
+    assert stream.latest(10.3) == (newest, None)
+    assert stream.latest(11.1)[1] == "camera stream frame stale"
+    with pytest.raises(ValueError, match="regressed"):
+        stream._accept(first)
+    restarted = replace(first, connection=2, received_at=11.2)
+    assert stream._accept(restarted)
+    assert stream.latest(11.3) == (restarted, None)
+
+
+def test_mjpeg_reads_complete_metadata_frames_and_rejects_partial_frame() -> None:
+    class Response(BytesIO):
+        headers = overlay_server.BytesHeaderParser().parsebytes(
+            b"Content-Type: multipart/x-mixed-replace; boundary=frame\r\n\r\n"
+        )
+
+    def part(sequence: int, body: bytes) -> bytes:
+        return (
+            f"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {len(body)}\r\n"
+            f"X-Frame-Sequence: {sequence}\r\nX-Frame-Age-Ms: 12\r\nX-Frame-Encode-Ms: 3\r\n\r\n"
+        ).encode() + body + b"\r\n"
+
+    parts = overlay_server._iter_mjpeg_frames(
+        Response(part(4, b"first") + part(5, b"newest")[:-4]), timeout=2.0, connection=7
+    )
+    first = next(parts)
+    assert (first.jpeg, first.sequence, first.age_ms, first.encode_ms, first.connection) == (b"first", 4, 12, 3, 7)
+    with pytest.raises(EOFError, match="disconnected"):
+        next(parts)
+
+
+@pytest.mark.parametrize("body, expected", [(b"", "disconnected"), (
+    b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 1\r\n\r\nx\r\n", "requires X-Frame"
+)])
+def test_stream_failure_is_visible_without_snapshot_fallback(monkeypatch, body, expected) -> None:
+    class Response(BytesIO):
+        headers = overlay_server.BytesHeaderParser().parsebytes(
+            b"Content-Type: multipart/x-mixed-replace; boundary=frame\r\n\r\n"
+        )
+
+    urls = []
+    stream = overlay_server.LatestCameraStream("http://camera/video", timeout=2.0, max_age=0.9)
+
+    def open_stream(request, **kwargs):
+        urls.append(request.full_url)
+        return Response(body)
+
+    monkeypatch.setattr(overlay_server, "urlopen", open_stream)
+    monkeypatch.setattr(stream._stop, "wait", lambda timeout: stream._stop.set())
+    stream.set_active(True)
+    stream._run()
+    frame, error = stream.latest(overlay_server.time.monotonic())
+    assert frame is None
+    assert expected in error
+    assert urls == ["http://camera/video"]
+
+
+@pytest.mark.parametrize("failure", ["stale", "disconnected"])
+def test_safety_worker_does_not_renew_duplicate_frame_evidence(monkeypatch, failure) -> None:
+    clock = [10.0]
+    monkeypatch.setattr(overlay_server.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(overlay_server.time, "time", lambda: clock[0] + 90.0)
+
+    def advance(seconds):
+        clock[0] += seconds
+
+    monkeypatch.setattr(overlay_server.time, "sleep", advance)
+    monkeypatch.setattr(overlay_server, "_sample_source_reference_frames", lambda *args, **kwargs: [])
+    monkeypatch.setattr(overlay_server, "_filter_source_projected_people", lambda *args, **kwargs: ([], []))
+    args = overlay_server.parse_args(["--source-video", "source.mp4", "--source-size", "64x64"])
+    gate = overlay_server.ProjectorActiveGate(
+        ha_url=None, ha_config_path=None, active_entities=(), poll_interval_seconds=1, timeout_seconds=1,
+    )
+    stream = overlay_server.LatestCameraStream("http://camera/video", timeout=2, max_age=0.9)
+    stream._accept(_camera_evidence())
+    runtime = overlay_server.SafetyRuntime()
+    runtime.update_source_frame(Image.new("RGB", (64, 64)), 1, "source.mp4")
+    snapshots = []
+
+    class Detector:
+        calls = 0
+
+        def detect(self, image):
+            self.calls += 1
+            return []
+
+    detector = Detector()
+
+    def publish(snapshot):
+        snapshots.append(snapshot)
+        if snapshot.result.status == "safety_overlay_unavailable":
+            runtime.stop()
+        elif failure == "disconnected":
+            with stream._lock:
+                stream._error = "camera stream disconnected"
+
+    monkeypatch.setattr(runtime, "update_snapshot", publish)
+    overlay_server._run_safety_samples(args, runtime=runtime, detector=detector, active_gate=gate, camera_stream=stream)
+    assert detector.calls == 1
+    assert [snapshot.result.status for snapshot in snapshots] == ["no_person", "safety_overlay_unavailable"]
+    assert snapshots[0].result.zones == ()
+    assert snapshots[0].people == []
+    assert snapshots[0].updated_at == pytest.approx(9.9)
+    assert snapshots[0].updated_at_wall == pytest.approx(99.9)
+    assert failure in snapshots[-1].camera_error
+
+
+def test_status_publication_expires_clear_evidence_and_keeps_original_timestamp() -> None:
+    args = overlay_server.parse_args(["--source-video", "source.mp4"])
+    snapshot = overlay_server.SafetyComputationSnapshot(
+        result=overlay_server.SafetyOverlayResult("no_person"), camera_image=Image.new("RGB", (64, 64)),
+        updated_at=10.0, updated_at_wall=100.0,
+    )
+    state = overlay_server.SafetyOverlayState()
+    for now in (10.1, 10.3):
+        result, error = overlay_server._current_safety_result(snapshot, now=now, args=args)
+        state.update(result, people=[], source_size=(64, 64), updated_at=snapshot.updated_at_wall, camera_error=error)
+        assert state.snapshot()["updated_at"] == 100.0
+    result, error = overlay_server._current_safety_result(snapshot, now=11.0, args=args)
+    assert result.status == "safety_overlay_unavailable"
+    assert result.zones == ()
+    assert error == "camera evidence stale"
+
+
+def test_slow_control_refresh_does_not_block_cached_safety_or_source_reads(monkeypatch) -> None:
+    gate_entered, source_entered, release, readers_done = (threading.Event() for _ in range(4))
+    monkeypatch.setattr(overlay_server, "_load_ha_token", lambda path: "token")
+
+    def slow_read(ha_url, token, entity_id, **kwargs):
+        (source_entered if entity_id == "source" else gate_entered).set()
+        assert release.wait(2.0), "control refresh was not released"
+        return "new.mp4" if entity_id == "source" else "off"
+
+    monkeypatch.setattr(overlay_server, "_read_ha_state", slow_read)
+    gate = overlay_server.ProjectorActiveGate(
+        ha_url="http://ha", ha_config_path=Path("config.py"), active_entities=("active",),
+        poll_interval_seconds=1, timeout_seconds=1,
+    )
+    source = overlay_server.ProjectorSourceVideo(
+        fallback_source="old.mp4", ha_url="http://ha", ha_config_path=Path("config.py"), entity_id="source",
+        poll_interval_seconds=1, timeout_seconds=1,
+    )
+    refreshers = [threading.Thread(target=cache.refresh) for cache in (gate, source)]
+    observed = []
+
+    def read_caches():
+        observed.append((gate.active(overlay_server.time.monotonic()), source.source(), source.debug()))
+        readers_done.set()
+
+    reader = threading.Thread(target=read_caches)
+    try:
+        for thread in refreshers:
+            thread.start()
+        assert gate_entered.wait(1.0) and source_entered.wait(1.0)
+        reader.start()
+        assert readers_done.wait(0.5), "safety/status cache readers waited for HA HTTP"
+        assert observed == [(True, "old.mp4", {"source_video_entity": "source", "source_video": "old.mp4", "source_video_error": None})]
+    finally:
+        release.set()
+        for thread in refreshers:
+            thread.join(2.0)
+        if reader.ident is not None:
+            reader.join(2.0)
+    assert gate.active(overlay_server.time.monotonic()) is False
+    assert source.source() == "new.mp4"
+
+    def failed_read(*args, **kwargs):
+        raise OSError("HA unavailable")
+
+    monkeypatch.setattr(overlay_server, "_read_ha_state", failed_read)
+    gate.refresh()
+    source.refresh()
+    assert gate.active(overlay_server.time.monotonic()) is True
+    assert gate.debug()["projector_active_gate_error"] == "HA unavailable"
+    assert source.source() == "new.mp4"
+    assert source.debug()["source_video_error"] == "HA unavailable"
