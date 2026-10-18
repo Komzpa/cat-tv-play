@@ -58,6 +58,13 @@ controls, builds, tests, or live ops were run by this lane.
 
 ## Remote proof
 
-Appended in the follow-up commit on the same branch after push (commit SHA + forge
-readback recorded there). This receipt does not embed its own content hash
-(self-hash paradox); its sha256 is pinned by the publisher's result.
+- Publication commit: `49cdd5aecdb49593d524d1b986b4607e19a4bbd4` on
+  `fix/dynamic-cat-tv-source`, parent exactly `ade13cf98a3ee74167e719cb77fef2ef6706fb9b`
+  (33 files: the 31 manifest paths + the relocated stimulus receipt + this receipt).
+- Push: `git push origin 49cdd5aecdb49593d524d1b986b4607e19a4bbd4:refs/heads/fix/dynamic-cat-tv-source`
+  — clean fast-forward `ade13cf..49cdd5a`, no force flags, exit 0.
+- Forge readback: `git ls-remote origin refs/heads/fix/dynamic-cat-tv-source` ->
+  `49cdd5aecdb49593d524d1b986b4607e19a4bbd4`.
+- This receipt does not embed its own content hash (self-hash paradox); its sha256 is
+  pinned by the publisher's result. The follow-up commit carrying this section is
+  recorded in the publisher's result rather than self-referentially here.
