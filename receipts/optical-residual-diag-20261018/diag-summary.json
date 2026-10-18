@@ -1,0 +1,229 @@
+{
+  "camera_stream_url": "http://192.168.100.39:8081/video?fps=25",
+  "clock_notes": [
+    "all *_monotonic fields are nucat CLOCK_MONOTONIC seconds on one timeline",
+    "status GET arrival/response and frame receive times share that nucat timeline",
+    "X-Frame-Age-Ms (callback_age_ms) is Android-side callback age measured on the device at send entry; its zero is preview-callback entry, NOT sensor exposure",
+    "device clock offset vs nucat is unknown: callback ages are diagnostics only and are never added into round-trip latency",
+    "no screenshot or photon timestamp is taken anywhere; display paint and photon emission remain unobserved segments"
+  ],
+  "counts": {
+    "attempts": 8,
+    "duplicate_frames_skipped": 0,
+    "frames_received": 284,
+    "publisher_samples": 227,
+    "stale_frames_skipped": 0,
+    "status_gets": 709,
+    "valid_trials": 1
+  },
+  "failed_error": null,
+  "ha_calls": [
+    {
+      "body_bytes": 1870,
+      "http_status": 200,
+      "payload_keys": [],
+      "response_monotonic": 443689.586354006,
+      "response_wall_at": 1792288901.6276193,
+      "service": "cat_projector_start"
+    },
+    {
+      "body_bytes": 2624,
+      "http_status": 200,
+      "payload_keys": [],
+      "response_monotonic": 443756.752519759,
+      "response_wall_at": 1792288968.7937868,
+      "service": "cat_projector_stop"
+    },
+    {
+      "body_bytes": 3144,
+      "http_status": 200,
+      "payload_keys": [],
+      "response_monotonic": 443761.573968009,
+      "response_wall_at": 1792288973.615235,
+      "service": "cat_projector_lamp_off"
+    }
+  ],
+  "identities": {
+    "harness_sha256": "6c09e0c870fdc8021069553d3bac67a9aa6bcd23db71b678a9c76173f5f75238",
+    "installed_display_base_apk_sha256_recorded_prior": "688be696125babafbc38baa346f0b061cd56e6a593e4c7d90ac6ec41a857ac0e",
+    "installed_publisher_base_apk_sha256_recorded_prior": "82089b37b01e90d1097d4cd694a8a4ae88ff5419db8f1e6cd8c18654db25cb53",
+    "overlay_server_sha256": "b0fb092843d863910e0704c6d903b4ab8e692c74825d170249eda5bfd29b76a6"
+  },
+  "input_rect": [
+    120,
+    120,
+    320,
+    220
+  ],
+  "kind": "optical_residual_timed_diagnostic",
+  "marker": {
+    "bytes": 523352,
+    "path": "/home/kom/proj/cat-tv-play/receipts/optical-loop-repaired-20261018/optical-marker.mp4",
+    "sha256": "458741db4f0517ffa009511c22660734b52a4fc5a305636bf6e3dc31144b68df"
+  },
+  "measurement": "fixed_marker_same_camera_input_frame_to_output_frame",
+  "output_rect": [
+    520,
+    260,
+    760,
+    420
+  ],
+  "point_ms_values": [
+    713.3
+  ],
+  "pre_readback": {
+    "binary_sensor.cat_projector_display_active": {
+      "entity_id": "binary_sensor.cat_projector_display_active",
+      "last_changed": "2026-10-18T01:52:35.682147+00:00",
+      "state": "off"
+    },
+    "blacklight_enable": "false",
+    "input_boolean.cat_projector_session": {
+      "entity_id": "input_boolean.cat_projector_session",
+      "last_changed": "2026-10-18T01:52:35.676716+00:00",
+      "state": "off"
+    },
+    "read_wall": 1792288901.5708249
+  },
+  "safe_off_readback": {
+    "binary_sensor.cat_projector_display_active": {
+      "entity_id": "binary_sensor.cat_projector_display_active",
+      "last_changed": "2026-10-18T02:02:48.786010+00:00",
+      "state": "off"
+    },
+    "blacklight_enable": "false",
+    "input_boolean.cat_projector_session": {
+      "entity_id": "input_boolean.cat_projector_session",
+      "last_changed": "2026-10-18T02:02:48.783214+00:00",
+      "state": "off"
+    },
+    "read_wall": 1792288974.2617667
+  },
+  "source_size": [
+    1280,
+    720
+  ],
+  "status_url": "http://192.168.100.74:8798/status.json",
+  "thresholds": {
+    "baseline_arm_s": 0.5,
+    "input_low_max_luma": 170.0,
+    "input_min_brightening": 25.0,
+    "max_active_luma": 95.0,
+    "max_frame_age_ms": 900.0,
+    "min_darkening": 18.0
+  },
+  "trials": [
+    {
+      "attempt": 1,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 2,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 3,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 4,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 5,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 6,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "activated_at_monotonic": 443750.613041192,
+      "activation_nonce": "n007-t7-443750.613037",
+      "attempt": 7,
+      "decline_onset": {
+        "any_darkening": {
+          "attempt": 7,
+          "decline_from_output_base_ms": 89.95,
+          "received_at_monotonic": 443751.323761279,
+          "received_at_wall": 1792288963.365029,
+          "sequence": 115806,
+          "threshold": "decline>0"
+        },
+        "ge_min_darkening": {
+          "attempt": 7,
+          "decline_from_output_base_ms": 89.95,
+          "received_at_monotonic": 443751.323761279,
+          "received_at_wall": 1792288963.365029,
+          "sequence": 115806,
+          "threshold": "decline>=18.0"
+        },
+        "le_max_active_luma": {
+          "attempt": 7,
+          "decline_from_output_base_ms": 89.95,
+          "received_at_monotonic": 443751.323761279,
+          "received_at_wall": 1792288963.365029,
+          "sequence": 115806,
+          "threshold": "luma<=95.0"
+        }
+      },
+      "input_frame": {
+        "callback_age_ms": 92.0,
+        "connection": 1,
+        "encode_ms": 91.0,
+        "evidence_at_monotonic": 443750.271182323,
+        "read_started_at_monotonic": 443750.363182323,
+        "received_at_monotonic": 443750.61044649,
+        "received_wall_at": 1792288962.6517146,
+        "sequence": 115802
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 54.0,
+        "connection": 1,
+        "encode_ms": 54.0,
+        "evidence_at_monotonic": 443750.225752451,
+        "read_started_at_monotonic": 443750.279752451,
+        "received_at_monotonic": 443750.360047744,
+        "received_wall_at": 1792288962.401316,
+        "sequence": 115801
+      },
+      "lower_ms": 573.2,
+      "output_baseline_luma": 184.19,
+      "output_frame": {
+        "callback_age_ms": 67.0,
+        "connection": 1,
+        "encode_ms": 66.0,
+        "evidence_at_monotonic": 443751.121356989,
+        "read_started_at_monotonic": 443751.188356989,
+        "received_at_monotonic": 443751.323761279,
+        "received_wall_at": 1792288963.365029,
+        "sequence": 115806
+      },
+      "output_luma": 94.24,
+      "output_prev_frame": {
+        "callback_age_ms": 62.0,
+        "connection": 1,
+        "encode_ms": 62.0,
+        "evidence_at_monotonic": 443750.894288427,
+        "read_started_at_monotonic": 443750.956288427,
+        "received_at_monotonic": 443751.18359834,
+        "received_wall_at": 1792288963.2248666,
+        "sequence": 115805
+      },
+      "point_ms": 713.3,
+      "upper_ms": 963.7,
+      "valid": true
+    }
+  ],
+  "video_url": "http://192.168.100.74:8798/optical-marker.mp4",
+  "window_end_monotonic": 443756.292774073,
+  "window_s": 45.0,
+  "window_start_monotonic": 443711.291221303,
+  "window_start_wall": 1792288929.4198468
+}

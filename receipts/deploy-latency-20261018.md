@@ -212,12 +212,17 @@ the proof lane's ownership.
   (the 30000 rule applies only to `cats-tv-october-compilation-fMiAfGtt9rc-seed30.mp4`).
   No active playback existed to resume, so "restore original playback" = keep
   baseline off until the proof starts it deliberately.
-- At control handoff (03:06-03:07): the proof lane had deliberately started
-  projection — `blacklight=true`, focus
+- At control handoff (03:06-03:07): a lamp-ON / display-focused state was
+  observed — `blacklight=true`, focus
   `camera.catprojector.display/camera.catprojector.publisher.ProjectorDisplayActivity`.
-  That is not a deploy-lane mutation: after the transfer timestamp LatencyDeploy
-  issued zero adb/HA lamp/playback commands. Playback restore semantics belong
-  to the accepted proof source (`6c09e0c8`, `--restore-off` / `--restore-video-url`).
+  **Integration correction (2026-10-18): the actor of that state is UNKNOWN and
+  it must NOT be attributed to the proof lane.** That lane issued zero adb/HA
+  lamp/playback commands before its safe stop, and its first device probe
+  (~03:08) already showed launcher foreground
+  (`com.zeasn.launcher/.ui.MainActivity`) with no display task. This is likewise
+  not a deploy-lane mutation: after the transfer timestamp LatencyDeploy issued
+  zero adb/HA lamp/playback commands. Playback restore semantics belong to the
+  accepted proof source (`6c09e0c8`, `--restore-off` / `--restore-video-url`).
 
 ## 7. Rollback paths
 

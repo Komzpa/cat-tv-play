@@ -1,0 +1,1113 @@
+{
+  "accepted": true,
+  "artifact_sha256": "162ba02f6944de8b2b05c05cf8cd986419b0c0892570303c6538e6a30c2a44c2",
+  "bypassed_production_stage": "MobileNet-SSD person detector + source-subtraction + tracking + eye-band geometry (fixed ROI brightening recognition instead); not a production safety latency",
+  "camera_stream_url": "http://192.168.100.39:8081/video?fps=25",
+  "clock_limitations": [
+    "point/lower/upper use nucat monotonic receive times of actual neighboring frames",
+    "bounds cover frame sampling only; exposure/readout and pre-callback delay unknown, so they are not strict optical onset bounds",
+    "X-Frame-Age-Ms is Android callback age, retained per frame, never summed into latency",
+    "common camera delay cancellation between input and output observations is assumed, not proven"
+  ],
+  "duplicate_frames_skipped": 0,
+  "failed_error": null,
+  "input_rect": [
+    120,
+    120,
+    320,
+    220
+  ],
+  "invalid_trials": 0,
+  "marker": {
+    "bytes": 523352,
+    "duration_s": 300.0,
+    "fps": 30,
+    "high_s": 2.0,
+    "low_s": 1.0,
+    "path": "receipts/optical-loop-repaired-20261018/optical-marker.mp4",
+    "period_s": 3.0,
+    "sha256": "458741db4f0517ffa009511c22660734b52a4fc5a305636bf6e3dc31144b68df"
+  },
+  "measurement": "fixed_marker_same_camera_input_frame_to_output_frame",
+  "output_rect": [
+    520,
+    260,
+    760,
+    420
+  ],
+  "restore_error": null,
+  "restore_status": "off_restored",
+  "restored_status_url": "http://192.168.100.74:8787/status.json",
+  "restored_video_url": null,
+  "source_size": [
+    1280,
+    720
+  ],
+  "stale_frames_skipped": 0,
+  "stats": {
+    "lower_bound": {
+      "max_ms": 1473.5,
+      "n": 20,
+      "p50_ms": 619.6,
+      "p95_ms": 833.6
+    },
+    "point": {
+      "max_ms": 1591.0,
+      "n": 20,
+      "p50_ms": 740.7,
+      "p95_ms": 965.6
+    },
+    "upper_bound": {
+      "max_ms": 1737.9,
+      "n": 20,
+      "p50_ms": 843.3,
+      "p95_ms": 1159.7
+    }
+  },
+  "status_requests": 1008,
+  "status_url": "http://192.168.100.74:8798/status.json",
+  "trials": [
+    {
+      "activated_at_monotonic": 440824.006677141,
+      "attempt": 1,
+      "input_frame": {
+        "callback_age_ms": 57.0,
+        "connection": 1,
+        "encode_ms": 57.0,
+        "evidence_at_monotonic": 440823.802687829,
+        "read_started_at_monotonic": 440823.859687829,
+        "received_at_monotonic": 440824.003965562,
+        "received_wall_at": 1792286036.0452332,
+        "sequence": 86477
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 46.0,
+        "connection": 1,
+        "encode_ms": 46.0,
+        "evidence_at_monotonic": 440823.717323567,
+        "read_started_at_monotonic": 440823.763323567,
+        "received_at_monotonic": 440823.857062348,
+        "received_wall_at": 1792286035.8983305,
+        "sequence": 86476
+      },
+      "lower_ms": 1473.5,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 202.13,
+      "output_frame": {
+        "callback_age_ms": 57.0,
+        "connection": 1,
+        "encode_ms": 57.0,
+        "evidence_at_monotonic": 440825.42310966604,
+        "read_started_at_monotonic": 440825.480109666,
+        "received_at_monotonic": 440825.594951546,
+        "received_wall_at": 1792286037.63622,
+        "sequence": 86488
+      },
+      "output_luma": 93.92,
+      "output_prev_frame": {
+        "callback_age_ms": 63.0,
+        "connection": 1,
+        "encode_ms": 62.0,
+        "evidence_at_monotonic": 440825.28915571695,
+        "read_started_at_monotonic": 440825.352155717,
+        "received_at_monotonic": 440825.477459416,
+        "received_wall_at": 1792286037.518727,
+        "sequence": 86487
+      },
+      "point_ms": 1591.0,
+      "upper_ms": 1737.9,
+      "valid": true
+    },
+    {
+      "activated_at_monotonic": 440830.754160887,
+      "attempt": 2,
+      "input_frame": {
+        "callback_age_ms": 39.0,
+        "connection": 1,
+        "encode_ms": 36.0,
+        "evidence_at_monotonic": 440830.651961312,
+        "read_started_at_monotonic": 440830.690961312,
+        "received_at_monotonic": 440830.750953251,
+        "received_wall_at": 1792286042.7922208,
+        "sequence": 86526
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 38.0,
+        "connection": 1,
+        "encode_ms": 35.0,
+        "evidence_at_monotonic": 440830.594536119,
+        "read_started_at_monotonic": 440830.632536119,
+        "received_at_monotonic": 440830.688388301,
+        "received_wall_at": 1792286042.729656,
+        "sequence": 86525
+      },
+      "lower_ms": 530.7,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 196.12,
+      "output_frame": {
+        "callback_age_ms": 41.0,
+        "connection": 1,
+        "encode_ms": 40.0,
+        "evidence_at_monotonic": 440831.244298031,
+        "read_started_at_monotonic": 440831.285298031,
+        "received_at_monotonic": 440831.426649627,
+        "received_wall_at": 1792286043.4679172,
+        "sequence": 86533
+      },
+      "output_luma": 62.28,
+      "output_prev_frame": {
+        "callback_age_ms": 35.0,
+        "connection": 1,
+        "encode_ms": 35.0,
+        "evidence_at_monotonic": 440831.19410147204,
+        "read_started_at_monotonic": 440831.229101472,
+        "received_at_monotonic": 440831.281671179,
+        "received_wall_at": 1792286043.322939,
+        "sequence": 86532
+      },
+      "point_ms": 675.7,
+      "upper_ms": 738.3,
+      "valid": true
+    },
+    {
+      "activated_at_monotonic": 440833.754278444,
+      "attempt": 3,
+      "input_frame": {
+        "callback_age_ms": 33.0,
+        "connection": 1,
+        "encode_ms": 33.0,
+        "evidence_at_monotonic": 440833.61110582,
+        "read_started_at_monotonic": 440833.64410582,
+        "received_at_monotonic": 440833.749829018,
+        "received_wall_at": 1792286045.7910972,
+        "sequence": 86558
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 51.0,
+        "connection": 1,
+        "encode_ms": 50.0,
+        "evidence_at_monotonic": 440833.458137786,
+        "read_started_at_monotonic": 440833.509137786,
+        "received_at_monotonic": 440833.630269646,
+        "received_wall_at": 1792286045.6715376,
+        "sequence": 86557
+      },
+      "lower_ms": 632.8,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 195.58,
+      "output_frame": {
+        "callback_age_ms": 38.0,
+        "connection": 1,
+        "encode_ms": 38.0,
+        "evidence_at_monotonic": 440834.347716728,
+        "read_started_at_monotonic": 440834.385716728,
+        "received_at_monotonic": 440834.509934864,
+        "received_wall_at": 1792286046.5512025,
+        "sequence": 86565
+      },
+      "output_luma": 62.14,
+      "output_prev_frame": {
+        "callback_age_ms": 69.0,
+        "connection": 1,
+        "encode_ms": 68.0,
+        "evidence_at_monotonic": 440834.098369334,
+        "read_started_at_monotonic": 440834.167369334,
+        "received_at_monotonic": 440834.382592471,
+        "received_wall_at": 1792286046.4238605,
+        "sequence": 86564
+      },
+      "point_ms": 760.1,
+      "upper_ms": 879.7,
+      "valid": true
+    },
+    {
+      "activated_at_monotonic": 440836.846977472,
+      "attempt": 4,
+      "input_frame": {
+        "callback_age_ms": 54.0,
+        "connection": 1,
+        "encode_ms": 54.0,
+        "evidence_at_monotonic": 440836.690183322,
+        "read_started_at_monotonic": 440836.744183322,
+        "received_at_monotonic": 440836.843826117,
+        "received_wall_at": 1792286048.8850942,
+        "sequence": 86590
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 78.0,
+        "connection": 1,
+        "encode_ms": 73.0,
+        "evidence_at_monotonic": 440836.57130933,
+        "read_started_at_monotonic": 440836.64930933,
+        "received_at_monotonic": 440836.740258622,
+        "received_wall_at": 1792286048.7815263,
+        "sequence": 86589
+      },
+      "lower_ms": 692.8,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 195.42,
+      "output_frame": {
+        "callback_age_ms": 57.0,
+        "connection": 1,
+        "encode_ms": 53.0,
+        "evidence_at_monotonic": 440837.48257896403,
+        "read_started_at_monotonic": 440837.539578964,
+        "received_at_monotonic": 440837.654497912,
+        "received_wall_at": 1792286049.695766,
+        "sequence": 86596
+      },
+      "output_luma": 79.83,
+      "output_prev_frame": {
+        "callback_age_ms": 76.0,
+        "connection": 1,
+        "encode_ms": 75.0,
+        "evidence_at_monotonic": 440837.298338953,
+        "read_started_at_monotonic": 440837.374338953,
+        "received_at_monotonic": 440837.536601867,
+        "received_wall_at": 1792286049.5778697,
+        "sequence": 86595
+      },
+      "point_ms": 810.7,
+      "upper_ms": 914.2,
+      "valid": true
+    },
+    {
+      "activated_at_monotonic": 440839.830986696,
+      "attempt": 5,
+      "input_frame": {
+        "callback_age_ms": 51.0,
+        "connection": 1,
+        "encode_ms": 51.0,
+        "evidence_at_monotonic": 440839.665415216,
+        "read_started_at_monotonic": 440839.716415216,
+        "received_at_monotonic": 440839.828288696,
+        "received_wall_at": 1792286051.8695562,
+        "sequence": 86613
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 58.0,
+        "connection": 1,
+        "encode_ms": 58.0,
+        "evidence_at_monotonic": 440839.57365263696,
+        "read_started_at_monotonic": 440839.631652637,
+        "received_at_monotonic": 440839.712700784,
+        "received_wall_at": 1792286051.7539685,
+        "sequence": 86612
+      },
+      "lower_ms": 652.9,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 195.15,
+      "output_frame": {
+        "callback_age_ms": 68.0,
+        "connection": 1,
+        "encode_ms": 67.0,
+        "evidence_at_monotonic": 440840.415519594,
+        "read_started_at_monotonic": 440840.483519594,
+        "received_at_monotonic": 440840.640582677,
+        "received_wall_at": 1792286052.6818504,
+        "sequence": 86619
+      },
+      "output_luma": 79.36,
+      "output_prev_frame": {
+        "callback_age_ms": 39.0,
+        "connection": 1,
+        "encode_ms": 38.0,
+        "evidence_at_monotonic": 440840.32787863,
+        "read_started_at_monotonic": 440840.36687863,
+        "received_at_monotonic": 440840.481185022,
+        "received_wall_at": 1792286052.5224528,
+        "sequence": 86618
+      },
+      "point_ms": 812.3,
+      "upper_ms": 927.9,
+      "valid": true
+    },
+    {
+      "activated_at_monotonic": 440842.829147892,
+      "attempt": 6,
+      "input_frame": {
+        "callback_age_ms": 37.0,
+        "connection": 1,
+        "encode_ms": 37.0,
+        "evidence_at_monotonic": 440842.732872397,
+        "read_started_at_monotonic": 440842.769872397,
+        "received_at_monotonic": 440842.826002726,
+        "received_wall_at": 1792286054.8672707,
+        "sequence": 86642
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 42.0,
+        "connection": 1,
+        "encode_ms": 42.0,
+        "evidence_at_monotonic": 440842.665698986,
+        "read_started_at_monotonic": 440842.707698986,
+        "received_at_monotonic": 440842.765483411,
+        "received_wall_at": 1792286054.8067513,
+        "sequence": 86641
+      },
+      "lower_ms": 661.7,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 194.97,
+      "output_frame": {
+        "callback_age_ms": 54.0,
+        "connection": 1,
+        "encode_ms": 53.0,
+        "evidence_at_monotonic": 440843.436809878,
+        "read_started_at_monotonic": 440843.490809878,
+        "received_at_monotonic": 440843.572926747,
+        "received_wall_at": 1792286055.6141944,
+        "sequence": 86651
+      },
+      "output_luma": 74.6,
+      "output_prev_frame": {
+        "callback_age_ms": 37.0,
+        "connection": 1,
+        "encode_ms": 36.0,
+        "evidence_at_monotonic": 440843.32718677097,
+        "read_started_at_monotonic": 440843.364186771,
+        "received_at_monotonic": 440843.487704051,
+        "received_wall_at": 1792286055.5289721,
+        "sequence": 86650
+      },
+      "point_ms": 746.9,
+      "upper_ms": 807.4,
+      "valid": true
+    },
+    {
+      "activated_at_monotonic": 440845.770147459,
+      "attempt": 7,
+      "input_frame": {
+        "callback_age_ms": 57.0,
+        "connection": 1,
+        "encode_ms": 55.0,
+        "evidence_at_monotonic": 440845.64405482,
+        "read_started_at_monotonic": 440845.70105482,
+        "received_at_monotonic": 440845.766831264,
+        "received_wall_at": 1792286057.808099,
+        "sequence": 86678
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 49.0,
+        "connection": 1,
+        "encode_ms": 48.0,
+        "evidence_at_monotonic": 440845.58173118,
+        "read_started_at_monotonic": 440845.63073118,
+        "received_at_monotonic": 440845.697550136,
+        "received_wall_at": 1792286057.738818,
+        "sequence": 86677
+      },
+      "lower_ms": 620.6,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 194.83,
+      "output_frame": {
+        "callback_age_ms": 49.0,
+        "connection": 1,
+        "encode_ms": 48.0,
+        "evidence_at_monotonic": 440846.343857192,
+        "read_started_at_monotonic": 440846.392857192,
+        "received_at_monotonic": 440846.498367061,
+        "received_wall_at": 1792286058.539635,
+        "sequence": 86686
+      },
+      "output_luma": 74.28,
+      "output_prev_frame": {
+        "callback_age_ms": 69.0,
+        "connection": 1,
+        "encode_ms": 69.0,
+        "evidence_at_monotonic": 440846.213777438,
+        "read_started_at_monotonic": 440846.282777438,
+        "received_at_monotonic": 440846.387461773,
+        "received_wall_at": 1792286058.4287295,
+        "sequence": 86685
+      },
+      "point_ms": 731.5,
+      "upper_ms": 800.8,
+      "valid": true
+    },
+    {
+      "activated_at_monotonic": 440848.828109077,
+      "attempt": 8,
+      "input_frame": {
+        "callback_age_ms": 50.0,
+        "connection": 1,
+        "encode_ms": 49.0,
+        "evidence_at_monotonic": 440848.655626819,
+        "read_started_at_monotonic": 440848.705626819,
+        "received_at_monotonic": 440848.825948324,
+        "received_wall_at": 1792286060.8672163,
+        "sequence": 86707
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 69.0,
+        "connection": 1,
+        "encode_ms": 69.0,
+        "evidence_at_monotonic": 440848.521849792,
+        "read_started_at_monotonic": 440848.590849792,
+        "received_at_monotonic": 440848.703060779,
+        "received_wall_at": 1792286060.7443287,
+        "sequence": 86706
+      },
+      "lower_ms": 485.1,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 194.56,
+      "output_frame": {
+        "callback_age_ms": 35.0,
+        "connection": 1,
+        "encode_ms": 35.0,
+        "evidence_at_monotonic": 440849.28048326005,
+        "read_started_at_monotonic": 440849.31548326,
+        "received_at_monotonic": 440849.479553517,
+        "received_wall_at": 1792286061.5208216,
+        "sequence": 86711
+      },
+      "output_luma": 62.0,
+      "output_prev_frame": {
+        "callback_age_ms": 60.0,
+        "connection": 1,
+        "encode_ms": 59.0,
+        "evidence_at_monotonic": 440849.047258071,
+        "read_started_at_monotonic": 440849.107258071,
+        "received_at_monotonic": 440849.311078594,
+        "received_wall_at": 1792286061.3523467,
+        "sequence": 86710
+      },
+      "point_ms": 653.6,
+      "upper_ms": 776.5,
+      "valid": true
+    },
+    {
+      "activated_at_monotonic": 440851.776966716,
+      "attempt": 9,
+      "input_frame": {
+        "callback_age_ms": 48.0,
+        "connection": 1,
+        "encode_ms": 47.0,
+        "evidence_at_monotonic": 440851.579724365,
+        "read_started_at_monotonic": 440851.627724365,
+        "received_at_monotonic": 440851.772775689,
+        "received_wall_at": 1792286063.8140433,
+        "sequence": 86735
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 51.0,
+        "connection": 1,
+        "encode_ms": 49.0,
+        "evidence_at_monotonic": 440851.474456791,
+        "read_started_at_monotonic": 440851.525456791,
+        "received_at_monotonic": 440851.625152175,
+        "received_wall_at": 1792286063.6664197,
+        "sequence": 86734
+      },
+      "lower_ms": 655.6,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 194.42,
+      "output_frame": {
+        "callback_age_ms": 62.0,
+        "connection": 1,
+        "encode_ms": 62.0,
+        "evidence_at_monotonic": 440852.368597358,
+        "read_started_at_monotonic": 440852.430597358,
+        "received_at_monotonic": 440852.507221389,
+        "received_wall_at": 1792286064.5484893,
+        "sequence": 86745
+      },
+      "output_luma": 62.67,
+      "output_prev_frame": {
+        "callback_age_ms": 48.0,
+        "connection": 1,
+        "encode_ms": 45.0,
+        "evidence_at_monotonic": 440852.30290961097,
+        "read_started_at_monotonic": 440852.350909611,
+        "received_at_monotonic": 440852.428347995,
+        "received_wall_at": 1792286064.469616,
+        "sequence": 86744
+      },
+      "point_ms": 734.4,
+      "upper_ms": 882.1,
+      "valid": true
+    },
+    {
+      "activated_at_monotonic": 440854.742799987,
+      "attempt": 10,
+      "input_frame": {
+        "callback_age_ms": 35.0,
+        "connection": 1,
+        "encode_ms": 34.0,
+        "evidence_at_monotonic": 440854.58055196604,
+        "read_started_at_monotonic": 440854.615551966,
+        "received_at_monotonic": 440854.739586622,
+        "received_wall_at": 1792286066.7808545,
+        "sequence": 86769
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 36.0,
+        "connection": 1,
+        "encode_ms": 36.0,
+        "evidence_at_monotonic": 440854.52560396097,
+        "read_started_at_monotonic": 440854.561603961,
+        "received_at_monotonic": 440854.612501029,
+        "received_wall_at": 1792286066.6537688,
+        "sequence": 86768
+      },
+      "lower_ms": 618.6,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 194.46,
+      "output_frame": {
+        "callback_age_ms": 42.0,
+        "connection": 1,
+        "encode_ms": 42.0,
+        "evidence_at_monotonic": 440855.33223296696,
+        "read_started_at_monotonic": 440855.374232967,
+        "received_at_monotonic": 440855.419190631,
+        "received_wall_at": 1792286067.4604585,
+        "sequence": 86777
+      },
+      "output_luma": 61.2,
+      "output_prev_frame": {
+        "callback_age_ms": 42.0,
+        "connection": 1,
+        "encode_ms": 40.0,
+        "evidence_at_monotonic": 440855.24219183996,
+        "read_started_at_monotonic": 440855.28419184,
+        "received_at_monotonic": 440855.358146091,
+        "received_wall_at": 1792286067.399414,
+        "sequence": 86776
+      },
+      "point_ms": 679.6,
+      "upper_ms": 806.7,
+      "valid": true
+    },
+    {
+      "activated_at_monotonic": 440857.838504018,
+      "attempt": 11,
+      "input_frame": {
+        "callback_age_ms": 42.0,
+        "connection": 1,
+        "encode_ms": 40.0,
+        "evidence_at_monotonic": 440857.593115084,
+        "read_started_at_monotonic": 440857.635115084,
+        "received_at_monotonic": 440857.829593837,
+        "received_wall_at": 1792286069.870862,
+        "sequence": 86797
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 33.0,
+        "connection": 1,
+        "encode_ms": 33.0,
+        "evidence_at_monotonic": 440857.47823496803,
+        "read_started_at_monotonic": 440857.511234968,
+        "received_at_monotonic": 440857.6330298,
+        "received_wall_at": 1792286069.6742976,
+        "sequence": 86796
+      },
+      "lower_ms": 799.9,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 194.13,
+      "output_frame": {
+        "callback_age_ms": 55.0,
+        "connection": 1,
+        "encode_ms": 53.0,
+        "evidence_at_monotonic": 440858.581913381,
+        "read_started_at_monotonic": 440858.636913381,
+        "received_at_monotonic": 440858.762249956,
+        "received_wall_at": 1792286070.803518,
+        "sequence": 86803
+      },
+      "output_luma": 79.61,
+      "output_prev_frame": {
+        "callback_age_ms": 85.0,
+        "connection": 1,
+        "encode_ms": 84.0,
+        "evidence_at_monotonic": 440858.200664846,
+        "read_started_at_monotonic": 440858.285664846,
+        "received_at_monotonic": 440858.629526078,
+        "received_wall_at": 1792286070.6707942,
+        "sequence": 86802
+      },
+      "point_ms": 932.7,
+      "upper_ms": 1129.2,
+      "valid": true
+    },
+    {
+      "activated_at_monotonic": 440860.807658376,
+      "attempt": 12,
+      "input_frame": {
+        "callback_age_ms": 32.0,
+        "connection": 1,
+        "encode_ms": 32.0,
+        "evidence_at_monotonic": 440860.651538352,
+        "read_started_at_monotonic": 440860.683538352,
+        "received_at_monotonic": 440860.804467671,
+        "received_wall_at": 1792286072.8457353,
+        "sequence": 86820
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 34.0,
+        "connection": 1,
+        "encode_ms": 33.0,
+        "evidence_at_monotonic": 440860.458849871,
+        "read_started_at_monotonic": 440860.492849871,
+        "received_at_monotonic": 440860.678990497,
+        "received_wall_at": 1792286072.7202585,
+        "sequence": 86819
+      },
+      "lower_ms": 566.6,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 194.08,
+      "output_frame": {
+        "callback_age_ms": 37.0,
+        "connection": 1,
+        "encode_ms": 36.0,
+        "evidence_at_monotonic": 440861.338148125,
+        "read_started_at_monotonic": 440861.375148125,
+        "received_at_monotonic": 440861.496747858,
+        "received_wall_at": 1792286073.5380156,
+        "sequence": 86826
+      },
+      "output_luma": 65.42,
+      "output_prev_frame": {
+        "callback_age_ms": 34.0,
+        "connection": 1,
+        "encode_ms": 34.0,
+        "evidence_at_monotonic": 440861.202103596,
+        "read_started_at_monotonic": 440861.236103596,
+        "received_at_monotonic": 440861.371116066,
+        "received_wall_at": 1792286073.412384,
+        "sequence": 86825
+      },
+      "point_ms": 692.3,
+      "upper_ms": 817.8,
+      "valid": true
+    },
+    {
+      "activated_at_monotonic": 440863.879224596,
+      "attempt": 13,
+      "input_frame": {
+        "callback_age_ms": 36.0,
+        "connection": 1,
+        "encode_ms": 36.0,
+        "evidence_at_monotonic": 440863.659941328,
+        "read_started_at_monotonic": 440863.695941328,
+        "received_at_monotonic": 440863.877183982,
+        "received_wall_at": 1792286075.9184518,
+        "sequence": 86852
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 43.0,
+        "connection": 1,
+        "encode_ms": 42.0,
+        "evidence_at_monotonic": 440863.564654338,
+        "read_started_at_monotonic": 440863.607654338,
+        "received_at_monotonic": 440863.693407118,
+        "received_wall_at": 1792286075.7346752,
+        "sequence": 86851
+      },
+      "lower_ms": 602.5,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 193.9,
+      "output_frame": {
+        "callback_age_ms": 49.0,
+        "connection": 1,
+        "encode_ms": 48.0,
+        "evidence_at_monotonic": 440864.434887968,
+        "read_started_at_monotonic": 440864.483887968,
+        "received_at_monotonic": 440864.551777294,
+        "received_wall_at": 1792286076.5930452,
+        "sequence": 86859
+      },
+      "output_luma": 67.12,
+      "output_prev_frame": {
+        "callback_age_ms": 37.0,
+        "connection": 1,
+        "encode_ms": 36.0,
+        "evidence_at_monotonic": 440864.374184687,
+        "read_started_at_monotonic": 440864.411184687,
+        "received_at_monotonic": 440864.479633999,
+        "received_wall_at": 1792286076.520902,
+        "sequence": 86858
+      },
+      "point_ms": 674.6,
+      "upper_ms": 858.4,
+      "valid": true
+    },
+    {
+      "activated_at_monotonic": 440866.765413846,
+      "attempt": 14,
+      "input_frame": {
+        "callback_age_ms": 48.0,
+        "connection": 1,
+        "encode_ms": 47.0,
+        "evidence_at_monotonic": 440866.592568958,
+        "read_started_at_monotonic": 440866.640568958,
+        "received_at_monotonic": 440866.761664114,
+        "received_wall_at": 1792286078.802932,
+        "sequence": 86883
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 64.0,
+        "connection": 1,
+        "encode_ms": 63.0,
+        "evidence_at_monotonic": 440866.441017403,
+        "read_started_at_monotonic": 440866.505017403,
+        "received_at_monotonic": 440866.635958583,
+        "received_wall_at": 1792286078.6772263,
+        "sequence": 86882
+      },
+      "lower_ms": 598.4,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 193.71,
+      "output_frame": {
+        "callback_age_ms": 59.0,
+        "connection": 1,
+        "encode_ms": 57.0,
+        "evidence_at_monotonic": 440867.303316995,
+        "read_started_at_monotonic": 440867.362316995,
+        "received_at_monotonic": 440867.565036873,
+        "received_wall_at": 1792286079.6063051,
+        "sequence": 86889
+      },
+      "output_luma": 79.48,
+      "output_prev_frame": {
+        "callback_age_ms": 46.0,
+        "connection": 1,
+        "encode_ms": 46.0,
+        "evidence_at_monotonic": 440867.126887355,
+        "read_started_at_monotonic": 440867.172887355,
+        "received_at_monotonic": 440867.360074003,
+        "received_wall_at": 1792286079.4013417,
+        "sequence": 86888
+      },
+      "point_ms": 803.4,
+      "upper_ms": 929.1,
+      "valid": true
+    },
+    {
+      "activated_at_monotonic": 440869.83413513,
+      "attempt": 15,
+      "input_frame": {
+        "callback_age_ms": 50.0,
+        "connection": 1,
+        "encode_ms": 48.0,
+        "evidence_at_monotonic": 440869.654972856,
+        "read_started_at_monotonic": 440869.704972856,
+        "received_at_monotonic": 440869.824963811,
+        "received_wall_at": 1792286081.8662314,
+        "sequence": 86907
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 51.0,
+        "connection": 1,
+        "encode_ms": 46.0,
+        "evidence_at_monotonic": 440869.512126389,
+        "read_started_at_monotonic": 440869.563126389,
+        "received_at_monotonic": 440869.694691525,
+        "received_wall_at": 1792286081.7359595,
+        "sequence": 86906
+      },
+      "lower_ms": 536.3,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 194.06,
+      "output_frame": {
+        "callback_age_ms": 65.0,
+        "connection": 1,
+        "encode_ms": 63.0,
+        "evidence_at_monotonic": 440870.298761387,
+        "read_started_at_monotonic": 440870.363761387,
+        "received_at_monotonic": 440870.506429437,
+        "received_wall_at": 1792286082.5476973,
+        "sequence": 86913
+      },
+      "output_luma": 71.32,
+      "output_prev_frame": {
+        "callback_age_ms": 64.0,
+        "connection": 1,
+        "encode_ms": 63.0,
+        "evidence_at_monotonic": 440870.22319794697,
+        "read_started_at_monotonic": 440870.287197947,
+        "received_at_monotonic": 440870.361222997,
+        "received_wall_at": 1792286082.402491,
+        "sequence": 86912
+      },
+      "point_ms": 681.5,
+      "upper_ms": 811.7,
+      "valid": true
+    },
+    {
+      "activated_at_monotonic": 440872.818852535,
+      "attempt": 16,
+      "input_frame": {
+        "callback_age_ms": 38.0,
+        "connection": 1,
+        "encode_ms": 37.0,
+        "evidence_at_monotonic": 440872.711307601,
+        "read_started_at_monotonic": 440872.749307601,
+        "received_at_monotonic": 440872.814380009,
+        "received_wall_at": 1792286084.855648,
+        "sequence": 86939
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 39.0,
+        "connection": 1,
+        "encode_ms": 38.0,
+        "evidence_at_monotonic": 440872.666579668,
+        "read_started_at_monotonic": 440872.705579668,
+        "received_at_monotonic": 440872.744928465,
+        "received_wall_at": 1792286084.7861967,
+        "sequence": 86938
+      },
+      "lower_ms": 522.9,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 193.84,
+      "output_frame": {
+        "callback_age_ms": 35.0,
+        "connection": 1,
+        "encode_ms": 34.0,
+        "evidence_at_monotonic": 440873.30561524,
+        "read_started_at_monotonic": 440873.34061524,
+        "received_at_monotonic": 440873.619595578,
+        "received_wall_at": 1792286085.6608632,
+        "sequence": 86946
+      },
+      "output_luma": 79.7,
+      "output_prev_frame": {
+        "callback_age_ms": 33.0,
+        "connection": 1,
+        "encode_ms": 33.0,
+        "evidence_at_monotonic": 440873.20782719,
+        "read_started_at_monotonic": 440873.24082719,
+        "received_at_monotonic": 440873.337239896,
+        "received_wall_at": 1792286085.378509,
+        "sequence": 86945
+      },
+      "point_ms": 805.2,
+      "upper_ms": 874.7,
+      "valid": true
+    },
+    {
+      "activated_at_monotonic": 440875.809727372,
+      "attempt": 17,
+      "input_frame": {
+        "callback_age_ms": 40.0,
+        "connection": 1,
+        "encode_ms": 39.0,
+        "evidence_at_monotonic": 440875.714727797,
+        "read_started_at_monotonic": 440875.754727797,
+        "received_at_monotonic": 440875.806408978,
+        "received_wall_at": 1792286087.847677,
+        "sequence": 86974
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 40.0,
+        "connection": 1,
+        "encode_ms": 40.0,
+        "evidence_at_monotonic": 440875.637096796,
+        "read_started_at_monotonic": 440875.677096796,
+        "received_at_monotonic": 440875.748033229,
+        "received_wall_at": 1792286087.789301,
+        "sequence": 86973
+      },
+      "lower_ms": 632.5,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 193.72,
+      "output_frame": {
+        "callback_age_ms": 43.0,
+        "connection": 1,
+        "encode_ms": 43.0,
+        "evidence_at_monotonic": 440876.399777428,
+        "read_started_at_monotonic": 440876.442777428,
+        "received_at_monotonic": 440876.560271902,
+        "received_wall_at": 1792286088.6015399,
+        "sequence": 86983
+      },
+      "output_luma": 79.71,
+      "output_prev_frame": {
+        "callback_age_ms": 65.0,
+        "connection": 1,
+        "encode_ms": 64.0,
+        "evidence_at_monotonic": 440876.278349715,
+        "read_started_at_monotonic": 440876.343349715,
+        "received_at_monotonic": 440876.438905478,
+        "received_wall_at": 1792286088.4801733,
+        "sequence": 86982
+      },
+      "point_ms": 753.9,
+      "upper_ms": 812.2,
+      "valid": true
+    },
+    {
+      "activated_at_monotonic": 440878.825106824,
+      "attempt": 18,
+      "input_frame": {
+        "callback_age_ms": 36.0,
+        "connection": 1,
+        "encode_ms": 35.0,
+        "evidence_at_monotonic": 440878.677228687,
+        "read_started_at_monotonic": 440878.713228687,
+        "received_at_monotonic": 440878.822519144,
+        "received_wall_at": 1792286090.8637865,
+        "sequence": 87003
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 53.0,
+        "connection": 1,
+        "encode_ms": 52.0,
+        "evidence_at_monotonic": 440878.586899422,
+        "read_started_at_monotonic": 440878.639899422,
+        "received_at_monotonic": 440878.709926173,
+        "received_wall_at": 1792286090.7511952,
+        "sequence": 87002
+      },
+      "lower_ms": 713.7,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 193.71,
+      "output_frame": {
+        "callback_age_ms": 64.0,
+        "connection": 1,
+        "encode_ms": 57.0,
+        "evidence_at_monotonic": 440879.47538759996,
+        "read_started_at_monotonic": 440879.5393876,
+        "received_at_monotonic": 440879.637557853,
+        "received_wall_at": 1792286091.6788256,
+        "sequence": 87010
+      },
+      "output_luma": 79.61,
+      "output_prev_frame": {
+        "callback_age_ms": 82.0,
+        "connection": 1,
+        "encode_ms": 81.0,
+        "evidence_at_monotonic": 440879.35957541503,
+        "read_started_at_monotonic": 440879.441575415,
+        "received_at_monotonic": 440879.536170085,
+        "received_wall_at": 1792286091.577438,
+        "sequence": 87009
+      },
+      "point_ms": 815.0,
+      "upper_ms": 927.6,
+      "valid": true
+    },
+    {
+      "activated_at_monotonic": 440881.94493341,
+      "attempt": 19,
+      "input_frame": {
+        "callback_age_ms": 42.0,
+        "connection": 1,
+        "encode_ms": 42.0,
+        "evidence_at_monotonic": 440881.73711949,
+        "read_started_at_monotonic": 440881.77911949,
+        "received_at_monotonic": 440881.93974406,
+        "received_wall_at": 1792286093.9810119,
+        "sequence": 87028
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 56.0,
+        "connection": 1,
+        "encode_ms": 55.0,
+        "evidence_at_monotonic": 440881.621483195,
+        "read_started_at_monotonic": 440881.677483195,
+        "received_at_monotonic": 440881.776280492,
+        "received_wall_at": 1792286093.8175483,
+        "sequence": 87027
+      },
+      "lower_ms": 532.5,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 193.79,
+      "output_frame": {
+        "callback_age_ms": 42.0,
+        "connection": 1,
+        "encode_ms": 41.0,
+        "evidence_at_monotonic": 440882.433180835,
+        "read_started_at_monotonic": 440882.475180835,
+        "received_at_monotonic": 440882.604584386,
+        "received_wall_at": 1792286094.645852,
+        "sequence": 87035
+      },
+      "output_luma": 79.91,
+      "output_prev_frame": {
+        "callback_age_ms": 35.0,
+        "connection": 1,
+        "encode_ms": 34.0,
+        "evidence_at_monotonic": 440882.369834128,
+        "read_started_at_monotonic": 440882.404834128,
+        "received_at_monotonic": 440882.472206478,
+        "received_wall_at": 1792286094.5134745,
+        "sequence": 87034
+      },
+      "point_ms": 664.8,
+      "upper_ms": 828.3,
+      "valid": true
+    },
+    {
+      "activated_at_monotonic": 440884.818935526,
+      "attempt": 20,
+      "input_frame": {
+        "callback_age_ms": 45.0,
+        "connection": 1,
+        "encode_ms": 44.0,
+        "evidence_at_monotonic": 440884.701894172,
+        "read_started_at_monotonic": 440884.746894172,
+        "received_at_monotonic": 440884.814358541,
+        "received_wall_at": 1792286096.8556263,
+        "sequence": 87059
+      },
+      "input_prev_frame": {
+        "callback_age_ms": 40.0,
+        "connection": 1,
+        "encode_ms": 39.0,
+        "evidence_at_monotonic": 440884.584942314,
+        "read_started_at_monotonic": 440884.624942314,
+        "received_at_monotonic": 440884.744275092,
+        "received_wall_at": 1792286096.785543,
+        "sequence": 87058
+      },
+      "lower_ms": 595.9,
+      "max_active_luma_threshold": 95.0,
+      "min_darkening_threshold": 18.0,
+      "output_baseline_luma": 193.47,
+      "output_frame": {
+        "callback_age_ms": 39.0,
+        "connection": 1,
+        "encode_ms": 38.0,
+        "evidence_at_monotonic": 440885.374731071,
+        "read_started_at_monotonic": 440885.413731071,
+        "received_at_monotonic": 440885.479065117,
+        "received_wall_at": 1792286097.520333,
+        "sequence": 87068
+      },
+      "output_luma": 82.03,
+      "output_prev_frame": {
+        "callback_age_ms": 40.0,
+        "connection": 1,
+        "encode_ms": 40.0,
+        "evidence_at_monotonic": 440885.310706758,
+        "read_started_at_monotonic": 440885.350706758,
+        "received_at_monotonic": 440885.410308418,
+        "received_wall_at": 1792286097.4515762,
+        "sequence": 87067
+      },
+      "point_ms": 664.7,
+      "upper_ms": 734.8,
+      "valid": true
+    }
+  ],
+  "valid_trials": 20,
+  "video_url": "http://192.168.100.74:8798/optical-marker.mp4"
+}

@@ -1,0 +1,959 @@
+{
+  "asOfLocal": "Sun Oct 18 2026 05:39:39 GMT+0400 (Грузінскі стандартны час)",
+  "asOfUTC": "2026-10-18T01:39:39.647Z",
+  "lane": "MeasureBrowserAfterRepair",
+  "measurement": "same-marker-transition direct-MJPEG-vs-displayed-browser-pairing, one monotonic clock (page performance.timeOrigin+performance.now, both pages, one browser process)",
+  "decoder_label": "AFTER-APPLY H264/MSE (selected stream cat_projector_h264, ws /live/mse/api/ws?src=cat_projector_h264, video/mp4 codecs avc1.640029); run filename tag 'baseline-jsmpeg' is a stale run label only",
+  "correction_note": "sampler's own stats block (in the source JSON) shows n=0 because its window filter compared ms sample t against seconds window bounds; this file re-runs the SAME edge/pair algorithm with the window converted to ms. Raw samples untouched.",
+  "stats": {
+    "valid": false,
+    "n_paired": 0,
+    "n_browser_edges": 12,
+    "n_direct_edges": 5,
+    "n_unpaired": 12,
+    "point_p50_ms": null,
+    "point_p95_ms": null,
+    "point_max_ms": null,
+    "point_min_ms": null,
+    "lower_p50_ms": null,
+    "upper_p50_ms": null,
+    "browser_sample_interval_p50_ms": 40,
+    "direct_sample_interval_p50_ms": 40,
+    "browser_bracket_p50_ms": null,
+    "direct_bracket_p50_ms": null,
+    "percentile_method": "nearest-rank",
+    "threshold_browser_roi_luma": 229.2,
+    "threshold_direct_roi_luma": 187.97,
+    "window": {
+      "startWallMs": 1792286630000,
+      "endWallMs": 1792286745000,
+      "sourceFile": "/tmp/frigate-marker-window.txt",
+      "startLocal": "Sun Oct 18 2026 05:23:50 GMT+0400 (Грузінскі стандартны час)",
+      "endLocal": "Sun Oct 18 2026 05:25:45 GMT+0400 (Грузінскі стандартны час)"
+    }
+  },
+  "invalid_reason": "browser edges exist but none matched a direct edge within 3000 ms",
+  "evidence": {
+    "browser_inwindow": {
+      "samples": 2875,
+      "kinds": [
+        "selected-mse-video"
+      ],
+      "roi_luma": {
+        "min": 229.16,
+        "max": 229.25,
+        "mean": 229.2
+      },
+      "distinct_roi_hashes": 30,
+      "totalVideoFrames_first": 18865,
+      "totalVideoFrames_last": 104087,
+      "totalVideoFrames_delta": 85222,
+      "decoded_fps_over_window": 741.3,
+      "first_samples": [
+        {
+          "t": 1792286630015.8,
+          "local": "Sun Oct 18 2026 05:23:50 GMT+0400 (Грузінскі стандартны час)",
+          "luma": 229.22,
+          "frames": 18865,
+          "h": 3664291845
+        },
+        {
+          "t": 1792286630055.8,
+          "local": "Sun Oct 18 2026 05:23:50 GMT+0400 (Грузінскі стандартны час)",
+          "luma": 229.22,
+          "frames": 18900,
+          "h": 3664291845
+        },
+        {
+          "t": 1792286630095.9,
+          "local": "Sun Oct 18 2026 05:23:50 GMT+0400 (Грузінскі стандартны час)",
+          "luma": 229.22,
+          "frames": 18927,
+          "h": 3664291845
+        },
+        {
+          "t": 1792286630135.9,
+          "local": "Sun Oct 18 2026 05:23:50 GMT+0400 (Грузінскі стандартны час)",
+          "luma": 229.22,
+          "frames": 18969,
+          "h": 3664291845
+        }
+      ],
+      "last_samples": [
+        {
+          "t": 1792286744855.9,
+          "local": "Sun Oct 18 2026 05:25:44 GMT+0400 (Грузінскі стандартны час)",
+          "luma": 229.22,
+          "frames": 103995,
+          "h": 3294064037
+        },
+        {
+          "t": 1792286744895.8,
+          "local": "Sun Oct 18 2026 05:25:44 GMT+0400 (Грузінскі стандартны час)",
+          "luma": 229.22,
+          "frames": 104022,
+          "h": 3294064037
+        },
+        {
+          "t": 1792286744941.7,
+          "local": "Sun Oct 18 2026 05:25:44 GMT+0400 (Грузінскі стандартны час)",
+          "luma": 229.22,
+          "frames": 104062,
+          "h": 3294064037
+        },
+        {
+          "t": 1792286744976.2,
+          "local": "Sun Oct 18 2026 05:25:44 GMT+0400 (Грузінскі стандартны час)",
+          "luma": 229.22,
+          "frames": 104087,
+          "h": 3294064037
+        }
+      ]
+    },
+    "direct_inwindow": {
+      "samples": 2875,
+      "kinds": [
+        "direct-mjpeg-img"
+      ],
+      "roi_luma": {
+        "min": 2.02,
+        "max": 254,
+        "mean": 190.6
+      },
+      "distinct_roi_hashes": 936,
+      "first_samples": [
+        {
+          "t": 1792286630024.8,
+          "local": "Sun Oct 18 2026 05:23:50 GMT+0400 (Грузінскі стандартны час)",
+          "luma": 212.96,
+          "h": 2831456769
+        },
+        {
+          "t": 1792286630064.9,
+          "local": "Sun Oct 18 2026 05:23:50 GMT+0400 (Грузінскі стандартны час)",
+          "luma": 212.96,
+          "h": 2831456769
+        },
+        {
+          "t": 1792286630104.9,
+          "local": "Sun Oct 18 2026 05:23:50 GMT+0400 (Грузінскі стандартны час)",
+          "luma": 212.96,
+          "h": 2831456769
+        },
+        {
+          "t": 1792286630144.9,
+          "local": "Sun Oct 18 2026 05:23:50 GMT+0400 (Грузінскі стандартны час)",
+          "luma": 212.96,
+          "h": 2831456769
+        }
+      ],
+      "last_samples": [
+        {
+          "t": 1792286744864.9,
+          "local": "Sun Oct 18 2026 05:25:44 GMT+0400 (Грузінскі стандартны час)",
+          "luma": 175.4,
+          "h": 836757549
+        },
+        {
+          "t": 1792286744904.9,
+          "local": "Sun Oct 18 2026 05:25:44 GMT+0400 (Грузінскі стандартны час)",
+          "luma": 175.4,
+          "h": 836757549
+        },
+        {
+          "t": 1792286744944.9,
+          "local": "Sun Oct 18 2026 05:25:44 GMT+0400 (Грузінскі стандартны час)",
+          "luma": 175.4,
+          "h": 836757549
+        },
+        {
+          "t": 1792286744984.8,
+          "local": "Sun Oct 18 2026 05:25:44 GMT+0400 (Грузінскі стандартны час)",
+          "luma": 175.4,
+          "h": 836757549
+        }
+      ],
+      "first_edges": [
+        {
+          "dir": "falling",
+          "tLo": 1792286640824.9,
+          "tHi": 1792286640864.9,
+          "tMid": 1792286640844.9,
+          "loLuma": 207.82,
+          "hiLuma": 2.02
+        },
+        {
+          "dir": "rising",
+          "tLo": 1792286641544.8,
+          "tHi": 1792286641585.0999,
+          "tMid": 1792286641564.95,
+          "loLuma": 44.75,
+          "hiLuma": 254
+        },
+        {
+          "dir": "falling",
+          "tLo": 1792286719224.9,
+          "tHi": 1792286719265,
+          "tMid": 1792286719244.95,
+          "loLuma": 196.88,
+          "hiLuma": 159.13
+        },
+        {
+          "dir": "rising",
+          "tLo": 1792286725585,
+          "tHi": 1792286725625,
+          "tMid": 1792286725605,
+          "loLuma": 115.65,
+          "hiLuma": 252.22
+        },
+        {
+          "dir": "falling",
+          "tLo": 1792286726544.9,
+          "tHi": 1792286726584.9,
+          "tMid": 1792286726564.9,
+          "loLuma": 192.61,
+          "hiLuma": 186.23
+        }
+      ],
+      "last_edges": [
+        {
+          "dir": "falling",
+          "tLo": 1792286640824.9,
+          "tHi": 1792286640864.9,
+          "tMid": 1792286640844.9,
+          "loLuma": 207.82,
+          "hiLuma": 2.02
+        },
+        {
+          "dir": "rising",
+          "tLo": 1792286641544.8,
+          "tHi": 1792286641585.0999,
+          "tMid": 1792286641564.95,
+          "loLuma": 44.75,
+          "hiLuma": 254
+        },
+        {
+          "dir": "falling",
+          "tLo": 1792286719224.9,
+          "tHi": 1792286719265,
+          "tMid": 1792286719244.95,
+          "loLuma": 196.88,
+          "hiLuma": 159.13
+        },
+        {
+          "dir": "rising",
+          "tLo": 1792286725585,
+          "tHi": 1792286725625,
+          "tMid": 1792286725605,
+          "loLuma": 115.65,
+          "hiLuma": 252.22
+        },
+        {
+          "dir": "falling",
+          "tLo": 1792286726544.9,
+          "tHi": 1792286726584.9,
+          "tMid": 1792286726564.9,
+          "loLuma": 192.61,
+          "hiLuma": 186.23
+        }
+      ]
+    },
+    "full_series_context": {
+      "browser_samples_total": 9014,
+      "direct_samples_total": 9020,
+      "browser_kinds_all": [
+        "selected-mse-video",
+        "selected-jsmpeg-canvas"
+      ],
+      "browser_luma_all": {
+        "min": 0,
+        "max": 255,
+        "mean": 101.63
+      },
+      "direct_luma_all": {
+        "min": 2.02,
+        "max": 254,
+        "mean": 182.95
+      },
+      "browser_edges_all": 3
+    },
+    "decoder_identity": [
+      {
+        "url": "ws://192.168.100.74:15000/ws",
+        "recvBin": 0,
+        "recvBytes": 0,
+        "firstText": "{\"topic\": \"camera_activity\", \"payload\": \"{\\\"Hallway_camera\\\": {\\\"motion\\\": false, \\\"objects\\\": [], \\\"config\\\": {\\\"detect\\\": true, \\\"enabled\\\": true, \\\"snapshots\\\": false, \\\"record\\\": false, \\\"audio\\\": false, \\\"audio_transcription\\\": false, \\\"notifications\\\": false, \\\"notifications_suspended\\\": 0, \\\"autotracking\\\": false, \\\"alerts\\\": true, \\\"detections\\\": true, \\\"object_descriptions\\\": false, \\\"review_descriptions\\\": false}}, \\\"Living_room_camera\\\": {\\\"motion\\\": true, \\\"objects\\\": [], \\\"config\\\": {\\\"detect\\\": false, \\\"enabled\\\": true, \\\"snapshots\\\": false, \\\"record\\\": false, \\\"audio\\\": false, \\"
+      },
+      {
+        "url": "ws://192.168.100.74:15000/live/mse/api/ws?src=living_main",
+        "recvBin": 1,
+        "recvBytes": 670,
+        "firstText": "{\"type\":\"mse\",\"value\":\"video/mp4; codecs=\\\"avc1.640029\\\"\"}\n"
+      },
+      {
+        "url": "ws://192.168.100.74:15000/live/mse/api/ws?src=xiaomi_balcony",
+        "recvBin": 66,
+        "recvBytes": 12433,
+        "firstText": "{\"type\":\"mse\",\"value\":\"video/mp4; codecs=\\\"opus\\\"\"}\n"
+      },
+      {
+        "url": "ws://192.168.100.74:15000/live/mse/api/ws?src=cat_projector_h264",
+        "recvBin": 129665,
+        "recvBytes": 140182624,
+        "firstText": "{\"type\":\"mse\",\"value\":\"video/mp4; codecs=\\\"avc1.640029\\\"\"}\n"
+      },
+      {
+        "url": "ws://192.168.100.74:15000/live/jsmpeg/Cat_projector_camera",
+        "recvBin": 1012,
+        "recvBytes": 15484432,
+        "firstText": null
+      }
+    ],
+    "crops": [
+      {
+        "side": "browser",
+        "t": 1792286622896.4,
+        "kind": "selected-mse-video",
+        "sha256": "3007912700c956665c0748b1ef8124f1e65166fc6e73390ce68995a3f93cddd9",
+        "bytes": 4354,
+        "file": "frigate-marker-roi-browser-baseline-jsmpeg-00.png"
+      },
+      {
+        "side": "direct",
+        "t": 1792286622905.9,
+        "kind": "direct-mjpeg-img",
+        "sha256": "a4c4994cb1378d4eedefc4a22f55b3e2d9e549adfde58d0a08236102f76cf867",
+        "bytes": 5163,
+        "file": "frigate-marker-roi-direct-baseline-jsmpeg-00.png"
+      },
+      {
+        "side": "browser",
+        "t": 1792286642896.2,
+        "kind": "selected-mse-video",
+        "sha256": "bd80df48786734a8e7fd3fd63ce1d4d326653cade56be840fd82548e31bc7715",
+        "bytes": 3899,
+        "file": "frigate-marker-roi-browser-baseline-jsmpeg-01.png"
+      },
+      {
+        "side": "direct",
+        "t": 1792286642904.9,
+        "kind": "direct-mjpeg-img",
+        "sha256": "f474fba289cfa10c4b65f2c29ae1d0364cb9a63e5b595c374865c67bbc62d254",
+        "bytes": 5019,
+        "file": "frigate-marker-roi-direct-baseline-jsmpeg-01.png"
+      },
+      {
+        "side": "browser",
+        "t": 1792286662895.9,
+        "kind": "selected-mse-video",
+        "sha256": "78b6d4efbec007da182c6ca6051ec3a4e67a55ae640a9e4db0bef974ff6fe811",
+        "bytes": 3862,
+        "file": "frigate-marker-roi-browser-baseline-jsmpeg-02.png"
+      },
+      {
+        "side": "direct",
+        "t": 1792286662904.9,
+        "kind": "direct-mjpeg-img",
+        "sha256": "7926bd02b6bdfde2b6f7eeb6fe8cb4ec53ae6ef67206202a24075ab31092bf58",
+        "bytes": 3674,
+        "file": "frigate-marker-roi-direct-baseline-jsmpeg-02.png"
+      },
+      {
+        "side": "browser",
+        "t": 1792286682897.5999,
+        "kind": "selected-mse-video",
+        "sha256": "08fb5d764e2ceebea2502a85224a57630cbc06ca71f251b2b965f26122e6d2d1",
+        "bytes": 4364,
+        "file": "frigate-marker-roi-browser-baseline-jsmpeg-03.png"
+      },
+      {
+        "side": "direct",
+        "t": 1792286682904.9,
+        "kind": "direct-mjpeg-img",
+        "sha256": "b287f84127539c563bf7b0bc269aa868174056af684fc5fe8704db95e405f580",
+        "bytes": 3591,
+        "file": "frigate-marker-roi-direct-baseline-jsmpeg-03.png"
+      },
+      {
+        "side": "browser",
+        "t": 1792286702895.9,
+        "kind": "selected-mse-video",
+        "sha256": "a5db1431925ba34beeb914c0c19f2c8170cbd8e813ce7e799c2902df8e03c6f2",
+        "bytes": 3897,
+        "file": "frigate-marker-roi-browser-baseline-jsmpeg-04.png"
+      },
+      {
+        "side": "direct",
+        "t": 1792286702905.4,
+        "kind": "direct-mjpeg-img",
+        "sha256": "14c8d52c1cf195530e754f66e4d787a07487c6e7c00024e1c2d8367527f3de44",
+        "bytes": 3428,
+        "file": "frigate-marker-roi-direct-baseline-jsmpeg-04.png"
+      },
+      {
+        "side": "browser",
+        "t": 1792286722895.9,
+        "kind": "selected-mse-video",
+        "sha256": "ffb52a7687e3648ce1fb32d67f6631c81d6fae669836cb14fd136caa4211d8b8",
+        "bytes": 3851,
+        "file": "frigate-marker-roi-browser-baseline-jsmpeg-05.png"
+      },
+      {
+        "side": "direct",
+        "t": 1792286722904.9,
+        "kind": "direct-mjpeg-img",
+        "sha256": "9052576991d01a85b173db7ccf510be521ebe6c3d29d20a247fa3f36ea3d6c3e",
+        "bytes": 36279,
+        "file": "frigate-marker-roi-direct-baseline-jsmpeg-05.png"
+      },
+      {
+        "side": "browser",
+        "t": 1792286742895.9,
+        "kind": "selected-mse-video",
+        "sha256": "126aa9cab595367553e989cece537d5def86bf3aaf8ac0789e267bf61e085e9a",
+        "bytes": 3706,
+        "file": "frigate-marker-roi-browser-baseline-jsmpeg-06.png"
+      },
+      {
+        "side": "direct",
+        "t": 1792286742904.9,
+        "kind": "direct-mjpeg-img",
+        "sha256": "18496a4b551fbcd02e955cae382b1bc20837af3223c5fcfe08b8708f014da24a",
+        "bytes": 4205,
+        "file": "frigate-marker-roi-direct-baseline-jsmpeg-06.png"
+      },
+      {
+        "side": "browser",
+        "t": 1792286762936,
+        "kind": "selected-jsmpeg-canvas",
+        "sha256": "11188b61be797d587f21102718d6ac99a6b3c19725c34e9fb771ff4f1addb4cd",
+        "bytes": 6278,
+        "file": "frigate-marker-roi-browser-baseline-jsmpeg-07.png"
+      },
+      {
+        "side": "direct",
+        "t": 1792286762904.9,
+        "kind": "direct-mjpeg-img",
+        "sha256": "bbbbd81dda413b73d2490b9b7732bdf0a1ba52313e2d83cc0280df3719e96fc2",
+        "bytes": 4195,
+        "file": "frigate-marker-roi-direct-baseline-jsmpeg-07.png"
+      },
+      {
+        "side": "browser",
+        "t": 1792286782935.8,
+        "kind": "selected-jsmpeg-canvas",
+        "sha256": "fc585c1ec0233d532fa63d1f5bf9d681a40df8c27d4054d032c9626947bd4c9f",
+        "bytes": 1438,
+        "file": "frigate-marker-roi-browser-baseline-jsmpeg-08.png"
+      },
+      {
+        "side": "direct",
+        "t": 1792286782904.9,
+        "kind": "direct-mjpeg-img",
+        "sha256": "a49582ab31a0f267b08ab961c0945c348bcb2688c95227fa4c67e42239436da9",
+        "bytes": 4481,
+        "file": "frigate-marker-roi-direct-baseline-jsmpeg-08.png"
+      },
+      {
+        "side": "browser",
+        "t": 1792286803055.9,
+        "kind": "selected-jsmpeg-canvas",
+        "sha256": "fc585c1ec0233d532fa63d1f5bf9d681a40df8c27d4054d032c9626947bd4c9f",
+        "bytes": 1438,
+        "file": "frigate-marker-roi-browser-baseline-jsmpeg-09.png"
+      },
+      {
+        "side": "direct",
+        "t": 1792286802905,
+        "kind": "direct-mjpeg-img",
+        "sha256": "38a916ce10889cc02acadecf0e86665a925c574a1eb409512ddfaa3b64b2343b",
+        "bytes": 4563,
+        "file": "frigate-marker-roi-direct-baseline-jsmpeg-09.png"
+      },
+      {
+        "side": "browser",
+        "t": 1792286823055.9,
+        "kind": "selected-jsmpeg-canvas",
+        "sha256": "fc585c1ec0233d532fa63d1f5bf9d681a40df8c27d4054d032c9626947bd4c9f",
+        "bytes": 1438,
+        "file": "frigate-marker-roi-browser-baseline-jsmpeg-10.png"
+      },
+      {
+        "side": "direct",
+        "t": 1792286822904.9,
+        "kind": "direct-mjpeg-img",
+        "sha256": "8f6b3e962fab24182f6f01731bb4dabb5a325d41d4814dc79b8fedf82cc3411d",
+        "bytes": 4359,
+        "file": "frigate-marker-roi-direct-baseline-jsmpeg-10.png"
+      },
+      {
+        "side": "direct",
+        "t": 1792286842904.9,
+        "kind": "direct-mjpeg-img",
+        "sha256": "d22df4474418b7c8f859512ec66e86e5c8d29a5ebfb3718ef819d77bbaf13928",
+        "bytes": 4796,
+        "file": "frigate-marker-roi-direct-baseline-jsmpeg-11.png"
+      },
+      {
+        "side": "browser",
+        "t": 1792286843055.9,
+        "kind": "selected-jsmpeg-canvas",
+        "sha256": "fc585c1ec0233d532fa63d1f5bf9d681a40df8c27d4054d032c9626947bd4c9f",
+        "bytes": 1438,
+        "file": "frigate-marker-roi-browser-baseline-jsmpeg-11.png"
+      },
+      {
+        "side": "browser",
+        "t": 1792286863095.9,
+        "kind": "selected-jsmpeg-canvas",
+        "sha256": "fc585c1ec0233d532fa63d1f5bf9d681a40df8c27d4054d032c9626947bd4c9f",
+        "bytes": 1438,
+        "file": "frigate-marker-roi-browser-baseline-jsmpeg-12.png"
+      },
+      {
+        "side": "direct",
+        "t": 1792286862904.9,
+        "kind": "direct-mjpeg-img",
+        "sha256": "dc4aa72c21f375423900c8fbf6480b18df111060cf5bef1077c226ecd5f76757",
+        "bytes": 5065,
+        "file": "frigate-marker-roi-direct-baseline-jsmpeg-12.png"
+      },
+      {
+        "side": "browser",
+        "t": 1792286883096.4,
+        "kind": "selected-jsmpeg-canvas",
+        "sha256": "fc585c1ec0233d532fa63d1f5bf9d681a40df8c27d4054d032c9626947bd4c9f",
+        "bytes": 1438,
+        "file": "frigate-marker-roi-browser-baseline-jsmpeg-13.png"
+      },
+      {
+        "side": "direct",
+        "t": 1792286882904.9,
+        "kind": "direct-mjpeg-img",
+        "sha256": "b70136053da67db6a0f55dfed8fc2c78da1172e31197e70a476801c4fe476666",
+        "bytes": 4437,
+        "file": "frigate-marker-roi-direct-baseline-jsmpeg-13.png"
+      },
+      {
+        "side": "browser",
+        "t": 1792286903095.9,
+        "kind": "selected-jsmpeg-canvas",
+        "sha256": "fc585c1ec0233d532fa63d1f5bf9d681a40df8c27d4054d032c9626947bd4c9f",
+        "bytes": 1438,
+        "file": "frigate-marker-roi-browser-baseline-jsmpeg-14.png"
+      },
+      {
+        "side": "direct",
+        "t": 1792286902904.9,
+        "kind": "direct-mjpeg-img",
+        "sha256": "7a8c576d5a8de2ed0f995bcae076559deb7ddaa9662b36bb52c090192c6268eb",
+        "bytes": 4427,
+        "file": "frigate-marker-roi-direct-baseline-jsmpeg-14.png"
+      },
+      {
+        "side": "browser",
+        "t": 1792286923095.8,
+        "kind": "selected-jsmpeg-canvas",
+        "sha256": "fc585c1ec0233d532fa63d1f5bf9d681a40df8c27d4054d032c9626947bd4c9f",
+        "bytes": 1438,
+        "file": "frigate-marker-roi-browser-baseline-jsmpeg-15.png"
+      },
+      {
+        "side": "direct",
+        "t": 1792286922904.9,
+        "kind": "direct-mjpeg-img",
+        "sha256": "b318ed5450e2df40bad4b4e0ab09d65244f0c03c9f32d5a310f635ebe61a0707",
+        "bytes": 4939,
+        "file": "frigate-marker-roi-direct-baseline-jsmpeg-15.png"
+      },
+      {
+        "side": "browser",
+        "t": 1792286943095.7,
+        "kind": "selected-jsmpeg-canvas",
+        "sha256": "fc585c1ec0233d532fa63d1f5bf9d681a40df8c27d4054d032c9626947bd4c9f",
+        "bytes": 1438,
+        "file": "frigate-marker-roi-browser-baseline-jsmpeg-16.png"
+      },
+      {
+        "side": "direct",
+        "t": 1792286942904.9,
+        "kind": "direct-mjpeg-img",
+        "sha256": "e768a2827df77e3a307fa1efd2458477d75b73ec6964abf1d23c80022ea46d0c",
+        "bytes": 4641,
+        "file": "frigate-marker-roi-direct-baseline-jsmpeg-16.png"
+      },
+      {
+        "side": "browser",
+        "t": 1792286963135.9,
+        "kind": "selected-jsmpeg-canvas",
+        "sha256": "fc585c1ec0233d532fa63d1f5bf9d681a40df8c27d4054d032c9626947bd4c9f",
+        "bytes": 1438,
+        "file": "frigate-marker-roi-browser-baseline-jsmpeg-17.png"
+      },
+      {
+        "side": "direct",
+        "t": 1792286962904.8,
+        "kind": "direct-mjpeg-img",
+        "sha256": "696d2717d9f3ce44c544df72282e05a31cfabed75e4da439992eed43b225ccf9",
+        "bytes": 4018,
+        "file": "frigate-marker-roi-direct-baseline-jsmpeg-17.png"
+      }
+    ],
+    "clock_check": [
+      {
+        "nodeNow": 1792286602893,
+        "pageA_t": 1792286602890.3,
+        "pageB_t": 1792286602892.9,
+        "a_minus_node": -2.699951171875,
+        "b_minus_node": -0.10009765625
+      },
+      {
+        "nodeNow": 1792286963759,
+        "pageA_t": 1792286963756.2,
+        "pageB_t": 1792286963758.8,
+        "a_minus_node": -2.800048828125,
+        "b_minus_node": -0.199951171875
+      }
+    ],
+    "pageAInfo": {
+      "url": "http://192.168.100.74:15000/#Cat_projector_camera",
+      "title": "Cat Projector Camera - Live - Frigate",
+      "tileCount": 1,
+      "tileBox": {
+        "x": 876,
+        "y": 346.25,
+        "width": 388,
+        "height": 218.25
+      },
+      "containers": [
+        {
+          "box": {
+            "x": 64,
+            "y": 68,
+            "w": 1205,
+            "h": 678
+          },
+          "video": {
+            "src": "blob:http://192.168.100.74:15000/66460d0e-f74b-4829-8dd4-95d57d89d12a",
+            "readyState": 4,
+            "paused": false,
+            "ct": 0.573119,
+            "vw": 1280,
+            "vh": 720,
+            "display": "block",
+            "bufferedLead": 0.161
+          },
+          "canvas": null,
+          "img": {
+            "src": "http://192.168.100.74:15000/api/Cat_projector_camera/latest.webp?height=720&cache=1792286599576",
+            "nw": 1280,
+            "nh": 720
+          }
+        }
+      ]
+    },
+    "directInfo": {
+      "url": "http://192.168.100.39:8081/",
+      "nw": 1280,
+      "nh": 720
+    }
+  },
+  "pairs": [
+    {
+      "paired": false,
+      "dir": "falling",
+      "browserEdge": {
+        "dir": "falling",
+        "tLo": 1792286637295.9,
+        "tHi": 1792286637336.0999,
+        "tMid": 1792286637316,
+        "loLuma": 229.22,
+        "hiLuma": 229.17
+      },
+      "reason": "nearest-direct-edge-3529ms>max"
+    },
+    {
+      "paired": false,
+      "dir": "rising",
+      "browserEdge": {
+        "dir": "rising",
+        "tLo": 1792286646706.2,
+        "tHi": 1792286646759.4,
+        "tMid": 1792286646732.7998,
+        "loLuma": 229.18,
+        "hiLuma": 229.25
+      },
+      "reason": "nearest-direct-edge-5168ms>max"
+    },
+    {
+      "paired": false,
+      "dir": "falling",
+      "browserEdge": {
+        "dir": "falling",
+        "tLo": 1792286655375.9,
+        "tHi": 1792286655415.9,
+        "tMid": 1792286655395.9,
+        "loLuma": 229.25,
+        "hiLuma": 229.17
+      },
+      "reason": "nearest-direct-edge-14551ms>max"
+    },
+    {
+      "paired": false,
+      "dir": "rising",
+      "browserEdge": {
+        "dir": "rising",
+        "tLo": 1792286655415.9,
+        "tHi": 1792286655456,
+        "tMid": 1792286655435.95,
+        "loLuma": 229.17,
+        "hiLuma": 229.2
+      },
+      "reason": "nearest-direct-edge-13871ms>max"
+    },
+    {
+      "paired": false,
+      "dir": "falling",
+      "browserEdge": {
+        "dir": "falling",
+        "tLo": 1792286655495.8,
+        "tHi": 1792286655535.9,
+        "tMid": 1792286655515.85,
+        "loLuma": 229.2,
+        "hiLuma": 229.19
+      },
+      "reason": "nearest-direct-edge-14671ms>max"
+    },
+    {
+      "paired": false,
+      "dir": "rising",
+      "browserEdge": {
+        "dir": "rising",
+        "tLo": 1792286690015.8,
+        "tHi": 1792286690055.9,
+        "tMid": 1792286690035.85,
+        "loLuma": 229.18,
+        "hiLuma": 229.21
+      },
+      "reason": "nearest-direct-edge-35569ms>max"
+    },
+    {
+      "paired": false,
+      "dir": "falling",
+      "browserEdge": {
+        "dir": "falling",
+        "tLo": 1792286699175.8,
+        "tHi": 1792286699215.8,
+        "tMid": 1792286699195.8,
+        "loLuma": 229.24,
+        "hiLuma": 229.17
+      },
+      "reason": "nearest-direct-edge-20049ms>max"
+    },
+    {
+      "paired": false,
+      "dir": "rising",
+      "browserEdge": {
+        "dir": "rising",
+        "tLo": 1792286699215.8,
+        "tHi": 1792286699255.9,
+        "tMid": 1792286699235.85,
+        "loLuma": 229.17,
+        "hiLuma": 229.2
+      },
+      "reason": "nearest-direct-edge-26369ms>max"
+    },
+    {
+      "paired": false,
+      "dir": "falling",
+      "browserEdge": {
+        "dir": "falling",
+        "tLo": 1792286712015.9,
+        "tHi": 1792286712056,
+        "tMid": 1792286712035.95,
+        "loLuma": 229.2,
+        "hiLuma": 229.19
+      },
+      "reason": "nearest-direct-edge-7209ms>max"
+    },
+    {
+      "paired": false,
+      "dir": "rising",
+      "browserEdge": {
+        "dir": "rising",
+        "tLo": 1792286712056,
+        "tHi": 1792286712095.8,
+        "tMid": 1792286712075.9,
+        "loLuma": 229.19,
+        "hiLuma": 229.21
+      },
+      "reason": "nearest-direct-edge-13529ms>max"
+    },
+    {
+      "paired": false,
+      "dir": "falling",
+      "browserEdge": {
+        "dir": "falling",
+        "tLo": 1792286731019.7,
+        "tHi": 1792286731056,
+        "tMid": 1792286731037.85,
+        "loLuma": 229.21,
+        "hiLuma": 229.17
+      },
+      "reason": "nearest-direct-edge-4473ms>max"
+    },
+    {
+      "paired": false,
+      "dir": "rising",
+      "browserEdge": {
+        "dir": "rising",
+        "tLo": 1792286742735.9,
+        "tHi": 1792286742775.9,
+        "tMid": 1792286742755.9,
+        "loLuma": 229.16,
+        "hiLuma": 229.22
+      },
+      "reason": "nearest-direct-edge-17151ms>max"
+    }
+  ],
+  "edges_browser_inwindow": [
+    {
+      "dir": "falling",
+      "tLo": 1792286637295.9,
+      "tHi": 1792286637336.0999,
+      "tMid": 1792286637316,
+      "loLuma": 229.22,
+      "hiLuma": 229.17
+    },
+    {
+      "dir": "rising",
+      "tLo": 1792286646706.2,
+      "tHi": 1792286646759.4,
+      "tMid": 1792286646732.7998,
+      "loLuma": 229.18,
+      "hiLuma": 229.25
+    },
+    {
+      "dir": "falling",
+      "tLo": 1792286655375.9,
+      "tHi": 1792286655415.9,
+      "tMid": 1792286655395.9,
+      "loLuma": 229.25,
+      "hiLuma": 229.17
+    },
+    {
+      "dir": "rising",
+      "tLo": 1792286655415.9,
+      "tHi": 1792286655456,
+      "tMid": 1792286655435.95,
+      "loLuma": 229.17,
+      "hiLuma": 229.2
+    },
+    {
+      "dir": "falling",
+      "tLo": 1792286655495.8,
+      "tHi": 1792286655535.9,
+      "tMid": 1792286655515.85,
+      "loLuma": 229.2,
+      "hiLuma": 229.19
+    },
+    {
+      "dir": "rising",
+      "tLo": 1792286690015.8,
+      "tHi": 1792286690055.9,
+      "tMid": 1792286690035.85,
+      "loLuma": 229.18,
+      "hiLuma": 229.21
+    },
+    {
+      "dir": "falling",
+      "tLo": 1792286699175.8,
+      "tHi": 1792286699215.8,
+      "tMid": 1792286699195.8,
+      "loLuma": 229.24,
+      "hiLuma": 229.17
+    },
+    {
+      "dir": "rising",
+      "tLo": 1792286699215.8,
+      "tHi": 1792286699255.9,
+      "tMid": 1792286699235.85,
+      "loLuma": 229.17,
+      "hiLuma": 229.2
+    },
+    {
+      "dir": "falling",
+      "tLo": 1792286712015.9,
+      "tHi": 1792286712056,
+      "tMid": 1792286712035.95,
+      "loLuma": 229.2,
+      "hiLuma": 229.19
+    },
+    {
+      "dir": "rising",
+      "tLo": 1792286712056,
+      "tHi": 1792286712095.8,
+      "tMid": 1792286712075.9,
+      "loLuma": 229.19,
+      "hiLuma": 229.21
+    },
+    {
+      "dir": "falling",
+      "tLo": 1792286731019.7,
+      "tHi": 1792286731056,
+      "tMid": 1792286731037.85,
+      "loLuma": 229.21,
+      "hiLuma": 229.17
+    },
+    {
+      "dir": "rising",
+      "tLo": 1792286742735.9,
+      "tHi": 1792286742775.9,
+      "tMid": 1792286742755.9,
+      "loLuma": 229.16,
+      "hiLuma": 229.22
+    }
+  ],
+  "edges_direct_inwindow": [
+    {
+      "dir": "falling",
+      "tLo": 1792286640824.9,
+      "tHi": 1792286640864.9,
+      "tMid": 1792286640844.9,
+      "loLuma": 207.82,
+      "hiLuma": 2.02
+    },
+    {
+      "dir": "rising",
+      "tLo": 1792286641544.8,
+      "tHi": 1792286641585.0999,
+      "tMid": 1792286641564.95,
+      "loLuma": 44.75,
+      "hiLuma": 254
+    },
+    {
+      "dir": "falling",
+      "tLo": 1792286719224.9,
+      "tHi": 1792286719265,
+      "tMid": 1792286719244.95,
+      "loLuma": 196.88,
+      "hiLuma": 159.13
+    },
+    {
+      "dir": "rising",
+      "tLo": 1792286725585,
+      "tHi": 1792286725625,
+      "tMid": 1792286725605,
+      "loLuma": 115.65,
+      "hiLuma": 252.22
+    },
+    {
+      "dir": "falling",
+      "tLo": 1792286726544.9,
+      "tHi": 1792286726584.9,
+      "tMid": 1792286726564.9,
+      "loLuma": 192.61,
+      "hiLuma": 186.23
+    }
+  ]
+}

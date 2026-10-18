@@ -1,0 +1,193 @@
+{
+  "accepted": false,
+  "artifact_sha256": "63ac2440e66edb28aaa70bc351c891ff85b5e1a452d0c154f093425b375cf564",
+  "bypassed_production_stage": "MobileNet-SSD person detector + source-subtraction + tracking + eye-band geometry (fixed ROI brightening recognition instead); not a production safety latency",
+  "camera_stream_url": "http://192.168.100.39:8081/video?fps=25",
+  "clock_limitations": [
+    "point/lower/upper use nucat monotonic receive times of actual neighboring frames",
+    "bounds cover frame sampling only; exposure/readout and pre-callback delay unknown, so they are not strict optical onset bounds",
+    "X-Frame-Age-Ms is Android callback age, retained per frame, never summed into latency",
+    "common camera delay cancellation between input and output observations is assumed, not proven"
+  ],
+  "duplicate_frames_skipped": 0,
+  "failed_error": null,
+  "input_rect": [
+    120,
+    120,
+    320,
+    220
+  ],
+  "invalid_trials": 25,
+  "marker": {
+    "path": "/home/kom/proj/cat-tv-play/receipts/optical-loop-repaired-20261018/optical-marker.mp4",
+    "served": true,
+    "sha256": "458741db4f0517ffa009511c22660734b52a4fc5a305636bf6e3dc31144b68df"
+  },
+  "measurement": "fixed_marker_same_camera_input_frame_to_output_frame",
+  "output_rect": [
+    520,
+    260,
+    760,
+    420
+  ],
+  "restore_error": null,
+  "restore_status": "off_restored",
+  "restored_status_url": "http://192.168.100.74:8787/status.json",
+  "restored_video_url": null,
+  "source_size": [
+    1280,
+    720
+  ],
+  "stale_frames_skipped": 0,
+  "stats": {
+    "lower_bound": {
+      "max_ms": null,
+      "n": 0,
+      "p50_ms": null,
+      "p95_ms": null
+    },
+    "point": {
+      "max_ms": null,
+      "n": 0,
+      "p50_ms": null,
+      "p95_ms": null
+    },
+    "upper_bound": {
+      "max_ms": null,
+      "n": 0,
+      "p50_ms": null,
+      "p95_ms": null
+    }
+  },
+  "status_requests": 1607,
+  "status_url": "http://192.168.100.74:8798/status.json",
+  "trials": [
+    {
+      "attempt": 1,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 2,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 3,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 4,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 5,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 6,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 7,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 8,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 9,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 10,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 11,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 12,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 13,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 14,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 15,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 16,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 17,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 18,
+      "reason": "wait_output_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 19,
+      "reason": "wait_input_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 20,
+      "reason": "wait_input_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 21,
+      "reason": "wait_input_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 22,
+      "reason": "wait_input_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 23,
+      "reason": "wait_input_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 24,
+      "reason": "wait_input_timeout",
+      "valid": false
+    },
+    {
+      "attempt": 25,
+      "reason": "run_timeout",
+      "valid": false
+    }
+  ],
+  "valid_trials": 0,
+  "video_url": "http://192.168.100.74:8798/optical-marker.mp4"
+}

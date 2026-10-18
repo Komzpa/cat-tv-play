@@ -1,0 +1,173 @@
+{
+  "source_size": [
+    1280,
+    720
+  ],
+  "fps": 30,
+  "duration_s": 120.0,
+  "total_frames": 3600,
+  "rect_source_space": [
+    120,
+    120,
+    320,
+    220
+  ],
+  "luma": {
+    "gray": 128,
+    "white": 255
+  },
+  "initial_hold_ms": 5000,
+  "intervals_ms": [
+    1000,
+    2000,
+    3000,
+    1000,
+    2000,
+    4000,
+    1000,
+    3000,
+    2000,
+    5000,
+    1000,
+    2000,
+    3000,
+    1000,
+    4000,
+    2000,
+    3000,
+    1000,
+    2000,
+    5000
+  ],
+  "events": [
+    {
+      "ordinal": 1,
+      "t_ms": 5000,
+      "dir": "rising",
+      "to": "white"
+    },
+    {
+      "ordinal": 2,
+      "t_ms": 6000,
+      "dir": "falling",
+      "to": "gray"
+    },
+    {
+      "ordinal": 3,
+      "t_ms": 8000,
+      "dir": "rising",
+      "to": "white"
+    },
+    {
+      "ordinal": 4,
+      "t_ms": 11000,
+      "dir": "falling",
+      "to": "gray"
+    },
+    {
+      "ordinal": 5,
+      "t_ms": 12000,
+      "dir": "rising",
+      "to": "white"
+    },
+    {
+      "ordinal": 6,
+      "t_ms": 14000,
+      "dir": "falling",
+      "to": "gray"
+    },
+    {
+      "ordinal": 7,
+      "t_ms": 18000,
+      "dir": "rising",
+      "to": "white"
+    },
+    {
+      "ordinal": 8,
+      "t_ms": 19000,
+      "dir": "falling",
+      "to": "gray"
+    },
+    {
+      "ordinal": 9,
+      "t_ms": 22000,
+      "dir": "rising",
+      "to": "white"
+    },
+    {
+      "ordinal": 10,
+      "t_ms": 24000,
+      "dir": "falling",
+      "to": "gray"
+    },
+    {
+      "ordinal": 11,
+      "t_ms": 29000,
+      "dir": "rising",
+      "to": "white"
+    },
+    {
+      "ordinal": 12,
+      "t_ms": 30000,
+      "dir": "falling",
+      "to": "gray"
+    },
+    {
+      "ordinal": 13,
+      "t_ms": 32000,
+      "dir": "rising",
+      "to": "white"
+    },
+    {
+      "ordinal": 14,
+      "t_ms": 35000,
+      "dir": "falling",
+      "to": "gray"
+    },
+    {
+      "ordinal": 15,
+      "t_ms": 36000,
+      "dir": "rising",
+      "to": "white"
+    },
+    {
+      "ordinal": 16,
+      "t_ms": 40000,
+      "dir": "falling",
+      "to": "gray"
+    },
+    {
+      "ordinal": 17,
+      "t_ms": 42000,
+      "dir": "rising",
+      "to": "white"
+    },
+    {
+      "ordinal": 18,
+      "t_ms": 45000,
+      "dir": "falling",
+      "to": "gray"
+    },
+    {
+      "ordinal": 19,
+      "t_ms": 46000,
+      "dir": "rising",
+      "to": "white"
+    },
+    {
+      "ordinal": 20,
+      "t_ms": 48000,
+      "dir": "falling",
+      "to": "gray"
+    },
+    {
+      "ordinal": 21,
+      "t_ms": 53000,
+      "dir": "rising",
+      "to": "white"
+    }
+  ],
+  "final_state_held_to_s": 120.0,
+  "generator": "gen_marker.py (non-repeating enable schedule)",
+  "design_origin": "scripts/cat_projector_realtime_rect_proof.py generate_marker"
+}

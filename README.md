@@ -224,6 +224,7 @@ encode or serve the playable video in this mode:
 python3 scripts/cat_projector_safety_overlay_server.py \
   --source-video /config/www/cat-tv/current.mp4 \
   --camera-snapshot-url http://192.168.100.39:8081/shot.jpg \
+  --camera-stream-url 'http://192.168.100.39:8081/video?fps=25' \
   --host 0.0.0.0 \
   --port 8787 \
   --status-only \
@@ -232,10 +233,46 @@ python3 scripts/cat_projector_safety_overlay_server.py \
   --ha-source-video-entity input_text.cat_projector_video_url
 ```
 
+The camera input is direct from the publisher, not Frigate. A continuously drained
+MJPEG receiver retains only the newest complete JPEG; inference never queues
+frames. Existing `--camera-snapshot-url` values with exactly the known `/shot.jpg`
+path automatically select `/video` on the same origin, preserving the query.
+Use `--camera-stream-url` for another direct MJPEG endpoint. Other explicit
+snapshot URLs keep the snapshot request path; stream failures never silently
+fall back to snapshots. The legacy `--camera-snapshot-timeout` also bounds stream
+socket reads and complete-part reads (2 seconds by default). Header and JPEG byte
+limits prevent an incomplete or malformed part from growing the receiver buffer
+without bound.
+
+Deploy the publisher with per-part `X-Frame-Sequence` and `X-Frame-Age-Ms` headers
+**before** enabling this consumer; direct MJPEG requires both headers. Sequence
+numbers must advance within a connection; duplicates do not trigger inference or
+renew evidence, and a new connection permits a publisher sequence reset. Optional
+`X-Frame-Encode-Ms` is diagnostic only. The receiver combines local monotonic
+receive/wait duration with the supplied callback-entry-to-header age; it does not
+compare Android and host monotonic clocks. `--camera-max-frame-age` defaults to
+0.9 seconds, matching the existing active-overlay age budget. Stale frames,
+missing metadata, malformed parts, and disconnects report
+`safety_overlay_unavailable` with `camera_error`; reconnecting does not make the
+previous disconnected frame current. Snapshot headers are used when supplied;
+without them, upstream snapshot age and duplicate identity are unavailable.
+
+`/status.json` keeps a wall-clock `updated_at` derived once from camera evidence,
+not the status publication time. Local monotonic time controls expiry, including
+expiry of a cached no-person result. Publisher age plus local receive duration
+is **not an optical/sensor-age bound**: unknown delay before the publisher's
+callback, or buffering/transit before a part reaches the receiver, is not proven
+by this metadata. FPS and changing JPEGs do not prove low end-to-end latency;
+deployment still needs the paired latency measurement and independent watchdog.
+
 In status-only mode, `--ha-source-video-entity` makes source subtraction follow
-the URL stored for the active session. Keep `--source-video` as the startup and
-HA-read-error fallback; a rotation must not leave the camera filter decoding a
-different clip.
+the URL stored for the active session. `--source-video` is the startup fallback;
+HA read errors retain the last good source URL and expose `source_video_error`.
+Gate and source HTTP refreshes run in background threads and publish coherent
+cache snapshots, so slow HA cannot block safety inference or status publication.
+The gate fails open while its first refresh is pending, after a refresh becomes
+stale, and on HA read errors; only a successfully refreshed all-off state idles
+the worker. Source decoding still follows the selected session clip.
 
 When the Home Assistant active gate is configured, the camera/detector worker
 idles while both `input_boolean.cat_projector_session` and
@@ -267,11 +304,18 @@ covers the face area. If the detector, camera, or geometry is unavailable, the
 server reports `safety_overlay_unavailable`; production deployments must keep
 the independent lamp watchdog active instead of trusting the player alone.
 
-The live path also keeps a short physical person track. A detected person is
-not allowed to disappear between adjacent camera samples: the server carries the
-box forward for a bounded missing window using the measured velocity, then lets
-it expire. This smooths detector dropouts without returning to a long static
-black-square hold.
+The live path also keeps a short physical person track for smoothing and bounded
+motion prediction. Predicted-only tracks are not current-frame evidence and do
+not keep a served blackout alive: a current no-person frame clears the zones.
+The existing active-overlay expiry and independent lamp-watchdog policy remain
+unchanged.
+
+Latency repair note: serial snapshot round trips and inline HA gate/source reads
+were on the inference/publication paths. Continuous latest-only reception and
+background control refresh remove those waits without changing camera resolution,
+calibration, eye-band thresholds, or native playback. The recorded 67/158 ms
+camera-read and 81/175 ms loop p50/p95 were baseline observations, not a proof of
+post-change optical latency or of the deployed publisher's capture freshness.
 
 Safety-negative review frames under
 `~/.openclaw/state/cat-tv-learning/safety-review/YYYYMMDD/frames/` are generated
@@ -412,6 +456,16 @@ action:
     data:
       media_url: "http://homeassistant.local:8123/local/cat-tv/jump-ladder.mp4"
 ```
+
+The optical round-trip harness in `scripts/cat_projector_realtime_rect_proof.py`
+uses the camera app's `camera.catprojector.publisher.DISPLAY_RECT` action and
+stops the display with `STOP_DISPLAY` when `--restore-off` records the baseline
+as having no display task. It never controls the physical lamp; lamp-state
+changes remain the proof owner's documented Home Assistant responsibility. Its
+whole-run timeout is independent of fresh accepted frames. Optical output is
+accepted only after a sufficiently bright baseline visibly declines by the
+configured thresholds; this fixed-ROI transport proof does not test the
+production detector.
 
 ## Development
 

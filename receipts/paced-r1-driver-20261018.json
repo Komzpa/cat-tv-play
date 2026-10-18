@@ -1,0 +1,233 @@
+{
+  "asOf": 1792291426.175683,
+  "result": {
+    "started": 1792291301.258078,
+    "start_call": {
+      "service": "cat_projector_start",
+      "http": 200,
+      "at": 1792291301.3027036
+    },
+    "start_wait": {
+      "done": true,
+      "noop": false,
+      "wait_s": 1.0,
+      "final": {
+        "state": "off",
+        "last_changed": "2026-10-18T02:41:41.289384+00:00"
+      }
+    },
+    "play_cycle": {
+      "done": true,
+      "saw_on": true,
+      "order": "on-then-off",
+      "wait_s": 32.1,
+      "transitions": [
+        {
+          "state": "on",
+          "last_changed": "2026-10-18T02:41:50.150592+00:00",
+          "observed": 1792291310.3761632
+        }
+      ]
+    },
+    "lamp_on": {
+      "done": true,
+      "value": "true",
+      "wait_s": 0.2
+    },
+    "display_started_at": 1792291335.2465072,
+    "window": {
+      "start_ms": 1792291330246,
+      "end_ms": 1792291480246,
+      "file": "/tmp/frigate-marker-window-paced-r1.txt"
+    },
+    "sampler_cmd": "node /tmp/frigate-latency-pairs.mjs --seconds 75 --tag paced-r1 --preflight-seconds 12 --window-file /tmp/frigate-marker-window-paced-r1.txt",
+    "sampler_exit": 0,
+    "sampler_wall_s": 84.1,
+    "sampler_stdout_tail": "a - Live - Frigate\",\n    \"tileCount\": 1,\n    \"tileBox\": {\n      \"x\": 876,\n      \"y\": 346.25,\n      \"width\": 388,\n      \"height\": 218.25\n    },\n    \"containers\": [\n      {\n        \"box\": {\n          \"x\": 64,\n          \"y\": 68,\n          \"w\": 1205,\n          \"h\": 678\n        },\n        \"video\": {\n          \"src\": \"blob:http://192.168.100.74:15000/029b64b0-6703-4d1f-9778-cf31f193f507\",\n          \"readyState\": 4,\n          \"paused\": false,\n          \"ct\": 0.593048,\n          \"vw\": 1280,\n          \"vh\": 720,\n          \"display\": \"block\",\n          \"bufferedLead\": 0.046\n        },\n        \"canvas\": null,\n        \"img\": {\n          \"src\": \"http://192.168.100.74:15000/api/Cat_projector_camera/latest.webp?height=720&cache=1792291339277\",\n          \"nw\": 1280,\n          \"nh\": 720\n        }\n      }\n    ]\n  },\n  \"directInfo\": {\n    \"url\": \"http://192.168.100.39:8081/\",\n    \"nw\": 1280,\n    \"nh\": 720\n  },\n  \"sockets\": [\n    {\n      \"url\": \"ws://192.168.100.74:15000/ws\",\n      \"recvBin\": 0,\n      \"recvBytes\": 0,\n      \"firstText\": \"{\\\"topic\\\": \\\"camera_activity\\\", \\\"payload\\\": \\\"{\\\\\\\"Hallway_camera\\\\\\\": {\\\\\\\"motion\\\\\\\": true, \\\\\\\"objects\\\\\\\": [], \\\\\\\"config\\\\\\\": {\\\\\\\"detect\\\\\\\": true, \\\\\\\"enabled\\\\\\\": true, \\\\\\\"snapshots\\\\\\\": false, \\\\\\\"record\\\\\\\": false, \\\\\\\"audio\\\\\\\": false, \\\\\\\"audio_transcription\\\\\\\": false, \\\\\\\"notifications\\\\\\\": false, \\\\\\\"notifications_suspended\\\\\\\": 0, \\\\\\\"autotracking\\\\\\\": false, \\\\\\\"alerts\\\\\\\": true, \\\\\\\"detections\\\\\\\": true, \\\\\\\"object_descriptions\\\\\\\": false, \\\\\\\"review_descriptions\\\\\\\": false}}, \\\\\\\"Living_room_camera\\\\\\\": {\\\\\\\"motion\\\\\\\": true, \\\\\\\"objects\\\\\\\": [], \\\\\\\"config\\\\\\\": {\\\\\\\"detect\\\\\\\": false, \\\\\\\"enabled\\\\\\\": true, \\\\\\\"snapshots\\\\\\\": false, \\\\\\\"record\\\\\\\": false, \\\\\\\"audio\\\\\\\": false, \\\\\\\"\"\n    },\n    {\n      \"url\": \"ws://192.168.100.74:15000/live/mse/api/ws?src=living_main\",\n      \"recvBin\": 1,\n      \"recvBytes\": 670,\n      \"firstText\": \"{\\\"type\\\":\\\"mse\\\",\\\"value\\\":\\\"video/mp4; codecs=\\\\\\\"avc1.640029\\\\\\\"\\\"}\\n\"\n    },\n    {\n      \"url\": \"ws://192.168.100.74:15000/live/mse/api/ws?src=hall_main\",\n      \"recvBin\": 22,\n      \"recvBytes\": 46153,\n      \"firstText\": \"{\\\"type\\\":\\\"mse\\\",\\\"value\\\":\\\"video/mp4; codecs=\\\\\\\"flac\\\\\\\"\\\"}\\n\"\n    },\n    {\n      \"url\": \"ws://192.168.100.74:15000/live/mse/api/ws?src=xiaomi_balcony\",\n      \"recvBin\": 68,\n      \"recvBytes\": 13122,\n      \"firstText\": \"{\\\"type\\\":\\\"mse\\\",\\\"value\\\":\\\"video/mp4; codecs=\\\\\\\"opus\\\\\\\"\\\"}\\n\"\n    },\n    {\n      \"url\": \"ws://192.168.100.74:15000/live/mse/api/ws?src=cat_projector_h264\",\n      \"recvBin\": 3,\n      \"recvBytes\": 49614,\n      \"firstText\": \"{\\\"type\\\":\\\"mse\\\",\\\"value\\\":\\\"video/mp4; codecs=\\\\\\\"avc1.640029\\\\\\\"\\\"}\\n\"\n    },\n    {\n      \"url\": \"ws://192.168.100.74:15000/live/mse/api/ws?src=cat_projector_h264\",\n      \"recvBin\": 709,\n      \"recvBytes\": 6411817,\n      \"firstText\": \"{\\\"type\\\":\\\"mse\\\",\\\"value\\\":\\\"video/mp4; codecs=\\\\\\\"avc1.640029\\\\\\\"\\\"}\\n\"\n    }\n  ],\n  \"out\": \"/home/kom/proj/cat-tv-play/receipts/frigate-browser-marker-pairs-paced-r1-20261018.json\"\n}\n",
+    "sampler_stderr_tail": "",
+    "stats": {
+      "valid": false,
+      "invalid_reason": "insufficient-or-ambiguous-transition-identity",
+      "n_paired": 0,
+      "n_browser_edges": 19,
+      "n_direct_edges": 19,
+      "n_unpaired_browser": 19,
+      "n_unmatched_direct": 19,
+      "n_unpaired": 19,
+      "point_p50_ms": null,
+      "point_p95_ms": null,
+      "point_max_ms": null,
+      "point_min_ms": null,
+      "lower_p50_ms": null,
+      "upper_p50_ms": null,
+      "browser_sample_interval_p50_ms": 40,
+      "direct_sample_interval_p50_ms": 40,
+      "browser_bracket_p50_ms": null,
+      "direct_bracket_p50_ms": null,
+      "percentile_method": "nearest-rank",
+      "calibration_browser": {
+        "lo": 137.11,
+        "hi": 206.42,
+        "contrast": 69.30999999999997,
+        "threshold": 171.765
+      },
+      "calibration_direct": {
+        "lo": 133.79,
+        "hi": 193.44,
+        "contrast": 59.650000000000006,
+        "threshold": 163.615
+      },
+      "min_contrast_required": 20,
+      "identity_rule": "unique-four-interval-edge-signature",
+      "min_identity_edges": 4,
+      "edge_order_ok": true,
+      "preflight": {
+        "calBrowser": {
+          "lo": 138.68,
+          "hi": 207.37,
+          "contrast": 68.69,
+          "threshold": 173.025
+        },
+        "calDirect": {
+          "lo": 135.14,
+          "hi": 194.24,
+          "contrast": 59.10000000000002,
+          "threshold": 164.69
+        },
+        "nEdgesBrowser": 4,
+        "nEdgesDirect": 4,
+        "identityPairs": 0
+      },
+      "threshold_browser": 171.765,
+      "threshold_direct": 163.615,
+      "window_filter": {
+        "startWall": 1792291330246,
+        "endWall": 1792291480246,
+        "file": "/tmp/frigate-marker-window-paced-r1.txt",
+        "unit": "ms-explicit"
+      },
+      "browser_decoder_kinds": [
+        "selected-mse-video"
+      ]
+    },
+    "safe_off": {
+      "stop_call": {
+        "service": "cat_projector_stop",
+        "http": 200,
+        "at": 1792291419.4746785
+      },
+      "stop_wait": {
+        "done": true,
+        "noop": false,
+        "wait_s": 1.0,
+        "final": {
+          "state": "off",
+          "last_changed": "2026-10-18T02:43:39.453457+00:00"
+        }
+      },
+      "lamp_off_call": {
+        "service": "cat_projector_lamp_off",
+        "http": 200,
+        "at": 1792291424.280794
+      },
+      "lamp_off_wait": {
+        "done": true,
+        "noop": false,
+        "wait_s": 1.0,
+        "final": {
+          "state": "off",
+          "last_changed": "2026-10-18T02:43:44.263330+00:00"
+        }
+      },
+      "blacklight": {
+        "done": true,
+        "value": "false",
+        "wait_s": 0.2
+      },
+      "session": {
+        "state": "off",
+        "last_changed": "2026-10-18T02:43:39.442928+00:00"
+      },
+      "display_active": {
+        "state": "off",
+        "last_changed": "2026-10-18T02:43:39.445807+00:00"
+      },
+      "display_tasks": 0
+    },
+    "total_s": 124.9,
+    "finished": 1792291426.1756809
+  },
+  "entries": [
+    {
+      "step": "driver-start",
+      "wall": 1792291301.25808,
+      "local": "06:41:41",
+      "marker_url": "http://192.168.100.74:8796/marker.mp4",
+      "status_url": "http://192.168.100.74:8787/status.json",
+      "sampler_cmd": "node /tmp/frigate-latency-pairs.mjs --seconds 75 --tag paced-r1 --preflight-seconds 12 --window-file /tmp/frigate-marker-window-paced-r1.txt"
+    },
+    {
+      "step": "start-script",
+      "wall": 1792291302.3080454,
+      "local": "06:41:42",
+      "done": true,
+      "wait_s": 1.0
+    },
+    {
+      "step": "play-auto-cycle",
+      "wall": 1792291334.4291506,
+      "local": "06:42:14",
+      "done": true,
+      "saw_on": true,
+      "order": "on-then-off",
+      "wait_s": 32.1
+    },
+    {
+      "step": "lamp-on-readback",
+      "wall": 1792291334.6765406,
+      "local": "06:42:14",
+      "done": true,
+      "value": "true",
+      "wait_s": 0.2
+    },
+    {
+      "step": "display-started",
+      "wall": 1792291335.2465098,
+      "local": "06:42:15",
+      "video_url": "http://192.168.100.74:8796/marker.mp4"
+    },
+    {
+      "step": "window-written",
+      "wall": 1792291335.2470038,
+      "local": "06:42:15",
+      "start_ms": 1792291330246,
+      "end_ms": 1792291480246,
+      "file": "/tmp/frigate-marker-window-paced-r1.txt"
+    },
+    {
+      "step": "sampler-done",
+      "wall": 1792291419.3955476,
+      "local": "06:43:39",
+      "exit": "0",
+      "wall_s": 84.1
+    },
+    {
+      "step": "stats",
+      "wall": 1792291419.399878,
+      "local": "06:43:39",
+      "valid": false,
+      "n_paired": 0,
+      "n_unpaired": 19,
+      "invalid_reason": "insufficient-or-ambiguous-transition-identity"
+    },
+    {
+      "step": "safe-off",
+      "wall": 1792291426.1751277,
+      "local": "06:43:46",
+      "session": "off",
+      "display_active": "off",
+      "blacklight": "false",
+      "display_tasks": 0
+    }
+  ]
+}

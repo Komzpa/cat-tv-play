@@ -1,0 +1,2591 @@
+{
+  "summary": {
+    "asOf": "2026-10-17T23:58:09.739Z",
+    "page": {
+      "url": "http://192.168.100.74:15000/#/live/Cat_projector_camera",
+      "title": "/live/Cat Projector Camera - Live - Frigate"
+    },
+    "media": [
+      {
+        "tag": "video",
+        "src": null,
+        "currentSrc": "",
+        "srcObjectType": null,
+        "readyState": 0,
+        "networkState": 0,
+        "paused": true,
+        "currentTime": 0,
+        "duration": null,
+        "buffered": [],
+        "seekable": [],
+        "videoWidth": 0,
+        "videoHeight": 0,
+        "playbackRate": 1,
+        "muted": true,
+        "display": "none",
+        "visibility": "visible",
+        "opacity": "1"
+      },
+      {
+        "tag": "img",
+        "src": "http://192.168.100.74:15000/api/Living_room_camera/latest.webp?height=240&cache=1792281483684",
+        "currentSrc": "http://192.168.100.74:15000/api/Living_room_camera/latest.webp?height=240&cache=1792281483684",
+        "naturalWidth": 426,
+        "naturalHeight": 240,
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1"
+      },
+      {
+        "tag": "video",
+        "src": null,
+        "currentSrc": "",
+        "srcObjectType": null,
+        "readyState": 0,
+        "networkState": 0,
+        "paused": true,
+        "currentTime": 0,
+        "duration": null,
+        "buffered": [],
+        "seekable": [],
+        "videoWidth": 0,
+        "videoHeight": 0,
+        "playbackRate": 1,
+        "muted": true,
+        "display": "none",
+        "visibility": "visible",
+        "opacity": "1"
+      },
+      {
+        "tag": "img",
+        "src": "http://192.168.100.74:15000/api/Bedroom_camera/latest.webp?height=240&cache=1792281483684",
+        "currentSrc": "http://192.168.100.74:15000/api/Bedroom_camera/latest.webp?height=240&cache=1792281483684",
+        "naturalWidth": 426,
+        "naturalHeight": 240,
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1"
+      },
+      {
+        "tag": "video",
+        "src": null,
+        "currentSrc": "",
+        "srcObjectType": null,
+        "readyState": 0,
+        "networkState": 0,
+        "paused": true,
+        "currentTime": 0,
+        "duration": null,
+        "buffered": [],
+        "seekable": [],
+        "videoWidth": 0,
+        "videoHeight": 0,
+        "playbackRate": 1,
+        "muted": true,
+        "display": "none",
+        "visibility": "visible",
+        "opacity": "1"
+      },
+      {
+        "tag": "img",
+        "src": "http://192.168.100.74:15000/api/Hallway_camera/latest.webp?height=240&cache=1792281483684",
+        "currentSrc": "http://192.168.100.74:15000/api/Hallway_camera/latest.webp?height=240&cache=1792281483684",
+        "naturalWidth": 426,
+        "naturalHeight": 240,
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1"
+      },
+      {
+        "tag": "video",
+        "src": "blob:http://192.168.100.74:15000/db419c86-8435-41f6-bebb-e71da9a04db4",
+        "currentSrc": "blob:http://192.168.100.74:15000/db419c86-8435-41f6-bebb-e71da9a04db4",
+        "srcObjectType": null,
+        "readyState": 4,
+        "networkState": 2,
+        "paused": false,
+        "currentTime": 4.009524,
+        "duration": null,
+        "buffered": [
+          [
+            0,
+            4.24
+          ]
+        ],
+        "seekable": [
+          [
+            0,
+            4.24
+          ]
+        ],
+        "videoWidth": 0,
+        "videoHeight": 0,
+        "playbackRate": 1,
+        "muted": true,
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1"
+      },
+      {
+        "tag": "img",
+        "src": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&cache=1792281484002",
+        "currentSrc": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&cache=1792281484002",
+        "naturalWidth": 426,
+        "naturalHeight": 240,
+        "display": "block",
+        "visibility": "hidden",
+        "opacity": "1"
+      },
+      {
+        "tag": "video",
+        "src": null,
+        "currentSrc": "",
+        "srcObjectType": null,
+        "readyState": 0,
+        "networkState": 0,
+        "paused": true,
+        "currentTime": 0,
+        "duration": null,
+        "buffered": [],
+        "seekable": [],
+        "videoWidth": 0,
+        "videoHeight": 0,
+        "playbackRate": 1,
+        "muted": true,
+        "display": "none",
+        "visibility": "visible",
+        "opacity": "1"
+      },
+      {
+        "tag": "img",
+        "src": "http://192.168.100.74:15000/api/Cat_projector_camera/latest.webp?height=240&cache=1792281483685",
+        "currentSrc": "http://192.168.100.74:15000/api/Cat_projector_camera/latest.webp?height=240&cache=1792281483685",
+        "naturalWidth": 426,
+        "naturalHeight": 240,
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1"
+      },
+      {
+        "tag": "video",
+        "src": null,
+        "currentSrc": "",
+        "srcObjectType": null,
+        "readyState": 0,
+        "networkState": 0,
+        "paused": true,
+        "currentTime": 0,
+        "duration": null,
+        "buffered": [],
+        "seekable": [],
+        "videoWidth": 0,
+        "videoHeight": 0,
+        "playbackRate": 1,
+        "muted": true,
+        "display": "none",
+        "visibility": "visible",
+        "opacity": "1"
+      },
+      {
+        "tag": "img",
+        "src": "http://192.168.100.74:15000/api/Tab70_camera/latest.webp?height=240&cache=1792281483685",
+        "currentSrc": "http://192.168.100.74:15000/api/Tab70_camera/latest.webp?height=240&cache=1792281483685",
+        "naturalWidth": 426,
+        "naturalHeight": 240,
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1"
+      }
+    ],
+    "stateBefore": {
+      "currentTime": 0,
+      "paused": true,
+      "buffered": [],
+      "seekable": [],
+      "readyState": 0,
+      "networkState": 0,
+      "srcObjectType": null,
+      "videoWidth": 0,
+      "videoHeight": 0,
+      "muted": true
+    },
+    "stateAfter": {
+      "currentTime": 0,
+      "paused": true,
+      "buffered": [],
+      "seekable": [],
+      "readyState": 0,
+      "networkState": 0,
+      "srcObjectType": null,
+      "videoWidth": 0,
+      "videoHeight": 0,
+      "muted": true
+    },
+    "screenshot": {
+      "bytes1": 351919,
+      "bytes2": 351936,
+      "sha1": "8e639b38e00fb5047d21e130ac39e0fbcf26aeee71b29fa572ca800d26eae161",
+      "sha2": "4cedf3d258e7e103a48bd546a680e2346d4c2f2bf435ac65cf641aa3f8c0544e",
+      "changed": true
+    },
+    "facts": {
+      "url": "http://192.168.100.74:15000/#/live/Cat_projector_camera",
+      "title": "/live/Cat Projector Camera - Live - Frigate",
+      "readyState": "complete",
+      "bodyText": "CPU 34%\nSystem is healthy\nStream Offline\n\nNo frames have been received on the Xiaomi doorbell camera detect stream, check error logs\n\nCamera is off\n\nXiaomi Doorbell Camera",
+      "globals": {
+        "hasMediaSource": true,
+        "hasMozMediaSource": false,
+        "hasRTCPeerConnection": true,
+        "hasWebSocket": true,
+        "hasJSMpeg": false,
+        "hasGo2rtc": false
+      },
+      "inline": [
+        {
+          "len": 1001,
+          "jsmpeg": false,
+          "mse": false,
+          "webrtc": false,
+          "mjpeg": false,
+          "go2rtc": false
+        },
+        {
+          "len": 19,
+          "jsmpeg": false,
+          "mse": false,
+          "webrtc": false,
+          "mjpeg": false,
+          "go2rtc": false
+        }
+      ],
+      "externalScripts": [
+        "http://192.168.100.74:15000/assets/main-D3kuomMN.js"
+      ],
+      "resources": [
+        {
+          "name": "http://192.168.100.74:15000/assets/main-D3kuomMN.js",
+          "initiatorType": "script",
+          "duration": 7.399999976158142,
+          "startTime": 6.100000023841858,
+          "transferSize": 657973
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/index-BvFM361y.css",
+          "initiatorType": "link",
+          "duration": 5.899999976158142,
+          "startTime": 6.300000011920929,
+          "transferSize": 177786
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/index-DnKVsEqw.js",
+          "initiatorType": "other",
+          "duration": 10.399999976158142,
+          "startTime": 6.300000011920929,
+          "transferSize": 1290327
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/common.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 4.099999964237213,
+          "startTime": 94.80000001192093,
+          "transferSize": 9361
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/objects.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 3.800000011920929,
+          "startTime": 95,
+          "transferSize": 3351
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/audio.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 3.400000035762787,
+          "startTime": 95.19999998807907,
+          "transferSize": 13937
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/components/auth.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 3.300000011920929,
+          "startTime": 95.19999998807907,
+          "transferSize": 834
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/components/camera.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 3.399999976158142,
+          "startTime": 95.30000001192093,
+          "transferSize": 3661
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/components/dialog.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 3.800000011920929,
+          "startTime": 95.30000001192093,
+          "transferSize": 7786
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/components/filter.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 4.099999964237213,
+          "startTime": 95.30000001192093,
+          "transferSize": 4476
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/components/icons.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 3.899999976158142,
+          "startTime": 95.60000002384186,
+          "transferSize": 429
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/components/input.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 3.900000035762787,
+          "startTime": 95.69999998807907,
+          "transferSize": 478
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/components/player.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 3.900000035762787,
+          "startTime": 95.69999998807907,
+          "transferSize": 1822
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/favicon-C4q05VTg.svg",
+          "initiatorType": "other",
+          "duration": 0.9000000357627869,
+          "startTime": 109.19999998807907,
+          "transferSize": 3283
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/views/chat.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 0.800000011920929,
+          "startTime": 110.80000001192093,
+          "transferSize": 2913
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/views/classificationModel.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 0.800000011920929,
+          "startTime": 110.89999997615814,
+          "transferSize": 11219
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/views/configEditor.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 0.800000011920929,
+          "startTime": 111.19999998807907,
+          "transferSize": 815
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/views/events.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 0.7000000476837158,
+          "startTime": 111.39999997615814,
+          "transferSize": 3608
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/views/explore.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 0.5,
+          "startTime": 112.39999997615814,
+          "transferSize": 10696
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/views/exports.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 0.800000011920929,
+          "startTime": 112.69999998807907,
+          "transferSize": 4566
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/views/faceLibrary.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 0.699999988079071,
+          "startTime": 112.80000001192093,
+          "transferSize": 4620
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/views/live.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 3.399999976158142,
+          "startTime": 113,
+          "transferSize": 6249
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/views/motionSearch.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 3.299999952316284,
+          "startTime": 113.10000002384186,
+          "transferSize": 3322
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/views/recording.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 3.300000011920929,
+          "startTime": 113.19999998807907,
+          "transferSize": 568
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/favicon-CM52J2Ju.ico",
+          "initiatorType": "other",
+          "duration": 0.6000000238418579,
+          "startTime": 116.39999997615814,
+          "transferSize": 15386
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/views/replay.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 0.30000001192092896,
+          "startTime": 116.39999997615814,
+          "transferSize": 3011
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/views/search.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 0.40000003576278687,
+          "startTime": 116.69999998807907,
+          "transferSize": 3031
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/views/settings.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 1.699999988079071,
+          "startTime": 117,
+          "transferSize": 89161
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/views/system.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 1.699999988079071,
+          "startTime": 117,
+          "transferSize": 10500
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/config/cameras.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 1.699999988079071,
+          "startTime": 117.10000002384186,
+          "transferSize": 40015
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/config/global.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 1.5,
+          "startTime": 117.60000002384186,
+          "transferSize": 67297
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/config/groups.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 1.199999988079071,
+          "startTime": 117.80000001192093,
+          "transferSize": 1703
+        },
+        {
+          "name": "http://192.168.100.74:15000/locales/en/config/validation.json?v=77a66e7",
+          "initiatorType": "fetch",
+          "duration": 0.40000003576278687,
+          "startTime": 119.19999998807907,
+          "transferSize": 1702
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/config",
+          "initiatorType": "xmlhttprequest",
+          "duration": 30,
+          "startTime": 138.10000002384186,
+          "transferSize": 61321
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/profile",
+          "initiatorType": "xmlhttprequest",
+          "duration": 28.399999976158142,
+          "startTime": 139,
+          "transferSize": 501
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/profiles",
+          "initiatorType": "xmlhttprequest",
+          "duration": 27.5,
+          "startTime": 139.30000001192093,
+          "transferSize": 357
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/stats",
+          "initiatorType": "xmlhttprequest",
+          "duration": 7.300000011920929,
+          "startTime": 139.69999998807907,
+          "transferSize": 12137
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/profile",
+          "initiatorType": "xmlhttprequest",
+          "duration": 30,
+          "startTime": 140,
+          "transferSize": 501
+        },
+        {
+          "name": "http://192.168.100.74:15000/fonts/Inter-Regular.woff2",
+          "initiatorType": "css",
+          "duration": 25.899999976158142,
+          "startTime": 146.60000002384186,
+          "transferSize": 108788
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/Live-D7nNJyoz.js",
+          "initiatorType": "script",
+          "duration": 4.300000011920929,
+          "startTime": 189.89999997615814,
+          "transferSize": 158546
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/record-BJpe8vW4.js",
+          "initiatorType": "script",
+          "duration": 3.699999988079071,
+          "startTime": 190.10000002384186,
+          "transferSize": 48610
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/use-keyboard-listener-CW_AlE8i.js",
+          "initiatorType": "script",
+          "duration": 3.400000035762787,
+          "startTime": 190.19999998807907,
+          "transferSize": 1651
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/resize-observer-CeL3K1Rx.js",
+          "initiatorType": "script",
+          "duration": 3.399999976158142,
+          "startTime": 190.30000001192093,
+          "transferSize": 993
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/BirdseyeLivePlayer-BXE7_KfN.js",
+          "initiatorType": "script",
+          "duration": 4.099999964237213,
+          "startTime": 190.30000001192093,
+          "transferSize": 136174
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/MsePlayer-PsOKtS3P.js",
+          "initiatorType": "script",
+          "duration": 3.800000011920929,
+          "startTime": 190.39999997615814,
+          "transferSize": 9129
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/ImageShadowOverlay-CgWJN2PH.js",
+          "initiatorType": "script",
+          "duration": 4.200000047683716,
+          "startTime": 190.39999997615814,
+          "transferSize": 866
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/FilterSwitch-Dsl5-k3l.js",
+          "initiatorType": "script",
+          "duration": 4.300000011920929,
+          "startTime": 190.5,
+          "transferSize": 1370
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/AutoUpdatingCameraImage-CoRsNI8Q.js",
+          "initiatorType": "script",
+          "duration": 4.399999976158142,
+          "startTime": 190.60000002384186,
+          "transferSize": 2719
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/use-camera-activity-DjZpwFHn.js",
+          "initiatorType": "script",
+          "duration": 4.5,
+          "startTime": 190.60000002384186,
+          "transferSize": 3991
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/Chip-BgzLyHjh.js",
+          "initiatorType": "script",
+          "duration": 4.400000035762787,
+          "startTime": 190.69999998807907,
+          "transferSize": 1510
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/use-timeline-utils-LaTap4-y.js",
+          "initiatorType": "script",
+          "duration": 4.5,
+          "startTime": 190.69999998807907,
+          "transferSize": 971
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/use-date-utils-B_lrUb5f.js",
+          "initiatorType": "script",
+          "duration": 5.699999988079071,
+          "startTime": 190.69999998807907,
+          "transferSize": 1825
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/tabs-Io3l7zyv.js",
+          "initiatorType": "script",
+          "duration": 5.699999988079071,
+          "startTime": 190.80000001192093,
+          "transferSize": 3712
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/index-CorbPigF.js",
+          "initiatorType": "script",
+          "duration": 5.800000011920929,
+          "startTime": 190.80000001192093,
+          "transferSize": 5283
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/card-BYv3on-d.js",
+          "initiatorType": "script",
+          "duration": 5.100000023841858,
+          "startTime": 190.89999997615814,
+          "transferSize": 1262
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/index-C3J7uan_.js",
+          "initiatorType": "script",
+          "duration": 5.600000023841858,
+          "startTime": 190.89999997615814,
+          "transferSize": 2653
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/DebugDrawingLayer-dvexCUJg.js",
+          "initiatorType": "script",
+          "duration": 5.300000011920929,
+          "startTime": 191,
+          "transferSize": 2784
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/index-DTZlwEAg.js",
+          "initiatorType": "script",
+          "duration": 9.399999976158142,
+          "startTime": 191.10000002384186,
+          "transferSize": 1450
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/ScrubbablePreview-D7a3fnXP.js",
+          "initiatorType": "script",
+          "duration": 9.799999952316284,
+          "startTime": 191.10000002384186,
+          "transferSize": 7284
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/slider-B9KZ08of.js",
+          "initiatorType": "script",
+          "duration": 9.899999976158142,
+          "startTime": 191.10000002384186,
+          "transferSize": 15943
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/ReactKonvaCore-DUOErTRB.js",
+          "initiatorType": "script",
+          "duration": 11,
+          "startTime": 191.10000002384186,
+          "transferSize": 328868
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/react-apexcharts.min-Cw0hFA5d.js",
+          "initiatorType": "script",
+          "duration": 11.399999976158142,
+          "startTime": 191.10000002384186,
+          "transferSize": 549908
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/review-oUZVOOU9.js",
+          "initiatorType": "script",
+          "duration": 9.300000011920929,
+          "startTime": 191.30000001192093,
+          "transferSize": 517
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/TimeAgo-BlnijwTn.js",
+          "initiatorType": "script",
+          "duration": 10.5,
+          "startTime": 191.30000001192093,
+          "transferSize": 1726
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/index-BJg5swzB.js",
+          "initiatorType": "script",
+          "duration": 10.600000023841858,
+          "startTime": 191.39999997615814,
+          "transferSize": 3282
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/EmptyCard-GGL-c4FU.js",
+          "initiatorType": "script",
+          "duration": 12.200000047683716,
+          "startTime": 191.39999997615814,
+          "transferSize": 1019
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/context-menu-BVyXIzoj.js",
+          "initiatorType": "script",
+          "duration": 12.200000047683716,
+          "startTime": 191.39999997615814,
+          "transferSize": 12024
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/scroll-area-BRmZPtZN.js",
+          "initiatorType": "script",
+          "duration": 12.100000023841858,
+          "startTime": 191.39999997615814,
+          "transferSize": 13797
+        },
+        {
+          "name": "http://192.168.100.74:15000/assets/Live-DULRuONn.css",
+          "initiatorType": "link",
+          "duration": 2.600000023841858,
+          "startTime": 191.5,
+          "transferSize": 4050
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/review?limit=10&severity=alert&reviewed=0&cameras=Living_room_camera,Bedroom_camera,Hallway_camera,Xiaomi_balcony_camera,Xiaomi_doorbell_camera,Cat_projector_camera,Tab70_camera",
+          "initiatorType": "xmlhttprequest",
+          "duration": 32.60000002384186,
+          "startTime": 503,
+          "transferSize": 4788
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Living_room_camera/latest.webp?height=360&store=1&cache=1792281000",
+          "initiatorType": "img",
+          "duration": 118.89999997615814,
+          "startTime": 671.5,
+          "transferSize": 36658
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Hallway_camera/latest.webp?height=360&store=1&cache=1792281000",
+          "initiatorType": "img",
+          "duration": 118.89999997615814,
+          "startTime": 671.6000000238419,
+          "transferSize": 22062
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Bedroom_camera/latest.webp?height=360&store=1&cache=1792281000",
+          "initiatorType": "img",
+          "duration": 179.29999995231628,
+          "startTime": 671.6000000238419,
+          "transferSize": 32360
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Cat_projector_camera/latest.webp?height=360&store=1&cache=1792281000",
+          "initiatorType": "img",
+          "duration": 67.90000003576279,
+          "startTime": 671.6999999880791,
+          "transferSize": 8888
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=360&store=1&cache=1792281000",
+          "initiatorType": "img",
+          "duration": 68,
+          "startTime": 671.6999999880791,
+          "transferSize": 19754
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Tab70_camera/latest.webp?height=360&store=1&cache=1792281000",
+          "initiatorType": "img",
+          "duration": 179,
+          "startTime": 671.6999999880791,
+          "transferSize": 3108
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Living_room_camera/latest.webp?height=240&store=1&cache=1792281000",
+          "initiatorType": "img",
+          "duration": 199.5,
+          "startTime": 700.1999999880791,
+          "transferSize": 19050
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&store=1&cache=1792281000",
+          "initiatorType": "img",
+          "duration": 150.5,
+          "startTime": 700.5,
+          "transferSize": 10986
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Tab70_camera/latest.webp?height=240&store=1&cache=1792281000",
+          "initiatorType": "img",
+          "duration": 150.39999997615814,
+          "startTime": 700.5,
+          "transferSize": 1952
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Cat_projector_camera/latest.webp?height=240&store=1&cache=1792281000",
+          "initiatorType": "img",
+          "duration": 158.89999997615814,
+          "startTime": 700.5,
+          "transferSize": 4422
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Hallway_camera/latest.webp?height=240&store=1&cache=1792281000",
+          "initiatorType": "img",
+          "duration": 199.30000001192093,
+          "startTime": 700.5,
+          "transferSize": 11864
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Bedroom_camera/latest.webp?height=240&store=1&cache=1792281000",
+          "initiatorType": "img",
+          "duration": 220,
+          "startTime": 700.5,
+          "transferSize": 15900
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&cache=1792281483685",
+          "initiatorType": "img",
+          "duration": 69,
+          "startTime": 866,
+          "transferSize": 10986
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Cat_projector_camera/latest.webp?height=240&cache=1792281483685",
+          "initiatorType": "img",
+          "duration": 68.90000003576279,
+          "startTime": 866.1999999880791,
+          "transferSize": 4408
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Tab70_camera/latest.webp?height=240&cache=1792281483685",
+          "initiatorType": "img",
+          "duration": 82.80000001192093,
+          "startTime": 866.3000000119209,
+          "transferSize": 1952
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Living_room_camera/latest.webp?height=240&cache=1792281483684",
+          "initiatorType": "img",
+          "duration": 86.59999996423721,
+          "startTime": 936.6000000238419,
+          "transferSize": 19010
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Hallway_camera/latest.webp?height=240&cache=1792281483684",
+          "initiatorType": "img",
+          "duration": 86.60000002384186,
+          "startTime": 936.6999999880791,
+          "transferSize": 11846
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Bedroom_camera/latest.webp?height=240&cache=1792281483684",
+          "initiatorType": "img",
+          "duration": 85.19999998807907,
+          "startTime": 938,
+          "transferSize": 15900
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&cache=1792281483932",
+          "initiatorType": "img",
+          "duration": 69.30000001192093,
+          "startTime": 939,
+          "transferSize": 0
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&cache=1792281484002",
+          "initiatorType": "img",
+          "duration": 31.799999952316284,
+          "startTime": 1008.1000000238419,
+          "transferSize": 11016
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/go2rtc/streams/bed_main",
+          "initiatorType": "fetch",
+          "duration": 18.400000035762787,
+          "startTime": 2510.699999988079,
+          "transferSize": 2588
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/go2rtc/streams/cat_projector",
+          "initiatorType": "fetch",
+          "duration": 18.100000023841858,
+          "startTime": 2511,
+          "transferSize": 1425
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/go2rtc/streams/hall_main",
+          "initiatorType": "fetch",
+          "duration": 17.399999976158142,
+          "startTime": 2511.300000011921,
+          "transferSize": 2789
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/go2rtc/streams/living_main",
+          "initiatorType": "fetch",
+          "duration": 17.69999998807907,
+          "startTime": 2511.5,
+          "transferSize": 2088
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/go2rtc/streams/tab70",
+          "initiatorType": "fetch",
+          "duration": 17.19999998807907,
+          "startTime": 2511.800000011921,
+          "transferSize": 2421
+        },
+        {
+          "name": "http://192.168.100.74:15000/api/go2rtc/streams/xiaomi_balcony",
+          "initiatorType": "fetch",
+          "duration": 17.5,
+          "startTime": 2511.899999976158,
+          "transferSize": 2168
+        }
+      ],
+      "nav": {
+        "name": "http://192.168.100.74:15000/#/live/Cat_projector_camera",
+        "entryType": "navigation",
+        "startTime": 0,
+        "duration": 96.30000001192093,
+        "navigationId": 3733,
+        "initiatorType": "navigation",
+        "deliveryType": "",
+        "nextHopProtocol": "http/1.1",
+        "renderBlockingStatus": "non-blocking",
+        "contentType": "text/html",
+        "contentEncoding": "gzip",
+        "workerStart": 0,
+        "workerRouterEvaluationStart": 0,
+        "workerCacheLookupStart": 0,
+        "workerMatchedSourceType": "",
+        "workerFinalSourceType": "",
+        "redirectStart": 0,
+        "redirectEnd": 0,
+        "fetchStart": 0.3999999761581421,
+        "domainLookupStart": 0.3999999761581421,
+        "domainLookupEnd": 0.3999999761581421,
+        "connectStart": 0.3999999761581421,
+        "secureConnectionStart": 0,
+        "connectEnd": 0.3999999761581421,
+        "requestStart": 1.199999988079071,
+        "responseStart": 2.800000011920929,
+        "firstInterimResponseStart": 0,
+        "finalResponseHeadersStart": 2.800000011920929,
+        "responseEnd": 3.100000023841858,
+        "transferSize": 3003,
+        "encodedBodySize": 2703,
+        "decodedBodySize": 6966,
+        "responseStatus": 200,
+        "serverTiming": [],
+        "unloadEventStart": 0,
+        "unloadEventEnd": 0,
+        "domInteractive": 14.300000011920929,
+        "domContentLoadedEventStart": 92.5,
+        "domContentLoadedEventEnd": 92.5,
+        "domComplete": 96.30000001192093,
+        "loadEventStart": 96.30000001192093,
+        "loadEventEnd": 96.30000001192093,
+        "type": "navigate",
+        "redirectCount": 0,
+        "activationStart": 0,
+        "criticalCHRestart": 0,
+        "notRestoredReasons": null,
+        "confidence": {
+          "randomizedTriggerRate": 0.4994798,
+          "value": "low"
+        }
+      }
+    },
+    "network": {
+      "reqCount": 98,
+      "respCount": 96,
+      "failedCount": 1,
+      "wsCount": 2,
+      "websockets": [
+        {
+          "url": "ws://192.168.100.74:15000/ws",
+          "openedAt": 1792281483142,
+          "framesSent": 4,
+          "framesReceived": 19,
+          "closed": false
+        },
+        {
+          "url": "ws://192.168.100.74:15000/live/mse/api/ws?src=xiaomi_balcony",
+          "openedAt": 1792281483720,
+          "framesSent": 1,
+          "framesReceived": 150,
+          "closed": false
+        }
+      ],
+      "relReq": [
+        {
+          "url": "http://192.168.100.74:15000/locales/en/views/live.json?v=77a66e7",
+          "method": "GET",
+          "resourceType": "fetch",
+          "ts": 1792281483109
+        },
+        {
+          "url": "http://192.168.100.74:15000/assets/Live-D7nNJyoz.js",
+          "method": "GET",
+          "resourceType": "script",
+          "ts": 1792281483188
+        },
+        {
+          "url": "http://192.168.100.74:15000/assets/BirdseyeLivePlayer-BXE7_KfN.js",
+          "method": "GET",
+          "resourceType": "script",
+          "ts": 1792281483188
+        },
+        {
+          "url": "http://192.168.100.74:15000/assets/Live-DULRuONn.css",
+          "method": "GET",
+          "resourceType": "stylesheet",
+          "ts": 1792281483188
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/review?limit=10&severity=alert&reviewed=0&cameras=Living_room_camera,Bedroom_camera,Hallway_camera,Xiaomi_balcony_camera,Xiaomi_doorbell_camera,Cat_projector_camera,Tab70_camera",
+          "method": "GET",
+          "resourceType": "xhr",
+          "ts": 1792281483534
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Living_room_camera/latest.webp?height=360&store=1&cache=1792281000",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281483672
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Bedroom_camera/latest.webp?height=360&store=1&cache=1792281000",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281483672
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Hallway_camera/latest.webp?height=360&store=1&cache=1792281000",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281483672
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=360&store=1&cache=1792281000",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281483672
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Cat_projector_camera/latest.webp?height=360&store=1&cache=1792281000",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281483672
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Tab70_camera/latest.webp?height=360&store=1&cache=1792281000",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281483672
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Living_room_camera/latest.webp?height=240&store=1&cache=1792281000",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281483702
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Bedroom_camera/latest.webp?height=240&store=1&cache=1792281000",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281483702
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Hallway_camera/latest.webp?height=240&store=1&cache=1792281000",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281483702
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&store=1&cache=1792281000",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281483702
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Cat_projector_camera/latest.webp?height=240&store=1&cache=1792281000",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281483702
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Tab70_camera/latest.webp?height=240&store=1&cache=1792281000",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281483702
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&cache=1792281483685",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281483861
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Cat_projector_camera/latest.webp?height=240&cache=1792281483685",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281483861
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Tab70_camera/latest.webp?height=240&cache=1792281483685",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281483862
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Living_room_camera/latest.webp?height=240&cache=1792281483684",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281483932
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Hallway_camera/latest.webp?height=240&cache=1792281483684",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281483932
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Bedroom_camera/latest.webp?height=240&cache=1792281483684",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281483933
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&cache=1792281483932",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281483934
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&cache=1792281484002",
+          "method": "GET",
+          "resourceType": "image",
+          "ts": 1792281484005
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/go2rtc/streams/bed_main",
+          "method": "GET",
+          "resourceType": "fetch",
+          "ts": 1792281485508
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/go2rtc/streams/cat_projector",
+          "method": "GET",
+          "resourceType": "fetch",
+          "ts": 1792281485508
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/go2rtc/streams/hall_main",
+          "method": "GET",
+          "resourceType": "fetch",
+          "ts": 1792281485508
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/go2rtc/streams/living_main",
+          "method": "GET",
+          "resourceType": "fetch",
+          "ts": 1792281485508
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/go2rtc/streams/tab70",
+          "method": "GET",
+          "resourceType": "fetch",
+          "ts": 1792281485508
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/go2rtc/streams/xiaomi_balcony",
+          "method": "GET",
+          "resourceType": "fetch",
+          "ts": 1792281485508
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/go2rtc/streams/xiaomi_doorbell",
+          "method": "GET",
+          "resourceType": "fetch",
+          "ts": 1792281485508
+        }
+      ],
+      "relResp": [
+        {
+          "url": "http://192.168.100.74:15000/locales/en/views/live.json?v=77a66e7",
+          "status": 200,
+          "contentType": "application/json",
+          "ts": 1792281483112
+        },
+        {
+          "url": "http://192.168.100.74:15000/assets/Live-DULRuONn.css",
+          "status": 200,
+          "contentType": "text/css",
+          "ts": 1792281483190
+        },
+        {
+          "url": "http://192.168.100.74:15000/assets/BirdseyeLivePlayer-BXE7_KfN.js",
+          "status": 200,
+          "contentType": "application/javascript",
+          "ts": 1792281483192
+        },
+        {
+          "url": "http://192.168.100.74:15000/assets/Live-D7nNJyoz.js",
+          "status": 200,
+          "contentType": "application/javascript",
+          "ts": 1792281483193
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/review?limit=10&severity=alert&reviewed=0&cameras=Living_room_camera,Bedroom_camera,Hallway_camera,Xiaomi_balcony_camera,Xiaomi_doorbell_camera,Cat_projector_camera,Tab70_camera",
+          "status": 200,
+          "contentType": "application/json",
+          "ts": 1792281483680
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Cat_projector_camera/latest.webp?height=360&store=1&cache=1792281000",
+          "status": 200,
+          "contentType": "image/webp",
+          "ts": 1792281483745
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=360&store=1&cache=1792281000",
+          "status": 200,
+          "contentType": "image/webp",
+          "ts": 1792281483745
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Living_room_camera/latest.webp?height=360&store=1&cache=1792281000",
+          "status": 200,
+          "contentType": "image/webp",
+          "ts": 1792281483785
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Hallway_camera/latest.webp?height=360&store=1&cache=1792281000",
+          "status": 200,
+          "contentType": "image/webp",
+          "ts": 1792281483802
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Bedroom_camera/latest.webp?height=360&store=1&cache=1792281000",
+          "status": 200,
+          "contentType": "image/webp",
+          "ts": 1792281483852
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Tab70_camera/latest.webp?height=360&store=1&cache=1792281000",
+          "status": 200,
+          "contentType": "image/webp",
+          "ts": 1792281483852
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&store=1&cache=1792281000",
+          "status": 200,
+          "contentType": "image/webp",
+          "ts": 1792281483852
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Tab70_camera/latest.webp?height=240&store=1&cache=1792281000",
+          "status": 200,
+          "contentType": "image/webp",
+          "ts": 1792281483852
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Cat_projector_camera/latest.webp?height=240&store=1&cache=1792281000",
+          "status": 200,
+          "contentType": "image/webp",
+          "ts": 1792281483857
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Living_room_camera/latest.webp?height=240&store=1&cache=1792281000",
+          "status": 200,
+          "contentType": "image/webp",
+          "ts": 1792281483903
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Hallway_camera/latest.webp?height=240&store=1&cache=1792281000",
+          "status": 200,
+          "contentType": "image/webp",
+          "ts": 1792281483903
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Bedroom_camera/latest.webp?height=240&store=1&cache=1792281000",
+          "status": 200,
+          "contentType": "image/webp",
+          "ts": 1792281483932
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&cache=1792281483685",
+          "status": 200,
+          "contentType": "image/webp",
+          "ts": 1792281483932
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Cat_projector_camera/latest.webp?height=240&cache=1792281483685",
+          "status": 200,
+          "contentType": "image/webp",
+          "ts": 1792281483932
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Tab70_camera/latest.webp?height=240&cache=1792281483685",
+          "status": 200,
+          "contentType": "image/webp",
+          "ts": 1792281483950
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Living_room_camera/latest.webp?height=240&cache=1792281483684",
+          "status": 200,
+          "contentType": "image/webp",
+          "ts": 1792281484030
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Bedroom_camera/latest.webp?height=240&cache=1792281483684",
+          "status": 200,
+          "contentType": "image/webp",
+          "ts": 1792281484030
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Hallway_camera/latest.webp?height=240&cache=1792281483684",
+          "status": 200,
+          "contentType": "image/webp",
+          "ts": 1792281484030
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&cache=1792281484002",
+          "status": 200,
+          "contentType": "image/webp",
+          "ts": 1792281484035
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/go2rtc/streams/tab70",
+          "status": 200,
+          "contentType": "application/json",
+          "ts": 1792281485524
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/go2rtc/streams/hall_main",
+          "status": 200,
+          "contentType": "application/json",
+          "ts": 1792281485524
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/go2rtc/streams/bed_main",
+          "status": 200,
+          "contentType": "application/json",
+          "ts": 1792281485524
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/go2rtc/streams/cat_projector",
+          "status": 200,
+          "contentType": "application/json",
+          "ts": 1792281485524
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/go2rtc/streams/living_main",
+          "status": 200,
+          "contentType": "application/json",
+          "ts": 1792281485524
+        },
+        {
+          "url": "http://192.168.100.74:15000/api/go2rtc/streams/xiaomi_balcony",
+          "status": 200,
+          "contentType": "application/json",
+          "ts": 1792281485524
+        }
+      ],
+      "failed": [
+        {
+          "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&cache=1792281483932",
+          "error": "net::ERR_ABORTED",
+          "ts": 1792281484005
+        }
+      ]
+    },
+    "console": []
+  },
+  "requests": [
+    {
+      "url": "http://192.168.100.74:15000/",
+      "method": "GET",
+      "resourceType": "document",
+      "ts": 1792281482996
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/main-D3kuomMN.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483005
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/index-DnKVsEqw.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483005
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/index-BvFM361y.css",
+      "method": "GET",
+      "resourceType": "stylesheet",
+      "ts": 1792281483005
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/common.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483091
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/objects.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483091
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/audio.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483091
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/components/auth.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483091
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/components/camera.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483091
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/components/dialog.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483091
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/components/filter.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483091
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/components/icons.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483091
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/components/input.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483091
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/components/player.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483091
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/favicon-C4q05VTg.svg",
+      "method": "GET",
+      "resourceType": "other",
+      "ts": 1792281483104
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/chat.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483106
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/classificationModel.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483106
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/configEditor.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483106
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/events.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483106
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/explore.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483109
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/exports.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483109
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/faceLibrary.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483109
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/live.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483109
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/motionSearch.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483109
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/recording.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483109
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/replay.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483111
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/favicon-CM52J2Ju.ico",
+      "method": "GET",
+      "resourceType": "other",
+      "ts": 1792281483111
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/search.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483111
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/settings.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483111
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/system.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483112
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/config/cameras.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483112
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/config/global.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483112
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/config/groups.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483113
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/config/validation.json?v=77a66e7",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281483117
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/config",
+      "method": "GET",
+      "resourceType": "xhr",
+      "ts": 1792281483141
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/profile",
+      "method": "GET",
+      "resourceType": "xhr",
+      "ts": 1792281483142
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/profiles",
+      "method": "GET",
+      "resourceType": "xhr",
+      "ts": 1792281483142
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/stats",
+      "method": "GET",
+      "resourceType": "xhr",
+      "ts": 1792281483142
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/profile",
+      "method": "GET",
+      "resourceType": "xhr",
+      "ts": 1792281483142
+    },
+    {
+      "url": "http://192.168.100.74:15000/fonts/Inter-Regular.woff2",
+      "method": "GET",
+      "resourceType": "font",
+      "ts": 1792281483164
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/Live-D7nNJyoz.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/record-BJpe8vW4.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/use-keyboard-listener-CW_AlE8i.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/BirdseyeLivePlayer-BXE7_KfN.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/resize-observer-CeL3K1Rx.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/MsePlayer-PsOKtS3P.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/ImageShadowOverlay-CgWJN2PH.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/FilterSwitch-Dsl5-k3l.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/AutoUpdatingCameraImage-CoRsNI8Q.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/use-camera-activity-DjZpwFHn.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/use-timeline-utils-LaTap4-y.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/Chip-BgzLyHjh.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/use-date-utils-B_lrUb5f.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/tabs-Io3l7zyv.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/index-CorbPigF.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/index-C3J7uan_.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/card-BYv3on-d.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/DebugDrawingLayer-dvexCUJg.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/ReactKonvaCore-DUOErTRB.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/react-apexcharts.min-Cw0hFA5d.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/index-DTZlwEAg.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/ScrubbablePreview-D7a3fnXP.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/slider-B9KZ08of.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/review-oUZVOOU9.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/TimeAgo-BlnijwTn.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/index-BJg5swzB.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/scroll-area-BRmZPtZN.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/context-menu-BVyXIzoj.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/EmptyCard-GGL-c4FU.js",
+      "method": "GET",
+      "resourceType": "script",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/Live-DULRuONn.css",
+      "method": "GET",
+      "resourceType": "stylesheet",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/review?limit=10&severity=alert&reviewed=0&cameras=Living_room_camera,Bedroom_camera,Hallway_camera,Xiaomi_balcony_camera,Xiaomi_doorbell_camera,Cat_projector_camera,Tab70_camera",
+      "method": "GET",
+      "resourceType": "xhr",
+      "ts": 1792281483534
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Living_room_camera/latest.webp?height=360&store=1&cache=1792281000",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281483672
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Bedroom_camera/latest.webp?height=360&store=1&cache=1792281000",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281483672
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Hallway_camera/latest.webp?height=360&store=1&cache=1792281000",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281483672
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=360&store=1&cache=1792281000",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281483672
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Cat_projector_camera/latest.webp?height=360&store=1&cache=1792281000",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281483672
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Tab70_camera/latest.webp?height=360&store=1&cache=1792281000",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281483672
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Living_room_camera/latest.webp?height=240&store=1&cache=1792281000",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281483702
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Bedroom_camera/latest.webp?height=240&store=1&cache=1792281000",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281483702
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Hallway_camera/latest.webp?height=240&store=1&cache=1792281000",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281483702
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&store=1&cache=1792281000",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281483702
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Cat_projector_camera/latest.webp?height=240&store=1&cache=1792281000",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281483702
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Tab70_camera/latest.webp?height=240&store=1&cache=1792281000",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281483702
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&cache=1792281483685",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281483861
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Cat_projector_camera/latest.webp?height=240&cache=1792281483685",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281483861
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Tab70_camera/latest.webp?height=240&cache=1792281483685",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281483862
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Living_room_camera/latest.webp?height=240&cache=1792281483684",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281483932
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Hallway_camera/latest.webp?height=240&cache=1792281483684",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281483932
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Bedroom_camera/latest.webp?height=240&cache=1792281483684",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281483933
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&cache=1792281483932",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281483934
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&cache=1792281484002",
+      "method": "GET",
+      "resourceType": "image",
+      "ts": 1792281484005
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/go2rtc/streams/bed_main",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281485508
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/go2rtc/streams/cat_projector",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281485508
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/go2rtc/streams/hall_main",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281485508
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/go2rtc/streams/living_main",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281485508
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/go2rtc/streams/tab70",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281485508
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/go2rtc/streams/xiaomi_balcony",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281485508
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/go2rtc/streams/xiaomi_doorbell",
+      "method": "GET",
+      "resourceType": "fetch",
+      "ts": 1792281485508
+    }
+  ],
+  "responses": [
+    {
+      "url": "http://192.168.100.74:15000/",
+      "status": 200,
+      "contentType": "text/html",
+      "ts": 1792281482999
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/index-BvFM361y.css",
+      "status": 200,
+      "contentType": "text/css",
+      "ts": 1792281483009
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/main-D3kuomMN.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483019
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/index-DnKVsEqw.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483028
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/audio.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483100
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/components/auth.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483101
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/common.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483101
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/components/camera.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483101
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/components/dialog.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483101
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/objects.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483101
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/components/filter.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483101
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/components/icons.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483101
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/components/input.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483101
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/components/player.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483101
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/favicon-C4q05VTg.svg",
+      "status": 200,
+      "contentType": "image/svg+xml",
+      "ts": 1792281483110
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/chat.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483110
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/classificationModel.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483110
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/configEditor.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483110
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/events.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483110
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/explore.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483111
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/exports.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483111
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/faceLibrary.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483111
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/live.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483112
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/motionSearch.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483112
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/recording.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483112
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/replay.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483113
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/favicon-CM52J2Ju.ico",
+      "status": 200,
+      "contentType": "image/x-icon",
+      "ts": 1792281483114
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/search.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483114
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/settings.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483114
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/views/system.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483114
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/config/cameras.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483114
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/config/groups.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483117
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/config/global.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483117
+    },
+    {
+      "url": "http://192.168.100.74:15000/locales/en/config/validation.json?v=77a66e7",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483118
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/stats",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483166
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/profiles",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483167
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/profile",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483169
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/config",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483177
+    },
+    {
+      "url": "http://192.168.100.74:15000/fonts/Inter-Regular.woff2",
+      "status": 200,
+      "contentType": "font/woff2",
+      "ts": 1792281483177
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/profile",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483188
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/Live-DULRuONn.css",
+      "status": 200,
+      "contentType": "text/css",
+      "ts": 1792281483190
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/use-keyboard-listener-CW_AlE8i.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483192
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/resize-observer-CeL3K1Rx.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483192
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/record-BJpe8vW4.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483192
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/MsePlayer-PsOKtS3P.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483192
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/ImageShadowOverlay-CgWJN2PH.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483192
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/FilterSwitch-Dsl5-k3l.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483192
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/BirdseyeLivePlayer-BXE7_KfN.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483192
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/AutoUpdatingCameraImage-CoRsNI8Q.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483192
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/Chip-BgzLyHjh.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483192
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/use-camera-activity-DjZpwFHn.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483192
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/use-timeline-utils-LaTap4-y.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483192
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/Live-D7nNJyoz.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483193
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/card-BYv3on-d.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483193
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/DebugDrawingLayer-dvexCUJg.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483193
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/use-date-utils-B_lrUb5f.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483193
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/tabs-Io3l7zyv.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483193
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/index-C3J7uan_.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483193
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/index-CorbPigF.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483193
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/index-DTZlwEAg.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483195
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/review-oUZVOOU9.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483196
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/ScrubbablePreview-D7a3fnXP.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483196
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/TimeAgo-BlnijwTn.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483197
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/index-BJg5swzB.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483198
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/slider-B9KZ08of.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483198
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/EmptyCard-GGL-c4FU.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483198
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/context-menu-BVyXIzoj.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483199
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/scroll-area-BRmZPtZN.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483199
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/ReactKonvaCore-DUOErTRB.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483202
+    },
+    {
+      "url": "http://192.168.100.74:15000/assets/react-apexcharts.min-Cw0hFA5d.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "ts": 1792281483203
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/review?limit=10&severity=alert&reviewed=0&cameras=Living_room_camera,Bedroom_camera,Hallway_camera,Xiaomi_balcony_camera,Xiaomi_doorbell_camera,Cat_projector_camera,Tab70_camera",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281483680
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Cat_projector_camera/latest.webp?height=360&store=1&cache=1792281000",
+      "status": 200,
+      "contentType": "image/webp",
+      "ts": 1792281483745
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=360&store=1&cache=1792281000",
+      "status": 200,
+      "contentType": "image/webp",
+      "ts": 1792281483745
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Living_room_camera/latest.webp?height=360&store=1&cache=1792281000",
+      "status": 200,
+      "contentType": "image/webp",
+      "ts": 1792281483785
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Hallway_camera/latest.webp?height=360&store=1&cache=1792281000",
+      "status": 200,
+      "contentType": "image/webp",
+      "ts": 1792281483802
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Bedroom_camera/latest.webp?height=360&store=1&cache=1792281000",
+      "status": 200,
+      "contentType": "image/webp",
+      "ts": 1792281483852
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Tab70_camera/latest.webp?height=360&store=1&cache=1792281000",
+      "status": 200,
+      "contentType": "image/webp",
+      "ts": 1792281483852
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&store=1&cache=1792281000",
+      "status": 200,
+      "contentType": "image/webp",
+      "ts": 1792281483852
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Tab70_camera/latest.webp?height=240&store=1&cache=1792281000",
+      "status": 200,
+      "contentType": "image/webp",
+      "ts": 1792281483852
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Cat_projector_camera/latest.webp?height=240&store=1&cache=1792281000",
+      "status": 200,
+      "contentType": "image/webp",
+      "ts": 1792281483857
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Living_room_camera/latest.webp?height=240&store=1&cache=1792281000",
+      "status": 200,
+      "contentType": "image/webp",
+      "ts": 1792281483903
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Hallway_camera/latest.webp?height=240&store=1&cache=1792281000",
+      "status": 200,
+      "contentType": "image/webp",
+      "ts": 1792281483903
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Bedroom_camera/latest.webp?height=240&store=1&cache=1792281000",
+      "status": 200,
+      "contentType": "image/webp",
+      "ts": 1792281483932
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&cache=1792281483685",
+      "status": 200,
+      "contentType": "image/webp",
+      "ts": 1792281483932
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Cat_projector_camera/latest.webp?height=240&cache=1792281483685",
+      "status": 200,
+      "contentType": "image/webp",
+      "ts": 1792281483932
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Tab70_camera/latest.webp?height=240&cache=1792281483685",
+      "status": 200,
+      "contentType": "image/webp",
+      "ts": 1792281483950
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Living_room_camera/latest.webp?height=240&cache=1792281483684",
+      "status": 200,
+      "contentType": "image/webp",
+      "ts": 1792281484030
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Bedroom_camera/latest.webp?height=240&cache=1792281483684",
+      "status": 200,
+      "contentType": "image/webp",
+      "ts": 1792281484030
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Hallway_camera/latest.webp?height=240&cache=1792281483684",
+      "status": 200,
+      "contentType": "image/webp",
+      "ts": 1792281484030
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&cache=1792281484002",
+      "status": 200,
+      "contentType": "image/webp",
+      "ts": 1792281484035
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/go2rtc/streams/tab70",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281485524
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/go2rtc/streams/hall_main",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281485524
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/go2rtc/streams/bed_main",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281485524
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/go2rtc/streams/cat_projector",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281485524
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/go2rtc/streams/living_main",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281485524
+    },
+    {
+      "url": "http://192.168.100.74:15000/api/go2rtc/streams/xiaomi_balcony",
+      "status": 200,
+      "contentType": "application/json",
+      "ts": 1792281485524
+    }
+  ],
+  "failed": [
+    {
+      "url": "http://192.168.100.74:15000/api/Xiaomi_balcony_camera/latest.webp?height=240&cache=1792281483932",
+      "error": "net::ERR_ABORTED",
+      "ts": 1792281484005
+    }
+  ],
+  "sockets": [
+    {
+      "url": "ws://192.168.100.74:15000/ws",
+      "openedAt": 1792281483142,
+      "framesSent": 4,
+      "framesReceived": 19,
+      "closed": false
+    },
+    {
+      "url": "ws://192.168.100.74:15000/live/mse/api/ws?src=xiaomi_balcony",
+      "openedAt": 1792281483720,
+      "framesSent": 1,
+      "framesReceived": 150,
+      "closed": false
+    }
+  ]
+}
