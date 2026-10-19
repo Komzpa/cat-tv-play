@@ -98,6 +98,159 @@ output. Current-model rescoring provides the per-frame overlay layer; original
 capture overlays are shown only when frame-level capture metadata exists for the
 selected frame.
 
+### Native projector-source correspondence
+
+Review and active learning use the canonical
+`custom_components/cat_tv_play/source_correspondence.py` producer, not a
+recording-wide source clock. For new chunks the review adapter automatically
+calls `produce_chunk_correspondence` before any configured detector backend
+consumes the chunk. A real local cached source must hash to the retained index's source
+SHA. Select the compact index with `CAT_TV_SOURCE_INDEX` or the recording
+manifest's `source_correspondence.source_index`; when exactly one retained
+index has the manifest's exact source URL, the adapter selects it automatically.
+Optional `source_correspondence.geometry` freezes the calibrated polygon,
+excluded static regions, boundary margin and interior-mask path. No full-source
+index rebuild, network-source replacement, or unrestricted native decode follows
+from missing configuration or budget exhaustion.
+
+The canonical producer also accepts an HTTP(S) source for bounded recorder
+refinement without a local video copy. Beside the retained index,
+`http-source-identity-<source-SHA256>.json` must bind the exact source URL to an
+independently observed server-side `sha256sum`, unchanged file stat and matching
+strong HTTP ETag/length before and after that hash. Capture the server evidence
+through the documented, authorized source-host route; a retained index SHA or
+size/mtime alone is not a source-identity certificate. This identity record does
+not modify the index or its original generation keys.
+
+The producer checks the current representation with an identity-encoding HEAD
+and `If-Match`, then uses the same validator on every ffprobe/ffmpeg request.
+HTTP seeking uses ranges; only automatically nominated finite intervals may be
+decoded, with both an input end time and the native frame budget. The native
+decode manifest and chunk provenance retain the identity-record hash. Changed
+validators, redirects, missing range support or substituted identity records
+leave correspondence unavailable, never a nominal/scalar fallback. HTTP support
+in the canonical producer does not remove the review adapter's local-cache
+requirement or establish photometry/privacy permission.
+
+The producer retains integer PTS, rational time base, raw RGB SHA, same-decode
+framehash/command identity, source/camera media SHA, geometry, code provenance,
+camera-only support masks, ordered native candidate families and search coverage
+in `label-review/source-correspondence/<camera-SHA>/correspondence.json`.
+`correspondence_for_camera_frame` requires exact native identity equality;
+unobserved frames stay unresolved. Review JPEGs need an image-SHA-bound
+same-decode native certificate; old/unbound images cannot suppress candidates.
+Current native review extraction emits that certificate alongside the JPEGs.
+Detection uses the bound native RGB, without copying geometry between frames.
+
+Mandatory behavior and acceptance boundaries:
+
+1. Camera-only structural components run before CatBoost or subtraction. With
+   at least three same-decode observations, dark departures from their temporal
+   median use six robust noise deviations (one-code-value floor); this median
+   is not a no-cat background. Single-image input retains the existing dark-body
+   intensity/size rule. Support is component pixels, not bounding rectangles;
+   frozen interior, screen-edge and socket exclusions apply per pixel, also in
+   native gradient scoring. Components are not prey truth or privacy permission.
+   Manual diagnostic boxes and source pixels are never support inputs.
+2. Retained three-block spatial descriptors nominate local ordered content;
+   native RGB refinement records actual PTS/hashes. A nominal index slot only
+   bounds retrieval. Chunk number times segment duration, frame number divided
+   by nominal FPS, fitted unit-rate clocks, modulo and endpoint clamping must
+   never manufacture source identity. Legacy scalar sync files have no authority.
+3. The real retained 104-camera/1,722-source-frame oracle must automatically
+   recover the changing 1559-second family without manual boxes. Blank,
+   decreasing, exact-reversal and the 288-family prefix/suffix compete through
+   the same object-gradient evaluator. Missing positive support is a failed
+   producer acceptance check, not successful all-unresolved scaffolding.
+4. Repeated identities, competing families, missing content and unsearched
+   source intervals remain explicit. Candidate-source brackets are **not**
+   measured camera exposure; exposure mixture and global loop count stay
+   unknown. Source ambiguity cannot be resolved by minimum-residual shopping.
+   Adjacent discovery brackets describe searched content only. Every retained
+   native alternative must have positive camera-component shape evidence above
+   the independently frozen local-null envelope and belong to a complete
+   non-strict ordered path above the frozen rejected-sequence envelope. Exact
+   forward/backward sums qualify every state, not one argmax; totals are divided
+   by the observation count before comparison with sequence means. Local-null
+   failures cannot borrow another frame's score. Ties and repeated IDs survive.
+   Rejected sequences stay in sequence/search evidence, not candidate families;
+   unqualified but not rejected nominations remain explicit unresolved families.
+5. Missing PTS, substituted RGB and stale source/geometry/implementation keys
+   are rejected. Retained generation keys and raw diagnostics are preserved.
+   The former whole-residual-file dependency can migrate only with the recorded
+   exact unchanged geometry-function fingerprints and identical descriptor;
+   a changed relevant implementation requires an authorized compatible rebuild.
+
+Structural ranking never supplies photometric validity or privacy permission.
+Unsupported source evidence preserves ordinary detection and all real-person
+fail-closed gates. This repairs the recurring promotion of whole-wall similarity
+or a nominal clock into object/native/privacy truth; the real-input and boundary
+checks above, rather than receipt wording, are the acceptance bar.
+
+Support-repair retro (2026-10-18): the first producer treated component boxes as
+support, then rejected whole boxes crossing the socket. Stationary left-wall
+shading therefore erased native observations 0/21/103 despite visible changing
+interior content. The repair first inspected those actual RGB identities with
+camera-only temporal masks, before rescoring any source frames. The retained
+regression requires nonempty localized masks at all three identities, exclusion
+integrity, and the unchanged positive/prefix/suffix/negative/review oracle.
+Original failed receipts remain under `native-correspondence-producer-20261018`;
+new proof is versioned under `native-correspondence-support-repair-20261018`.
+
+Native-membership retro (2026-10-19): the previous global ordered winner was
+valid family nomination, but did not qualify each of its 106 adjacent native
+frames. It also retained already-rejected decreasing/288 controls as unresolved
+surviving alternatives. That per-frame support claim failed acceptance; the old
+artifact is never rekeyed. The executable repair records all-state score arrays
+and conditional path totals, actual component pixel masks/hashes/boxes, full
+camera/source native identities, and per-component local-null scores. A
+component is eligible only if it matches every retained state in every surviving
+family; unmatched camera proposals remain unresolved physical/projected structure.
+The actual dense May decode also exposed independently crossing held-out
+argmaxes: multiple observations between two discovery anchors must be completed
+by one ordered dynamic program. Per-state qualification uses exact complete-path
+envelopes and a separate local-positive gate on that constrained state. A camera
+observation without a proposal stays unresolved; it must not erase support at
+every other observation by forbidding all complete paths through the chunk.
+
+The optional `qualification_controls` producer argument / `--qualification-controls`
+CLI input accepts a `frozen-native-structural-controls-v1` receipt. Default
+callers automatically discover only `<configured-index-stem>.qualification-controls.json`
+next to their existing source index. The receipt binds source/index SHA256,
+immutable baseline evidence path/hash, and native control manifest path/hash /
+decode ID. Capture-relative entries declare `local_shape_null` and/or
+`sequence_rejected`, applicable to an exact camera-media SHA and geometry SHA.
+Separate `source_facts` entries of kind `source-null-native-sample-v1` bind only
+source SHA and exact native manifest/identities. Every source sample's RGB hash
+and absence of a native dark-body proposal are rechecked; their actual textured
+gradients are re-evaluated under the current camera geometry/components. The
+six retained near-white source samples are not globally constant, a no-cat
+background or photometric calibration. All six native identities remain visible.
+Applicable control bundles load automatically within the same source-frame
+budget; no bundle label supplies a role or diagnostic-path search supplies data.
+
+Wrong-order complete-path, fixed-content and exact-reversal null envelopes are
+independently recomputed for the current capture before qualifying any state.
+A nominated family's exact best complete forward path at or below that envelope
+is explicit sequence rejection, not best-family/residual selection. Other
+unqualified nominations remain unresolved. Sequence-only 288 negatives are not
+local nulls: their middle content genuinely repeats. July capture-relative
+claims never transfer to May. Source-only null samples can be re-evaluated there.
+Absent sidecar/configuration is an internal evidence-wiring gap, not external
+unavailable-data proof. The smallest normal-production wiring is the existing
+source/index-bound source-fact receipt plus these current-capture ordering
+controls, through the existing configured-index sidecar or producer argument;
+no manual-label service or per-capture negative fixture is required.
+
+`SourceCandidateFamily.qualification` carries the full camera identity, support
+hash, control-receipt hash, searched/qualified coverage and every retained native
+state's identity, local score, conditional total/mean and component scores.
+`FrameCorrespondence.component_qualifications` retains each camera component's
+pixel-mask path/hash, bbox, pixel count, status and all-state matched families.
+The persisted loader round-trips these bindings; admission rejects changed
+control evidence or component pixels. These are structural prerequisites only,
+not independent photometry, measured exposure or privacy authorization.
+
 The left suspect queue can switch between unreviewed suspects, all suspicious
 frames, and reviewed suspects. Saved `not_cat` frames do not reappear in the
 unreviewed queue. Use Reviewed suspects to audit dirty input labels: it surfaces

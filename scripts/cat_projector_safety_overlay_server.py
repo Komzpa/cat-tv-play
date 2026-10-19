@@ -42,19 +42,9 @@ def _load_projector_safety_module() -> Any:
     return module
 
 
-def _load_source_subtraction_module() -> Any:
-    path = REPO_ROOT / "custom_components" / "cat_tv_play" / "source_subtraction.py"
-    spec = importlib.util.spec_from_file_location("cat_tv_play_source_subtraction_runtime", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load source_subtraction module from {path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 projector_safety = _load_projector_safety_module()
-source_subtraction = _load_source_subtraction_module()
 PersonDetection = projector_safety.PersonDetection
 SafetyOverlayResult = projector_safety.SafetyOverlayResult
 compute_eye_safety_overlay = projector_safety.compute_eye_safety_overlay
@@ -735,60 +725,6 @@ def _render_debug_camera_jpeg(
     return output.getvalue()
 
 
-def _bbox_residual_stats(
-    residual: np.ndarray,
-    bbox_xyxy: tuple[float, float, float, float],
-    *,
-    threshold: float,
-    source_bright_mask: np.ndarray,
-) -> tuple[int, float]:
-    height, width = residual.shape
-    x0, y0, x1, y1 = bbox_xyxy
-    left = max(0, min(width, int(np.floor(min(x0, x1)))))
-    top = max(0, min(height, int(np.floor(min(y0, y1)))))
-    right = max(0, min(width, int(np.ceil(max(x0, x1)))))
-    bottom = max(0, min(height, int(np.ceil(max(y0, y1)))))
-    if right <= left or bottom <= top:
-        return 0, 0.0
-    patch = residual[top:bottom, left:right]
-    bright_patch = source_bright_mask[top:bottom, left:right]
-    dark = (patch > threshold) & bright_patch
-    return int(dark.sum()), float(dark.mean())
-
-
-def _person_eye_band_bbox_for_filter(
-    person: PersonDetection,
-    *,
-    camera_size: tuple[int, int],
-    eye_band_top_fraction: float,
-    eye_band_bottom_fraction: float,
-    eye_band_left_fraction: float,
-    eye_band_right_fraction: float,
-    padding_px: int,
-) -> tuple[float, float, float, float]:
-    width, height = camera_size
-    x0, y0, x1, y1 = _clamp_server_bbox(person.bbox_xyxy, camera_size=camera_size)
-    person_width = x1 - x0
-    person_height = y1 - y0
-    left = x0 + person_width * eye_band_left_fraction
-    right = x0 + person_width * eye_band_right_fraction
-    top = y0 + person_height * eye_band_top_fraction
-    bottom = y0 + person_height * eye_band_bottom_fraction
-    return _clamp_server_bbox(
-        (
-            float(np.floor(left - padding_px)),
-            float(np.floor(top - padding_px)),
-            float(np.ceil(right + padding_px)),
-            float(np.ceil(bottom + padding_px)),
-        ),
-        camera_size=(width, height),
-    )
-
-
-def _bbox_area(bbox_xyxy: tuple[float, float, float, float]) -> float:
-    x0, y0, x1, y1 = bbox_xyxy
-    return max(0.0, float(x1) - float(x0)) * max(0.0, float(y1) - float(y0))
-
 
 def _format_bbox_xywh_from_xyxy(bbox_xyxy: tuple[float, float, float, float]) -> str:
     x0, y0, x1, y1 = bbox_xyxy
@@ -809,14 +745,14 @@ def _append_safety_negative_review_rows(
     raw_people: list[PersonDetection],
     people: list[PersonDetection],
     result: SafetyOverlayResult,
-    source_filter_skipped: list[dict[str, Any]],
+    person_detector_skipped: list[dict[str, Any]],
     performance: dict[str, Any],
     source_video: str,
     max_frames_per_day: int,
 ) -> int:
     if camera_image is None:
         return 0
-    if not raw_people and not people and result.status != "active" and not source_filter_skipped:
+    if not raw_people and not people and result.status != "active" and not person_detector_skipped:
         return 0
     run_dir = SAFETY_REVIEW_ROOT / time.strftime("%Y%m%d")
     frames_dir = run_dir / "frames"
@@ -879,7 +815,7 @@ def _append_safety_negative_review_rows(
                         "person_index": index,
                         "person": asdict(person),
                         "status": result.status,
-                        "source_filter_skipped": source_filter_skipped,
+                        "person_detector_skipped": person_detector_skipped,
                         "performance": performance,
                     },
                     ensure_ascii=False,
@@ -907,27 +843,6 @@ def _safety_negative_review_frame_count(frames_dir: Path) -> int:
     return sum(1 for _path in frames_dir.glob("safety_*.jpg"))
 
 
-def _build_residual_views(
-    *,
-    camera_image: Image.Image,
-    source_frame: Image.Image,
-    source_reference_frames: list[Image.Image] | None,
-    projector_polygon: tuple[tuple[float, float], ...],
-) -> list[tuple[int, np.ndarray, np.ndarray]]:
-    source_frames = [source_frame]
-    if source_reference_frames:
-        source_frames.extend(source_reference_frames)
-    residual_views: list[tuple[int, np.ndarray, np.ndarray]] = []
-    for frame_index, candidate_source in enumerate(source_frames):
-        residual, warped_source = source_subtraction.source_subtracted_residual(
-            camera_image,
-            source_frame=candidate_source,
-            projector_polygon=projector_polygon,
-        )
-        residual_views.append((frame_index, residual, warped_source > 150))
-    return residual_views
-
-
 def _source_polygons_to_camera_mask(
     *,
     source_polygons: list[tuple[tuple[float, float], ...]],
@@ -935,6 +850,11 @@ def _source_polygons_to_camera_mask(
     projector_polygon: tuple[tuple[float, float], ...],
     camera_size: tuple[int, int],
 ) -> np.ndarray:
+    """Project source-space polygons into the camera frame via the frozen homography.
+
+    Pure geometry: consumed by the realtime rect proof harness for calibration
+    checks. It grants no privacy or source-explanation permission.
+    """
     width, height = camera_size
     mask = Image.new("L", (width, height), 0)
     if not source_polygons:
@@ -957,317 +877,6 @@ def _source_polygons_to_camera_mask(
         projected = cv2.perspectiveTransform(points, homography).reshape(-1, 2)
         draw.polygon([(float(x), float(y)) for x, y in projected], fill=255)
     return np.asarray(mask, dtype=bool)
-
-
-def _fixed_rect_to_polygon(rect: tuple[int, int, int, int] | None) -> tuple[tuple[float, float], ...] | None:
-    if rect is None:
-        return None
-    x0, y0, x1, y1 = rect
-    return ((float(x0), float(y0)), (float(x1), float(y0)), (float(x1), float(y1)), (float(x0), float(y1)))
-
-
-def _scale_projector_polygon(
-    projector_polygon: tuple[tuple[float, float], ...],
-    scale: float,
-) -> tuple[tuple[float, float], ...]:
-    return tuple((float(x) * scale, float(y) * scale) for x, y in projector_polygon)
-
-
-def _scale_person_detection(person: PersonDetection, scale: float) -> PersonDetection:
-    x0, y0, x1, y1 = person.bbox_xyxy
-    return PersonDetection(
-        bbox_xyxy=(x0 * scale, y0 * scale, x1 * scale, y1 * scale),
-        confidence=person.confidence,
-        source=person.source,
-        mask=None,
-        debug=person.debug,
-    )
-
-
-def _detect_residual_occluder_people(
-    residual_views: list[tuple[int, np.ndarray, np.ndarray]],
-    *,
-    threshold: float,
-    min_residual_area_px: int,
-    min_residual_fraction: float,
-    ignored_camera_mask: np.ndarray,
-) -> tuple[list[PersonDetection], list[dict[str, Any]]]:
-    if not residual_views:
-        return [], []
-    try:
-        import cv2
-    except Exception:
-        return [], [{"reason": "residual_occluder_unavailable", "error": "cv2 import failed"}]
-
-    height, width = residual_views[0][1].shape
-    combined = np.zeros((height, width), dtype=bool)
-    for _frame_index, residual, source_bright_mask in residual_views:
-        combined |= (residual > threshold) & source_bright_mask
-    combined &= ~ignored_camera_mask
-    combined[: max(2, int(height * 0.05)), :] = False
-    mask_u8 = combined.astype(np.uint8)
-    mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_OPEN, np.ones((3, 3), dtype=np.uint8))
-    mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_CLOSE, np.ones((9, 9), dtype=np.uint8))
-
-    count, _labels, stats, _centroids = cv2.connectedComponentsWithStats(mask_u8, connectivity=8)
-    people: list[PersonDetection] = []
-    skipped: list[dict[str, Any]] = []
-    for label in range(1, count):
-        left, top, candidate_width, candidate_height, area = (int(value) for value in stats[label])
-        if area < min_residual_area_px:
-            continue
-        if candidate_width < 60 or candidate_height < 80:
-            continue
-        if candidate_width > int(width * 0.38) or candidate_height > int(height * 0.85):
-            continue
-        bbox = (
-            float(left),
-            float(top),
-            float(left + candidate_width),
-            float(top + candidate_height),
-        )
-        bbox_stats = [
-            (
-                frame_index,
-                *_bbox_residual_stats(
-                    residual,
-                    bbox,
-                    threshold=threshold,
-                    source_bright_mask=source_bright_mask & ~ignored_camera_mask,
-                ),
-            )
-            for frame_index, residual, source_bright_mask in residual_views
-        ]
-        best_frame_index, residual_area, residual_fraction = min(bbox_stats, key=lambda item: (item[1], item[2]))
-        debug = {
-            "source_subtracted_residual_area_px": residual_area,
-            "source_subtracted_residual_fraction": residual_fraction,
-            "source_subtracted_best_reference_index": best_frame_index,
-            "source_subtracted_reference_count": len(residual_views),
-            "component_area_px": area,
-        }
-        if residual_area >= min_residual_area_px and residual_fraction >= min_residual_fraction:
-            people.append(
-                PersonDetection(
-                    bbox_xyxy=bbox,
-                    confidence=min(0.99, max(0.2, residual_fraction)),
-                    source="source_subtracted_human_occluder",
-                    debug=debug,
-                )
-            )
-        else:
-            skipped.append(
-                {
-                    "reason": "residual_matches_projected_source",
-                    "bbox_xyxy": bbox,
-                    "residual_area_px": residual_area,
-                    "residual_fraction": residual_fraction,
-                    "best_reference_index": best_frame_index,
-                    "reference_count": len(residual_views),
-                }
-            )
-    return people, skipped
-
-
-def _filter_source_projected_people(
-    people: list[PersonDetection],
-    *,
-    camera_image: Image.Image,
-    source_frame: Image.Image,
-    source_reference_frames: list[Image.Image] | None = None,
-    ignored_source_polygons: list[tuple[tuple[float, float], ...]] | None = None,
-    source_size: tuple[int, int] = (1280, 720),
-    projector_polygon: tuple[tuple[float, float], ...],
-    residual_threshold: float,
-    min_residual_area_px: int,
-    min_residual_fraction: float,
-    enable_residual_occluder_fallback: bool = False,
-    source_filter_scale: float = 1.0,
-    eye_band_top_fraction: float = 0.07,
-    eye_band_bottom_fraction: float = 0.19,
-    eye_band_left_fraction: float = 0.20,
-    eye_band_right_fraction: float = 0.92,
-    padding_px: int = 12,
-) -> tuple[list[PersonDetection], list[dict[str, Any]]]:
-    if not people and not enable_residual_occluder_fallback and not ignored_source_polygons:
-        return [], [{"reason": "residual_occluder_fallback_disabled"}]
-
-    scale = max(0.1, min(1.0, float(source_filter_scale)))
-    filter_camera_image = camera_image
-    filter_projector_polygon = projector_polygon
-    filter_people = people
-    filter_min_residual_area_px = min_residual_area_px
-    if scale < 1.0:
-        width, height = camera_image.size
-        filter_camera_image = camera_image.resize((max(1, int(width * scale)), max(1, int(height * scale))))
-        filter_projector_polygon = _scale_projector_polygon(projector_polygon, scale)
-        filter_people = [_scale_person_detection(person, scale) for person in people]
-        filter_min_residual_area_px = max(1, int(round(min_residual_area_px * scale * scale)))
-
-    residual_views = _build_residual_views(
-        camera_image=filter_camera_image,
-        source_frame=source_frame,
-        source_reference_frames=source_reference_frames,
-        projector_polygon=filter_projector_polygon,
-    )
-    ignored_camera_mask = _source_polygons_to_camera_mask(
-        source_polygons=ignored_source_polygons or [],
-        source_size=source_size,
-        projector_polygon=filter_projector_polygon,
-        camera_size=filter_camera_image.size,
-    )
-    accepted: list[PersonDetection] = []
-    skipped: list[dict[str, Any]] = []
-    for index, person in enumerate(filter_people):
-        original_person = people[index]
-        eye_band_bbox = _person_eye_band_bbox_for_filter(
-            person,
-            camera_size=filter_camera_image.size,
-            eye_band_top_fraction=eye_band_top_fraction,
-            eye_band_bottom_fraction=eye_band_bottom_fraction,
-            eye_band_left_fraction=eye_band_left_fraction,
-            eye_band_right_fraction=eye_band_right_fraction,
-            padding_px=max(0, int(round(padding_px * scale))),
-        )
-        stats = [
-            (
-                frame_index,
-                *_bbox_residual_stats(
-                    residual,
-                    person.bbox_xyxy,
-                    threshold=residual_threshold,
-                    source_bright_mask=source_bright_mask,
-                ),
-            )
-            for frame_index, residual, source_bright_mask in residual_views
-        ]
-        eye_stats = [
-            (
-                frame_index,
-                *_bbox_residual_stats(
-                    residual,
-                    eye_band_bbox,
-                    threshold=residual_threshold,
-                    source_bright_mask=source_bright_mask,
-                ),
-            )
-            for frame_index, residual, source_bright_mask in residual_views
-        ]
-        best_frame_index, residual_area, residual_fraction = min(
-            stats,
-            key=lambda item: (item[1], item[2]),
-        )
-        best_eye_frame_index, eye_residual_area, eye_residual_fraction = min(
-            eye_stats,
-            key=lambda item: (item[1], item[2]),
-        )
-        debug = {
-            **original_person.debug,
-            "source_subtracted_residual_area_px": residual_area,
-            "source_subtracted_residual_fraction": residual_fraction,
-            "source_subtracted_best_reference_index": best_frame_index,
-            "source_subtracted_reference_count": len(residual_views),
-            "source_subtracted_eye_band_residual_area_px": eye_residual_area,
-            "source_subtracted_eye_band_residual_fraction": eye_residual_fraction,
-            "source_subtracted_eye_band_best_reference_index": best_eye_frame_index,
-            "source_filter_scale": scale,
-        }
-        enriched = PersonDetection(
-            bbox_xyxy=original_person.bbox_xyxy,
-            confidence=original_person.confidence,
-            source=original_person.source,
-            mask=original_person.mask,
-            debug=debug,
-        )
-        eye_min_residual_area_px = max(
-            1,
-            min(
-                filter_min_residual_area_px,
-                int(round(_bbox_area(eye_band_bbox) * min_residual_fraction)),
-            ),
-        )
-        if (
-            residual_area >= filter_min_residual_area_px
-            and residual_fraction >= min_residual_fraction
-        ) or (
-            eye_residual_area >= eye_min_residual_area_px
-            and eye_residual_fraction >= min_residual_fraction
-        ):
-            accepted.append(enriched)
-        else:
-            skipped.append(
-                {
-                    "index": index,
-                    "reason": "matches_projected_source",
-                    "bbox_xyxy": original_person.bbox_xyxy,
-                    "confidence": original_person.confidence,
-                    "residual_area_px": residual_area,
-                    "residual_fraction": residual_fraction,
-                    "eye_band_residual_area_px": eye_residual_area,
-                    "eye_band_residual_fraction": eye_residual_fraction,
-                    "best_reference_index": best_frame_index,
-                    "eye_band_best_reference_index": best_eye_frame_index,
-                    "reference_count": len(residual_views),
-                    "source_filter_scale": scale,
-                }
-            )
-    if not accepted and enable_residual_occluder_fallback:
-        occluder_people, occluder_skipped = _detect_residual_occluder_people(
-            residual_views,
-            threshold=residual_threshold,
-            min_residual_area_px=filter_min_residual_area_px,
-            min_residual_fraction=min_residual_fraction,
-            ignored_camera_mask=ignored_camera_mask,
-        )
-        if scale < 1.0:
-            occluder_people = [
-                PersonDetection(
-                    bbox_xyxy=tuple(value / scale for value in person.bbox_xyxy),
-                    confidence=person.confidence,
-                    source=person.source,
-                    mask=person.mask,
-                    debug={**person.debug, "source_filter_scale": scale},
-                )
-                for person in occluder_people
-            ]
-        accepted.extend(occluder_people)
-        skipped.extend(occluder_skipped)
-    elif not accepted and not people and not ignored_camera_mask.any():
-        skipped.append({"reason": "residual_occluder_fallback_disabled"})
-    return accepted, skipped
-
-
-def _sample_source_reference_frames(
-    source: str,
-    *,
-    source_size: tuple[int, int],
-    max_frames: int,
-) -> list[Image.Image]:
-    if max_frames <= 0:
-        return []
-    try:
-        capture = _open_video_capture(source)
-    except Exception:
-        return []
-    try:
-        try:
-            import cv2
-        except Exception:
-            return []
-        total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-        if total_frames <= 0:
-            return []
-        positions = np.linspace(0, max(0, total_frames - 1), num=min(max_frames, total_frames), dtype=int)
-        frames: list[Image.Image] = []
-        for position in positions:
-            capture.set(cv2.CAP_PROP_POS_FRAMES, int(position))
-            try:
-                frames.append(_frame_from_capture(capture, source_size=source_size))
-            except Exception:
-                continue
-        return frames
-    finally:
-        capture.release()
 
 
 def _open_video_capture(source: str) -> Any:
@@ -1358,7 +967,6 @@ class SafetyComputationSnapshot:
     camera_image: Image.Image | None = None
     camera_error: str | None = None
     performance: dict[str, Any] = field(default_factory=dict)
-    blackout_polygons: list[tuple[tuple[float, float], ...]] = field(default_factory=list)
     updated_at: float | None = None
     updated_at_wall: float | None = None
 
@@ -1830,8 +1438,6 @@ def _run_safety_samples(
     active_gate: ProjectorActiveGate,
     camera_stream: LatestCameraStream | None,
 ) -> None:
-    source_reference_frames: list[Image.Image] | None = None
-    source_reference_video: str | None = None
     last_camera_key: tuple[int, int] | None = None
     recent_eye_zone_results: list[tuple[float, SafetyOverlayResult]] = []
     held_result: SafetyOverlayResult | None = None
@@ -1840,7 +1446,6 @@ def _run_safety_samples(
     previous_people: list[PersonDetection] = []
     previous_people_at: float | None = None
     physics_tracks: list[SmoothedPersonTrack] = []
-    last_blackout_polygons: list[tuple[tuple[float, float], ...]] = []
     last_negative_review_at = 0.0
     sample_index = 0
 
@@ -1857,7 +1462,6 @@ def _run_safety_samples(
             previous_people = []
             previous_people_at = None
             physics_tracks = []
-            last_blackout_polygons = []
             sample_index += 1
             result = SafetyOverlayResult(
                 "no_person",
@@ -1881,7 +1485,6 @@ def _run_safety_samples(
                         "inactive_sample_interval_ms": round(args.inactive_sample_interval * 1000.0, 1),
                         **gate_debug,
                     },
-                    blackout_polygons=[],
                     updated_at=gate_checked_at,
                     updated_at_wall=time.time(),
                 )
@@ -1896,14 +1499,6 @@ def _run_safety_samples(
             time.sleep(min(0.02, max(0.001, args.camera_sample_interval)))
             continue
 
-        if source_reference_frames is None or source_video != source_reference_video:
-            source_reference_frames = _sample_source_reference_frames(
-                source_video,
-                source_size=args.source_size,
-                max_frames=args.source_reference_frames,
-            )
-            source_reference_video = source_video
-
         started = time.monotonic()
         sample_index += 1
         camera_image: Image.Image | None = None
@@ -1911,10 +1506,8 @@ def _run_safety_samples(
         camera_frame: CameraFrame | None = None
         raw_people: list[PersonDetection] = []
         people: list[PersonDetection] = []
-        source_filter_skipped: list[dict[str, Any]] = []
         camera_read_ms: float | None = None
         detector_ms: float | None = None
-        source_filter_ms: float | None = None
         result: SafetyOverlayResult
 
         try:
@@ -1935,39 +1528,19 @@ def _run_safety_samples(
             last_camera_key = camera_frame.key
             camera_image = Image.open(BytesIO(camera_frame.jpeg)).convert("RGB")
             camera_read_ms = (time.monotonic() - camera_started) * 1000.0
-            detector_skipped: list[dict[str, Any]] = []
+            person_detector_skipped: list[dict[str, Any]] = []
             try:
                 detector_started = time.monotonic()
                 raw_people = detector.detect(camera_image)
                 detector_ms = (time.monotonic() - detector_started) * 1000.0
             except Exception as exc:
-                detector_skipped = [{"reason": "person_detector_unavailable", "error": str(exc)}]
-            ignored_source_polygons = list(last_blackout_polygons)
-            fixed_rect_polygon = _fixed_rect_to_polygon(args.fixed_black_rect)
-            if fixed_rect_polygon is not None:
-                ignored_source_polygons.append(fixed_rect_polygon)
-            source_filter_started = time.monotonic()
-            people, filter_skipped = _filter_source_projected_people(
-                raw_people,
-                camera_image=camera_image,
-                source_frame=source_frame,
-                source_reference_frames=source_reference_frames,
-                ignored_source_polygons=ignored_source_polygons,
-                source_size=args.source_size,
-                projector_polygon=args.projector_polygon,
-                residual_threshold=args.person_residual_threshold,
-                min_residual_area_px=args.person_min_residual_area_px,
-                min_residual_fraction=args.person_min_residual_fraction,
-                enable_residual_occluder_fallback=args.enable_residual_occluder_fallback,
-                source_filter_scale=args.source_filter_scale,
-                eye_band_top_fraction=args.eye_band_top_fraction,
-                eye_band_bottom_fraction=args.eye_band_bottom_fraction,
-                eye_band_left_fraction=args.eye_band_left_fraction,
-                eye_band_right_fraction=args.eye_band_right_fraction,
-                padding_px=args.padding_px,
-            )
-            source_filter_ms = (time.monotonic() - source_filter_started) * 1000.0
-            source_filter_skipped = detector_skipped + filter_skipped
+                person_detector_skipped = [{"reason": "person_detector_unavailable", "error": str(exc)}]
+                camera_error = f"person detector unavailable: {exc}"
+            # Real-person eye safety is fail-closed: every full-frame person
+            # detection reaches the overlay computation unchanged. Projected
+            # video matching has no independent photometric evidence, so it
+            # must never suppress a detected person here.
+            people = list(raw_people)
         except Exception as exc:
             camera_error = str(exc)
 
@@ -2026,7 +1599,7 @@ def _run_safety_samples(
                 zones=result.zones,
                 debug={
                     **result.debug,
-                    "source_filter_skipped": source_filter_skipped,
+                    "person_detector_skipped": person_detector_skipped,
                     "raw_person_count": len(raw_people),
                     "tracked_person_count": len(people),
                     "overlay_person_count": len(overlay_people),
@@ -2052,7 +1625,6 @@ def _run_safety_samples(
                 now=now,
                 hold_seconds=args.eye_safety_hold_seconds,
             )
-            last_blackout_polygons = [zone.polygon for zone in result.zones]
 
         finished = time.monotonic()
         if camera_frame is not None and finished - camera_frame.evidence_at > args.camera_max_frame_age:
@@ -2064,7 +1636,6 @@ def _run_safety_samples(
             recent_eye_zone_results = []
             previous_people, previous_people_at = [], None
             physics_tracks = []
-            last_blackout_polygons = []
         performance = {
             "safety_sample_index": sample_index,
             "safety_worker_loop_ms": round((finished - started) * 1000.0, 1),
@@ -2080,7 +1651,6 @@ def _run_safety_samples(
                 round((finished - camera_frame.evidence_at) * 1000.0, 1) if camera_frame is not None else None
             ),
             "detector_ms": round(detector_ms, 1) if detector_ms is not None else None,
-            "source_filter_ms": round(source_filter_ms, 1) if source_filter_ms is not None else None,
             "source_frame_index": source_frame_index,
             "source_video": source_video,
             "source_frame_age_ms": (
@@ -2102,7 +1672,7 @@ def _run_safety_samples(
             and now - last_negative_review_at >= args.safety_negative_review_interval
             and (
                 raw_people
-                or source_filter_skipped
+                or person_detector_skipped
                 or result.status == "active"
                 or int(physics_debug.get("physics_track_predicted_count") or 0) > 0
             )
@@ -2112,7 +1682,7 @@ def _run_safety_samples(
                 raw_people=raw_people,
                 people=people,
                 result=result,
-                source_filter_skipped=source_filter_skipped,
+                person_detector_skipped=person_detector_skipped,
                 performance=performance,
                 source_video=source_video,
                 max_frames_per_day=args.safety_negative_review_max_frames_per_day,
@@ -2131,7 +1701,6 @@ def _run_safety_samples(
                 camera_image=camera_image,
                 camera_error=camera_error,
                 performance=performance,
-                blackout_polygons=list(last_blackout_polygons),
                 updated_at=camera_frame.evidence_at if camera_frame is not None and not camera_error else finished,
                 updated_at_wall=camera_frame.evidence_wall_at if camera_frame is not None and not camera_error else time.time(),
             )
@@ -2481,22 +2050,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--eye-band-right-fraction", type=float, default=0.92)
     parser.add_argument("--padding-px", type=int, default=12)
     parser.add_argument("--min-overlap-area-px", type=int, default=24)
-    parser.add_argument("--person-residual-threshold", type=float, default=28.0)
-    parser.add_argument("--person-min-residual-area-px", type=int, default=1200)
-    parser.add_argument("--person-min-residual-fraction", type=float, default=0.10)
-    parser.add_argument("--source-filter-scale", type=float, default=0.35)
-    parser.add_argument(
-        "--enable-residual-occluder-fallback",
-        dest="enable_residual_occluder_fallback",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--disable-residual-occluder-fallback",
-        dest="enable_residual_occluder_fallback",
-        action="store_false",
-    )
-    parser.set_defaults(enable_residual_occluder_fallback=False)
-    parser.add_argument("--source-reference-frames", type=int, default=3)
     parser.add_argument("--camera-sample-interval", type=float, default=0.06)
     parser.add_argument("--camera-snapshot-timeout", type=float, default=2.0)
     parser.add_argument("--eye-safety-trail-seconds", type=float, default=0.15)

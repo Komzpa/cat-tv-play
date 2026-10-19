@@ -1,19 +1,23 @@
-"""Projector source subtraction helpers.
+"""Grounded projector response and candidate-local explanation.
 
-When the clip shown on the projector is known, projected prey should not be
-classified as a cat candidate. These helpers warp the expected source frame into
-the camera image, subtract it from the camera frame, and return remaining dark
-residual components for a downstream cat/not-cat detector or human review.
+Residuals are usable only with a native structural correspondence and an
+independently validated, candidate-excluded ten-feature photometric response.
+Unavailable evidence leaves ordinary detector candidates untouched.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+import hashlib
+import importlib.util
+from pathlib import Path
+import sys
+from typing import Any
+
 
 import numpy as np
 from PIL import Image, ImageDraw
-
 PROJECTOR_RGB_FEATURE_NAMES = (
     "red",
     "green",
@@ -29,24 +33,134 @@ PROJECTOR_RGB_FEATURE_NAMES = (
 
 
 @dataclass(frozen=True)
-class SourceSubtractionCandidate:
-    """A residual blob candidate in camera pixel coordinates."""
-
-    bbox_xywh: tuple[float, float, float, float]
-    top_x_px: float
-    top_y_px: float
-    area_px: int
-    source: str = "source_subtracted_projector_residual"
-    mask: np.ndarray | None = None
-
-
-@dataclass(frozen=True)
 class AdaptiveBackground:
     """A no-cat room background with freshness metadata for review pipelines."""
 
     image: Image.Image
     frame_count: int
     source: str = "recent_no_cat_frames"
+
+@dataclass(frozen=True)
+class PhotometricEvidence:
+    """A frozen ten-feature response with disjoint, candidate-excluded proof."""
+
+    model_id: str
+    coefficients: tuple[float, ...]
+    camera_media_sha256: str
+    source_media_sha256: str
+    geometry_sha256: str
+    fit_camera_rgb_sha256s: tuple[str, ...]
+    fit_source_rgb_sha256s: tuple[str, ...]
+    fit_support_mask_sha256s: tuple[str, ...]
+    fit_excluded_candidate_mask_sha256s: tuple[str, ...]
+    validation_camera_rgb_sha256s: tuple[str, ...]
+    validation_source_rgb_sha256s: tuple[str, ...]
+    validation_support_mask_sha256s: tuple[str, ...]
+    validation_excluded_candidate_mask_sha256s: tuple[str, ...]
+    fit_candidate_overlap_pixels: tuple[int, ...]
+    validation_candidate_overlap_pixels: tuple[int, ...]
+    fit_rgb_bins: tuple[int, ...]
+    validation_rgb_bins: tuple[int, ...]
+    fit_unclipped_luma_range: tuple[float, float]
+    validation_unclipped_luma_range: tuple[float, float]
+    validation_max_abs_error: float
+
+    def valid(self) -> bool:
+        fit_count = len(self.fit_camera_rgb_sha256s)
+        validation_count = len(self.validation_camera_rgb_sha256s)
+        fit_bins = set(self.fit_rgb_bins)
+        validation_bins = set(self.validation_rgb_bins)
+        return (
+            self.model_id == "projector-rgb10-v1"
+            and len(self.coefficients) == len(PROJECTOR_RGB_FEATURE_NAMES)
+            and bool(np.isfinite(self.coefficients).all())
+            and all(_is_sha256(value) for value in (self.camera_media_sha256, self.source_media_sha256, self.geometry_sha256))
+            and fit_count > 0
+            and validation_count > 0
+            and len(self.fit_source_rgb_sha256s) == fit_count
+            and len(self.fit_support_mask_sha256s) == fit_count
+            and len(self.fit_excluded_candidate_mask_sha256s) == fit_count
+            and len(self.validation_source_rgb_sha256s) == validation_count
+            and len(self.validation_support_mask_sha256s) == validation_count
+            and len(self.validation_excluded_candidate_mask_sha256s) == validation_count
+            and len(self.fit_candidate_overlap_pixels) == fit_count
+            and len(self.validation_candidate_overlap_pixels) == validation_count
+            and all(_is_sha256(value) for values in (
+                self.fit_camera_rgb_sha256s,
+                self.fit_source_rgb_sha256s,
+                self.fit_support_mask_sha256s,
+                self.fit_excluded_candidate_mask_sha256s,
+                self.validation_camera_rgb_sha256s,
+                self.validation_source_rgb_sha256s,
+                self.validation_support_mask_sha256s,
+                self.validation_excluded_candidate_mask_sha256s,
+            ) for value in values)
+            and set(self.fit_camera_rgb_sha256s).isdisjoint(self.validation_camera_rgb_sha256s)
+            and set(self.fit_source_rgb_sha256s).isdisjoint(self.validation_source_rgb_sha256s)
+            and all(value == 0 for value in (*self.fit_candidate_overlap_pixels, *self.validation_candidate_overlap_pixels))
+            and bool(fit_bins.intersection(validation_bins))
+            and np.isfinite((*self.fit_unclipped_luma_range, *self.validation_unclipped_luma_range, self.validation_max_abs_error)).all()
+            and 0.0 <= self.fit_unclipped_luma_range[0] <= self.fit_unclipped_luma_range[1] <= 255.0
+            and 0.0 <= self.validation_unclipped_luma_range[0] <= self.validation_unclipped_luma_range[1] <= 255.0
+            and self.validation_max_abs_error >= 0.0
+        )
+
+    def applies_to(self, correspondence: Any) -> bool:
+        return (
+            self.valid()
+            and correspondence.camera_identity.media_sha256 == self.camera_media_sha256
+            and correspondence.geometry_sha256 == self.geometry_sha256
+            and all(
+                identity.media_sha256 == self.source_media_sha256
+                for family in correspondence.candidate_families
+                for identity in family.source_frames
+            )
+            and correspondence.camera_identity.rgb_sha256 not in self.fit_camera_rgb_sha256s
+            and correspondence.camera_identity.rgb_sha256 not in self.validation_camera_rgb_sha256s
+        )
+
+
+@dataclass(frozen=True)
+class ResidualView:
+    family_id: str
+    source_identity: Any
+    residual: np.ndarray
+    warped_source_rgb: np.ndarray
+
+
+@dataclass(frozen=True)
+class ResidualAssessment:
+    structural_status: str
+    photometric_valid: bool
+    views: tuple[ResidualView, ...]
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class SourceExplanation:
+    structural_valid: bool
+    photometric_valid: bool
+    explained: bool
+    candidate_error: float | None
+    family_errors: tuple[tuple[str, tuple[float, ...]], ...]
+    reasons: tuple[str, ...]
+
+
+def _is_sha256(value: str) -> bool:
+    return len(value) == 64 and all(character in "0123456789abcdef" for character in value)
+
+
+
+
+def _candidate_rgb_bins(rgb: np.ndarray, mask: np.ndarray) -> set[int]:
+    pixels = np.asarray(rgb, dtype=np.uint8)[np.asarray(mask, dtype=bool)]
+    if not len(pixels):
+        return set()
+    bins = (pixels[:, 0] >> 4).astype(np.uint16) * 256
+    bins += (pixels[:, 1] >> 4).astype(np.uint16) * 16
+    bins += (pixels[:, 2] >> 4).astype(np.uint16)
+    return set(int(value) for value in np.unique(bins))
+
 
 
 def robust_component_top_px(
@@ -409,132 +523,147 @@ def _fit_grayscale_projector_coefficients(features: np.ndarray, target: np.ndarr
     return coefficients
 
 
-def _projector_rgb_expected_luma(
-    warped_rgb: np.ndarray,
-    camera_gray: np.ndarray,
-    fit_mask: np.ndarray,
-) -> np.ndarray:
-    coefficients = _fit_projector_rgb_to_camera_luma(warped_rgb, camera_gray, fit_mask)
-    warped_luma = np.asarray(Image.fromarray(warped_rgb, mode="RGB").convert("L"), dtype=np.uint8)
-    if coefficients is None:
-        scale, offset = _robust_linear_match(warped_luma, camera_gray, fit_mask)
-        return np.clip(scale * warped_luma.astype(np.float32) + offset, 0, 255)
-
-    expected = _predict_projector_rgb_luma(warped_rgb, coefficients)
-    return np.clip(expected, 0, 255)
+def _source_correspondence_module() -> Any:
+    name = "cat_tv_play_source_correspondence"
+    if name in sys.modules:
+        return sys.modules[name]
+    path = Path(__file__).resolve().with_name("source_correspondence.py")
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load native correspondence module from {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(name, None)
+        raise
+    return module
 
 
 def source_subtracted_residual(
     camera_frame: Image.Image,
     *,
-    source_frame: Image.Image,
-    projector_polygon: Iterable[tuple[float, float]],
-    room_background: Image.Image | AdaptiveBackground | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return dark residual after explaining the projector plane by source video."""
+    correspondence: Any,
+    photometry: PhotometricEvidence | None,
+    candidate_mask: np.ndarray,
+) -> ResidualAssessment:
+    """Evaluate one candidate against every surviving native source identity."""
 
-    camera_gray = np.asarray(camera_frame.convert("L"), dtype=np.uint8)
-    height, width = camera_gray.shape
-    projector_polygon = tuple(projector_polygon)
-    projection = projection_mask(projector_polygon, width, height)
-    warped_source_rgb = warp_source_rgb_to_camera(
-        source_frame,
-        projector_polygon=projector_polygon,
-        width=width,
-        height=height,
-    )
-    warped_source = np.asarray(Image.fromarray(warped_source_rgb, mode="RGB").convert("L"), dtype=np.uint8)
-    if room_background is None:
-        expected = camera_gray.astype(np.float32)
-    else:
-        background_image = room_background.image if isinstance(room_background, AdaptiveBackground) else room_background
-        matched_background = match_background_luma(background_image, camera_frame, ~projection)
-        expected = np.asarray(
-            matched_background.convert("L").resize((width, height)),
-            dtype=np.uint8,
-        ).astype(np.float32)
+    reasons: list[str] = []
+    if correspondence.structural_status != "supported" or not correspondence.candidate_families:
+        return ResidualAssessment(correspondence.structural_status, False, (), ("structural_correspondence_unresolved",))
+    if any(family.structural_status != "supported" or not family.source_frames for family in correspondence.candidate_families):
+        return ResidualAssessment(correspondence.structural_status, False, (), ("surviving_source_family_incomplete",))
+    if photometry is None or not photometry.applies_to(correspondence):
+        return ResidualAssessment(correspondence.structural_status, False, (), ("independent_photometric_evidence_unavailable",))
 
-    fit_mask = projection.copy()
-    fit_mask[int(height * 0.69) :, :] = False
-    fit_mask[:, int(width * 0.82) :] = False
-    mapped_source = _projector_rgb_expected_luma(warped_source_rgb, camera_gray, fit_mask)
-    expected[projection] = mapped_source[projection]
-    return expected - camera_gray.astype(np.float32), warped_source
+    camera_rgb = np.asarray(camera_frame.convert("RGB"), dtype=np.uint8)
+    camera_identity = correspondence.camera_identity
+    if camera_rgb.shape != (camera_identity.height, camera_identity.width, 3):
+        return ResidualAssessment(correspondence.structural_status, False, (), ("camera_geometry_mismatch",))
+    if hashlib.sha256(camera_rgb.tobytes()).hexdigest() != camera_identity.rgb_sha256:
+        return ResidualAssessment(correspondence.structural_status, False, (), ("camera_rgb_identity_mismatch",))
 
+    support_path = Path(correspondence.support_mask_path) if correspondence.support_mask_path else None
+    if support_path is None or not correspondence.support_mask_sha256:
+        return ResidualAssessment(correspondence.structural_status, False, (), ("camera_object_support_unavailable",))
+    try:
+        support_bytes = support_path.read_bytes()
+        if hashlib.sha256(support_bytes).hexdigest() != correspondence.support_mask_sha256:
+            raise ValueError("camera object support hash mismatch")
+        with Image.open(support_path) as support_image:
+            support = np.asarray(support_image.convert("L"), dtype=np.uint8) > 0
+    except (OSError, ValueError) as exc:
+        return ResidualAssessment(correspondence.structural_status, False, (), (f"camera_object_support_invalid:{exc}",))
 
-def detect_source_subtracted_candidates(
-    camera_frame: Image.Image,
-    *,
-    source_frame: Image.Image,
-    projector_polygon: Iterable[tuple[float, float]],
-    room_background: Image.Image | AdaptiveBackground | None = None,
-    residual_baseline: np.ndarray | Image.Image | None = None,
-    threshold: float = 26.0,
-    source_bright_threshold: int = 150,
-    min_area_px: int = 40,
-) -> list[SourceSubtractionCandidate]:
-    """Find residual candidates after subtracting the known projected source.
+    candidate = np.asarray(candidate_mask, dtype=bool)
+    if candidate.shape != support.shape or candidate.shape != camera_rgb.shape[:2] or not candidate.any():
+        return ResidualAssessment(correspondence.structural_status, False, (), ("candidate_mask_geometry_invalid",))
+    # Structural support anchors the proposal; it is not its filled boundary.
+    # Keep background, holes and possible occluders in the original candidate.
+    if not np.any(candidate & support):
+        return ResidualAssessment(correspondence.structural_status, False, (), ("candidate_disjoint_from_correspondence_support",))
 
-    This is candidate generation, not a final cat decision. A downstream model
-    or reviewer still decides whether each candidate is the cat.
-    """
-
+    calibrated_bins = set(photometry.fit_rgb_bins).intersection(photometry.validation_rgb_bins)
+    views: list[ResidualView] = []
+    camera_gray = np.asarray(Image.fromarray(camera_rgb, mode="RGB").convert("L"), dtype=np.float32)
+    coefficients = np.asarray(photometry.coefficients, dtype=np.float32)
     try:
         import cv2
-    except Exception as exc:  # pragma: no cover - depends on optional review tooling.
-        raise RuntimeError("opencv-python is required for projector source subtraction") from exc
 
-    width, height = camera_frame.size
-    projector_polygon = tuple(projector_polygon)
-    projection = projection_mask(projector_polygon, width, height)
-    residual, warped_source = source_subtracted_residual(
-        camera_frame,
-        source_frame=source_frame,
-        projector_polygon=projector_polygon,
-        room_background=room_background,
-    )
-    if residual_baseline is not None:
-        if isinstance(residual_baseline, Image.Image):
-            baseline = np.asarray(residual_baseline.convert("F").resize((width, height)), dtype=np.float32)
-        else:
-            baseline = np.asarray(residual_baseline, dtype=np.float32)
-            if baseline.shape != residual.shape:
-                raise ValueError(
-                    f"residual_baseline shape {baseline.shape} does not match frame shape {residual.shape}"
+        source_module = _source_correspondence_module()
+        homography = np.asarray(correspondence.source_to_camera, dtype=np.float64)
+        if homography.shape != (3, 3) or not np.isfinite(homography).all() or abs(float(np.linalg.det(homography))) < 1e-12:
+            raise ValueError("source-to-camera geometry invalid")
+        covered_dimensions: set[tuple[int, int]] = set()
+        for family in correspondence.candidate_families:
+            for identity in family.source_frames:
+                if identity.media_sha256 != photometry.source_media_sha256:
+                    raise ValueError("source media differs from photometric calibration")
+                source_frame = source_module.load_native_rgb(identity)
+                if source_frame.size not in covered_dimensions:
+                    coverage = cv2.warpPerspective(
+                        np.full((source_frame.height, source_frame.width), 255, dtype=np.uint8),
+                        homography,
+                        (camera_identity.width, camera_identity.height),
+                        flags=cv2.INTER_LINEAR,
+                    )
+                    if np.any(coverage[candidate] != 255):
+                        raise ValueError("candidate outside native source projection coverage")
+                    covered_dimensions.add(source_frame.size)
+                warped_rgb = cv2.warpPerspective(
+                    np.asarray(source_frame, dtype=np.uint8),
+                    homography,
+                    (camera_identity.width, camera_identity.height),
+                    flags=cv2.INTER_LINEAR,
                 )
-        residual = residual - baseline
+                if not _candidate_rgb_bins(warped_rgb, candidate).issubset(calibrated_bins):
+                    return ResidualAssessment(
+                        correspondence.structural_status, False, (),
+                        ("candidate_color_outside_independent_support",),
+                    )
+                expected = _predict_projector_rgb_luma(warped_rgb, coefficients)
+                candidate_prediction = expected[candidate]
+                if not np.isfinite(candidate_prediction).all() or np.any(candidate_prediction < 0.0) or np.any(candidate_prediction > 255.0):
+                    raise ValueError("unclipped candidate prediction outside physical luma range")
+                residual = expected - camera_gray
+                views.append(ResidualView(family.family_id, identity, residual, warped_rgb))
+    except (OSError, ValueError, RuntimeError) as exc:
+        reasons.append(f"native_candidate_evaluation_failed:{exc}")
+        return ResidualAssessment(correspondence.structural_status, False, (), tuple(reasons))
 
-    mask = residual > threshold
-    mask &= (~projection) | (warped_source > source_bright_threshold)
-    mask[: max(2, int(height * 0.05)), :] = False
-    mask[:, : max(2, int(width * 0.015))] = False
-    mask[:, int(width * 0.82) :] = False
-    mask_u8 = mask.astype(np.uint8)
-    mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_OPEN, np.ones((2, 2), dtype=np.uint8))
-    mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_CLOSE, np.ones((4, 4), dtype=np.uint8))
+    return ResidualAssessment(correspondence.structural_status, True, tuple(views), ())
 
-    count, labels, stats, _centroids = cv2.connectedComponentsWithStats(mask_u8, connectivity=8)
-    candidates: list[SourceSubtractionCandidate] = []
-    for label in range(1, count):
-        left, top, candidate_width, candidate_height, area = stats[label]
-        if int(area) < min_area_px:
-            continue
-        if int(candidate_width) < 8 or int(candidate_height) < 10:
-            continue
-        if int(candidate_width) > int(width * 0.28) or int(candidate_height) > int(height * 0.36):
-            continue
-        top_point = robust_component_top_px(labels, label)
-        if top_point is None:
-            continue
-        top_x_px, top_y_px = top_point
-        component_mask = labels == label
-        candidates.append(
-            SourceSubtractionCandidate(
-                bbox_xywh=(float(left), float(top), float(candidate_width), float(candidate_height)),
-                top_x_px=top_x_px,
-                top_y_px=top_y_px,
-                area_px=int(area),
-                mask=component_mask.copy(),
-            )
-        )
-    return sorted(candidates, key=lambda item: item.area_px, reverse=True)
+
+def explain_projected_candidate(
+    *,
+    camera_frame: Image.Image,
+    correspondence: Any,
+    candidate_mask: np.ndarray,
+    photometry: PhotometricEvidence | None,
+) -> SourceExplanation:
+    """Explain a candidate only when every surviving native alternative agrees."""
+
+    assessment = source_subtracted_residual(
+        camera_frame,
+        correspondence=correspondence,
+        photometry=photometry,
+        candidate_mask=candidate_mask,
+    )
+    structural_valid = assessment.structural_status == "supported"
+    if not assessment.photometric_valid or not assessment.views or photometry is None:
+        return SourceExplanation(structural_valid, False, False, None, (), assessment.reasons)
+
+    family_errors: dict[str, list[float]] = {}
+    mask = np.asarray(candidate_mask, dtype=bool)
+    for view in assessment.views:
+        family_errors.setdefault(view.family_id, []).append(float(np.max(np.abs(view.residual[mask]))))
+    all_errors = tuple(sorted((family_id, tuple(errors)) for family_id, errors in family_errors.items()))
+    candidate_error = max(error for errors in family_errors.values() for error in errors)
+    explained = (
+        set(family_errors) == {family.family_id for family in correspondence.candidate_families}
+        and all(error <= photometry.validation_max_abs_error for errors in family_errors.values() for error in errors)
+    )
+    reasons = () if explained else ("candidate_residual_exceeds_disjoint_validation_error", "not_explained_across_all_surviving_source_candidates")
+    return SourceExplanation(structural_valid, True, explained, candidate_error, all_errors, reasons)

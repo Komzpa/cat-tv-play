@@ -57,3 +57,30 @@ def test_changed_manifest_invalidates_cached_source_link(tmp_path):
  p=recording(tmp_path);assess(p,records=[])
  manifest=json.loads((p/'manifest.json').read_text());manifest['source_meow_event_id']='different-event';(p/'manifest.json').write_text(json.dumps(manifest))
  assert assess(p,records=[])['source_meow_event_id']=='different-event'
+
+def test_error_result_is_not_a_cached_verdict_and_healthy_retry_recovers(tmp_path):
+ p=recording(tmp_path);chunk=p/'chunk_0000.mp4'
+ kw=dict(model={'path':'existing-model','sha256':'model-version'},verify_display=None,confirm_render=None,selected_chunks=[chunk])
+ calls=[]
+ def boom(chunks):calls.append(1);raise RuntimeError('transient scorer failure')
+ def healthy(chunks):calls.append(1);return []
+ first=m.assess_recording(p,score_records=boom,**kw)
+ assert first['reason']=='assessment_error:RuntimeError' and len(calls)==1
+ assert first['coverage']['assessed_chunks']=={} and first['coverage']['assessed_chunk_stats']=={}
+ second=m.assess_recording(p,score_records=healthy,**kw)
+ assert len(calls)==2 and second['reason']=='no_confirmed_high_probability_jump; absence_is_not_negative'
+ assert second['assessment_id']==first['assessment_id']
+ assert second['coverage']['assessed_chunks']=={str(chunk):m.file_sha256(chunk)}
+ third=m.assess_recording(p,score_records=healthy,**kw)
+ assert len(calls)==2 and third['assessment_id']==second['assessment_id'] and third['reason']==second['reason']
+
+def test_persistent_error_never_claims_coverage_and_keeps_rescoring(tmp_path):
+ p=recording(tmp_path);chunk=p/'chunk_0000.mp4'
+ kw=dict(model={'path':'existing-model','sha256':'model-version'},verify_display=None,confirm_render=None,selected_chunks=[chunk])
+ calls=[]
+ def boom(chunks):calls.append(1);raise ValueError('always broken')
+ for attempt in (1,2,3):
+  r=m.assess_recording(p,score_records=boom,**kw)
+  assert r['reason']=='assessment_error:ValueError' and len(calls)==attempt
+  assert r['status']=='abstain' and r['outcome']=='unknown'
+  assert r['coverage']['assessed_chunks']=={} and r['coverage']['assessed_chunk_stats']=={}

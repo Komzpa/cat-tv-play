@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import importlib.util
 import shutil
 import subprocess
 import sys
@@ -20,12 +21,26 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+# Canonical repo root is one level above scripts/, so the exact
+# custom_components/cat_tv_play source path below always resolves.
+REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+
+SOURCE_SUBTRACTION_MODULE = "cat_tv_play_source_subtraction"
+if SOURCE_SUBTRACTION_MODULE not in sys.modules:
+    source_subtraction_path = REPO_ROOT / "custom_components" / "cat_tv_play" / "source_subtraction.py"
+    source_subtraction_spec = importlib.util.spec_from_file_location(SOURCE_SUBTRACTION_MODULE, source_subtraction_path)
+    if source_subtraction_spec is None or source_subtraction_spec.loader is None:
+        raise RuntimeError(f"cannot load source subtraction module from {source_subtraction_path}")
+    source_subtraction = importlib.util.module_from_spec(source_subtraction_spec)
+    sys.modules[SOURCE_SUBTRACTION_MODULE] = source_subtraction
+    source_subtraction_spec.loader.exec_module(source_subtraction)
+else:
+    source_subtraction = sys.modules[SOURCE_SUBTRACTION_MODULE]
 
 try:
     from catboost import CatBoostClassifier, Pool
@@ -253,149 +268,6 @@ def _bottom_edge_window_candidates(width: int, height: int) -> list[Candidate]:
     return candidates
 
 
-def _robust_linear_match(source: np.ndarray, camera: np.ndarray, mask: np.ndarray) -> tuple[float, float]:
-    source_values = source[mask].astype(np.float32)
-    camera_values = camera[mask].astype(np.float32)
-    keep = (source_values > 45) & (camera_values > 35)
-    if int(keep.sum()) < 200:
-        return 1.0, 0.0
-    source_values = source_values[keep]
-    camera_values = camera_values[keep]
-    source_low, source_high = np.percentile(source_values, [10, 90])
-    camera_low, camera_high = np.percentile(camera_values, [10, 90])
-    source_span = max(1.0, float(source_high - source_low))
-    scale = max(0.1, min(4.0, float(camera_high - camera_low) / source_span))
-    offset = float(np.median(camera_values - scale * source_values))
-    return scale, offset
-
-
-def _match_background_luma(background: Image.Image, camera_frame: Image.Image, mask: np.ndarray) -> Image.Image:
-    background_arr = np.asarray(background.convert("L").resize(camera_frame.size), dtype=np.uint8)
-    camera_arr = np.asarray(camera_frame.convert("L"), dtype=np.uint8)
-    fit_mask = mask & (background_arr > 45) & (camera_arr > 35)
-    if int(fit_mask.sum()) >= 200:
-        median_abs_diff = float(np.median(np.abs(background_arr[fit_mask].astype(np.int16) - camera_arr[fit_mask].astype(np.int16))))
-        if median_abs_diff <= 3.0:
-            return Image.fromarray(background_arr, mode="L")
-    scale, offset = _robust_linear_match(background_arr, camera_arr, mask)
-    matched = np.clip(background_arr.astype(np.float32) * scale + offset, 0, 255)
-    return Image.fromarray(matched.astype(np.uint8), mode="L")
-
-
-def _warp_source_to_camera(source_frame: Image.Image, width: int, height: int) -> np.ndarray:
-    try:
-        import cv2
-    except Exception as exc:  # pragma: no cover - runtime dependency is installed on projector host.
-        raise RuntimeError("opencv-python is required for source-subtracted projector candidates") from exc
-
-    source_gray = np.asarray(source_frame.convert("L").resize((1280, 720)), dtype=np.uint8)
-    source_points = np.float32([[0, 0], [1279, 0], [1279, 719], [0, 719]])
-    camera_points = np.float32(_projector_polygon_for_size(width, height))
-    homography = cv2.getPerspectiveTransform(source_points, camera_points)
-    return cv2.warpPerspective(source_gray, homography, (width, height))
-
-
-def source_subtracted_residual(
-    camera_frame: Image.Image,
-    *,
-    source_frame: Image.Image,
-    room_background: Image.Image | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return dark residual after explaining the projector plane by source video."""
-
-    camera_gray = np.asarray(camera_frame.convert("L"), dtype=np.uint8)
-    height, width = camera_gray.shape
-    projection = _projection_mask(width, height)
-    warped_source = _warp_source_to_camera(source_frame, width, height)
-    if room_background is None:
-        expected = camera_gray.astype(np.float32)
-    else:
-        matched_background = _match_background_luma(room_background, camera_frame, ~projection)
-        expected = np.asarray(matched_background.convert("L").resize((width, height)), dtype=np.uint8).astype(np.float32)
-
-    fit_mask = projection.copy()
-    fit_mask[int(height * 0.69) :, :] = False
-    fit_mask[:, int(width * 0.82) :] = False
-    scale, offset = _robust_linear_match(warped_source, camera_gray, fit_mask)
-    expected[projection] = np.clip(scale * warped_source[projection].astype(np.float32) + offset, 0, 255)
-    return expected - camera_gray.astype(np.float32), warped_source
-
-
-def detect_source_subtracted_candidate_components(
-    camera_frame: Image.Image,
-    *,
-    source_frame: Image.Image,
-    room_background: Image.Image | None = None,
-    residual_baseline: np.ndarray | Image.Image | None = None,
-    threshold: float = 26.0,
-    source_bright_threshold: int = 150,
-    min_area_px: int = 40,
-) -> list[Candidate]:
-    """Find candidates after subtracting the known projected source frame.
-
-    The source video explains projected prey. Remaining dark residuals are
-    candidate boxes for the cat/not-cat model, not final cat decisions.
-    """
-
-    try:
-        from scipy import ndimage
-    except Exception as exc:  # pragma: no cover - scipy is a runtime dependency here.
-        raise RuntimeError("scipy is required for source-subtracted projector candidates") from exc
-
-    width, height = camera_frame.size
-    projection = _projection_mask(width, height)
-    residual, warped_source = source_subtracted_residual(
-        camera_frame,
-        source_frame=source_frame,
-        room_background=room_background,
-    )
-    if residual_baseline is not None:
-        if isinstance(residual_baseline, Image.Image):
-            baseline = np.asarray(residual_baseline.convert("F").resize((width, height)), dtype=np.float32)
-        else:
-            baseline = np.asarray(residual_baseline, dtype=np.float32)
-            if baseline.shape != residual.shape:
-                raise ValueError(
-                    f"residual_baseline shape {baseline.shape} does not match frame shape {residual.shape}"
-                )
-        residual = residual - baseline
-    mask = residual > threshold
-    mask &= (~projection) | (warped_source > source_bright_threshold)
-    mask[: max(2, int(height * 0.05)), :] = False
-    mask[:, : max(2, int(width * 0.015))] = False
-    mask[:, int(width * 0.82) :] = False
-    mask = ndimage.binary_opening(mask, structure=np.ones((2, 2)))
-    mask = ndimage.binary_closing(mask, structure=np.ones((4, 4)))
-
-    labels, count = ndimage.label(mask)
-    candidates: list[Candidate] = []
-    for label in range(1, count + 1):
-        ys, xs = np.nonzero(labels == label)
-        if len(xs) < min_area_px:
-            continue
-        left = int(xs.min())
-        right = int(xs.max()) + 1
-        top = int(ys.min())
-        bottom = int(ys.max()) + 1
-        candidate_width = right - left
-        candidate_height = bottom - top
-        if candidate_width < 8 or candidate_height < 10:
-            continue
-        if candidate_width > int(width * 0.28) or candidate_height > int(height * 0.36):
-            continue
-        top_xs = xs[ys == ys.min()]
-        component_mask = labels == label
-        candidates.append(
-            Candidate(
-                bbox_xywh=(float(left), float(top), float(candidate_width), float(candidate_height)),
-                top_x_px=float(top_xs.mean()),
-                top_y_px=float(top),
-                area_px=int(len(xs)),
-                source="source_subtracted_projector_residual",
-                mask=component_mask.copy(),
-            )
-        )
-    return sorted(candidates, key=lambda item: item.area_px, reverse=True)
 
 
 def _bbox_mask(mask: np.ndarray, bbox: tuple[float, float, float, float]) -> np.ndarray:

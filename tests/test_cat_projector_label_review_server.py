@@ -1895,3 +1895,67 @@ def test_discover_videos_suppresses_latest_height_when_max_frame_is_reviewed_not
     assert review_frames == [frame.resolve()]
     assert videos[0].max_jump_height_cm is None
     assert videos[0].max_jump_height_source == ""
+
+
+def test_review_consumer_accepts_only_bound_native_rgb(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import hashlib
+    from types import SimpleNamespace
+
+    image = server.Image.new("RGB", (16, 12), (40, 80, 120))
+    path = tmp_path / "chunk_1176_00003.png"
+    image.save(path)
+    identity = SimpleNamespace(width=16, height=12, rgb_sha256=hashlib.sha256(image.tobytes()).hexdigest())
+    chunk = object()
+    expected = object()
+    calls = []
+    native = SimpleNamespace(correspondence_for_camera_frame=lambda value, frame: calls.append((value, frame)) or expected)
+    monkeypatch.setattr(server, "_source_correspondence_module", lambda: native)
+    assert server.correspondence_for_review_image(path, chunk=chunk, camera_identity=identity) is expected
+    assert calls == [(chunk, identity)]
+
+
+def test_review_filename_does_not_bind_a_source_clock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    path = tmp_path / "chunk_1176_00003.jpg"
+    server.Image.new("RGB", (16, 12), "white").save(path)
+    identity = SimpleNamespace(width=16, height=12, rgb_sha256="0" * 64, media_sha256="1" * 64,
+                               frame_index=3, pts=137, time_base_num=1, time_base_den=12800)
+    calls = []
+    native = SimpleNamespace(sha256_file=lambda _path: "2" * 64,
+                             correspondence_for_camera_frame=lambda *_args: calls.append(True))
+    monkeypatch.setattr(server, "_source_correspondence_module", lambda: native)
+    assert server.correspondence_for_review_image(path, chunk=object(), camera_identity=identity) is None
+    assert calls == []
+    (tmp_path / "review_source_sync.json").write_text(json.dumps({"source_offset_seconds": 5880.0}))
+    assert server.correspondence_for_review_image(path, chunk=object(), camera_identity=identity) is None
+    assert calls == []
+
+
+@pytest.mark.parametrize("backend", ["legacy_contrast_catboost", "segmentation"])
+def test_active_learning_passes_typed_correspondence_and_native_pixels(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str) -> None:
+    from types import SimpleNamespace
+
+    path = tmp_path / "chunk_1176_00003.jpg"
+    active_learning.detector.Image.new("RGB", (16, 12), "white").save(path)
+    native_pixels = active_learning.detector.Image.new("RGB", (16, 12), (40, 80, 120))
+    correspondence = SimpleNamespace(camera_identity=object(), structural_status="unresolved")
+    calls = []
+
+    class Detector:
+        source = backend
+        model_id = "boundary-test"
+
+        def detect(self, frame: object, context: object) -> list:
+            calls.append((frame, context))
+            return []
+
+    monkeypatch.setattr(active_learning, "_WORKER_DETECTOR", Detector())
+    monkeypatch.setattr(active_learning.review, "correspondence_for_review_image", lambda _path: correspondence)
+    monkeypatch.setattr(active_learning.review, "_source_correspondence_module",
+                        lambda: SimpleNamespace(load_native_rgb=lambda _identity: native_pixels))
+    result = active_learning._score_one(str(path))
+    assert result["candidate_count"] == 0
+    assert calls[0][0] is native_pixels
+    assert calls[0][1].source_correspondence is correspondence
+    assert calls[0][1].debug == {"correspondence_structural_status": "unresolved"}

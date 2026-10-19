@@ -31,8 +31,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts import cat_projector_frame_detector as detector  # noqa: E402
-from scripts import cat_projector_label_review_server as review  # noqa: E402
+_REVIEW_SPEC = importlib.util.spec_from_file_location(
+    "cat_projector_label_review_server_for_active_learning", REPO_ROOT / "scripts/cat_projector_label_review_server.py",
+)
+assert _REVIEW_SPEC is not None and _REVIEW_SPEC.loader is not None
+review = importlib.util.module_from_spec(_REVIEW_SPEC)
+sys.modules[_REVIEW_SPEC.name] = review
+_REVIEW_SPEC.loader.exec_module(review)
+detector = review._load_repo_module("cat_projector_frame_detector_for_active_learning", REPO_ROOT / "scripts/cat_projector_frame_detector.py")
 
 _CALIBRATION_SPEC = importlib.util.spec_from_file_location(
     "cat_tv_play_calibration_for_active_learning",
@@ -265,16 +271,17 @@ def _score_one(path_raw: str) -> dict[str, Any]:
     with detector.Image.open(image_path) as image:
         rgb = image.convert("RGB")
     context_debug: dict[str, Any] = {}
-    if getattr(_WORKER_DETECTOR, "source", "") == "legacy_contrast_catboost":
-        try:
-            source = review._source_frame_for_review_image(image_path)  # noqa: SLF001
-        except Exception:
-            source = None
-        if source is not None:
-            source_frame, source_debug = source
-            context_debug.update(source_debug)
-            context_debug["projector_source_frame"] = source_frame
-    context = cat_detection.DetectorContext(source_path=str(image_path), debug=context_debug)
+    correspondence = None
+    try:
+        correspondence = review.correspondence_for_review_image(image_path)
+        if correspondence is not None:
+            rgb = review._source_correspondence_module().load_native_rgb(correspondence.camera_identity)  # noqa: SLF001
+    except Exception:
+        correspondence = None
+    if correspondence is not None:
+        context_debug["correspondence_structural_status"] = correspondence.structural_status
+    context = cat_detection.DetectorContext(source_path=str(image_path), debug=context_debug,
+                                            source_correspondence=correspondence)
     detections = sorted(_WORKER_DETECTOR.detect(rgb, context), key=lambda item: item.score, reverse=True)
     top_candidates: list[dict[str, Any]] = []
     measurement_points: list[dict[str, Any] | None] = []
@@ -290,8 +297,6 @@ def _score_one(path_raw: str) -> dict[str, Any]:
     best_debug = best.get("debug") if isinstance(best.get("debug"), dict) else {}
     if best_debug.get("backend"):
         detector_backend = str(best_debug["backend"])
-    elif context_debug.get("projector_source_frame") is not None:
-        detector_backend = "legacy_contrast_catboost_source_subtracted"
     return {
         "raw_path": str(image_path),
         "detector_backend": detector_backend,

@@ -22,10 +22,9 @@ SPEC.loader.exec_module(overlay_server)
 FULL_FRAME_PROJECTOR = ((0.0, 0.0), (1279.0, 0.0), (1279.0, 719.0), (0.0, 719.0))
 
 
-def test_runtime_parse_args_disables_residual_occluder_fallback_by_default() -> None:
+def test_runtime_parse_args_keeps_safety_freshness_defaults() -> None:
     args = overlay_server.parse_args(["--source-video", "source.mp4"])
 
-    assert args.enable_residual_occluder_fallback is False
     assert args.camera_snapshot_timeout == 2.0
     assert args.safety_negative_review_interval == 60.0
     assert args.safety_negative_review_max_frames_per_day == 720
@@ -58,16 +57,6 @@ def test_projector_source_video_tracks_ha_entity_and_keeps_last_good_source(monk
     assert source.debug()["source_video_error"] is None
 
 
-def test_runtime_parse_args_can_enable_residual_occluder_fallback() -> None:
-    args = overlay_server.parse_args(["--source-video", "source.mp4", "--enable-residual-occluder-fallback"])
-
-    assert args.enable_residual_occluder_fallback is True
-
-
-def test_runtime_parse_args_can_disable_residual_occluder_fallback() -> None:
-    args = overlay_server.parse_args(["--source-video", "source.mp4", "--disable-residual-occluder-fallback"])
-
-    assert args.enable_residual_occluder_fallback is False
 
 
 def test_safety_negative_review_rows_stop_at_daily_frame_cap(tmp_path, monkeypatch) -> None:
@@ -85,7 +74,7 @@ def test_safety_negative_review_rows_stop_at_daily_frame_cap(tmp_path, monkeypat
         raw_people=[person],
         people=[person],
         result=result,
-        source_filter_skipped=[],
+        person_detector_skipped=[],
         performance={"safety_sample_index": 1},
         source_video="source.mp4",
         max_frames_per_day=1,
@@ -95,7 +84,7 @@ def test_safety_negative_review_rows_stop_at_daily_frame_cap(tmp_path, monkeypat
         raw_people=[person],
         people=[person],
         result=result,
-        source_filter_skipped=[],
+        person_detector_skipped=[],
         performance={"safety_sample_index": 2},
         source_video="source.mp4",
         max_frames_per_day=1,
@@ -137,7 +126,7 @@ def test_projector_active_gate_idles_only_on_explicit_off_states() -> None:
     )
 
 
-def test_safety_worker_does_not_sample_source_references_while_projector_inactive(monkeypatch) -> None:
+def test_safety_worker_does_not_read_camera_while_projector_inactive(monkeypatch) -> None:
     class IdleGate:
         def __init__(self, *args, **kwargs) -> None:
             pass
@@ -157,8 +146,8 @@ def test_safety_worker_does_not_sample_source_references_while_projector_inactiv
     monkeypatch.setattr(overlay_server, "ProjectorActiveGate", IdleGate)
     monkeypatch.setattr(
         overlay_server,
-        "_sample_source_reference_frames",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("source references sampled while idle")),
+        "_read_camera_snapshot",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("camera sampled while idle")),
     )
 
     def stop_after_snapshot(snapshot: overlay_server.SafetyComputationSnapshot) -> None:
@@ -171,258 +160,63 @@ def test_safety_worker_does_not_sample_source_references_while_projector_inactiv
     overlay_server._run_safety_worker(args, runtime=runtime)
 
 
-def test_source_filter_rejects_projected_video_content() -> None:
-    source = Image.new("RGB", (1280, 720), "white")
-    ImageDraw.Draw(source).ellipse((520, 160, 760, 360), fill="black")
-    camera = Image.fromarray(
-        overlay_server.source_subtraction.warp_source_to_camera(
-            source,
-            projector_polygon=FULL_FRAME_PROJECTOR,
-            width=1280,
-            height=720,
-        )
-    ).convert("RGB")
-    people = [
-        overlay_server.PersonDetection(
-            bbox_xyxy=(500.0, 130.0, 790.0, 390.0),
-            confidence=0.9,
-            source="test",
-        )
-    ]
+def _one_safety_sample(monkeypatch, people, *, detector_error=None):
+    monkeypatch.setattr(overlay_server.time, "monotonic", lambda: 10.0)
+    monkeypatch.setattr(overlay_server.time, "time", lambda: 100.0)
+    args = overlay_server.parse_args(["--source-video", "source.mp4", "--source-size", "64x64"])
+    args.projector_polygon = ((0, 0), (63, 0), (63, 63), (0, 63))
+    args.camera_sample_interval = 0.0
+    args.eye_safety_prediction_seconds = 0.0
+    args.safety_negative_review_interval = float("inf")
+    runtime = overlay_server.SafetyRuntime()
+    # This unbound source deliberately matches the camera exactly. It must not
+    # suppress a full-frame person, even when it looks like projected content.
+    evidence = _camera_evidence()
+    runtime.update_source_frame(Image.open(BytesIO(evidence.jpeg)).convert("RGB"), 1, "source.mp4")
+    monkeypatch.setattr(overlay_server, "_read_camera_snapshot", lambda *args, **kwargs: evidence)
+    snapshots = []
 
-    accepted, skipped = overlay_server._filter_source_projected_people(
-        people,
-        camera_image=camera,
-        source_frame=source,
-        projector_polygon=FULL_FRAME_PROJECTOR,
-        residual_threshold=28.0,
-        min_residual_area_px=1200,
-        min_residual_fraction=0.10,
+    class Detector:
+        def detect(self, image):
+            if detector_error is not None:
+                raise RuntimeError(detector_error)
+            return list(people)
+
+    def publish(snapshot):
+        snapshots.append(snapshot)
+        runtime.stop()
+
+    monkeypatch.setattr(runtime, "update_snapshot", publish)
+    gate = overlay_server.ProjectorActiveGate(
+        ha_url=None, ha_config_path=None, active_entities=(), poll_interval_seconds=1, timeout_seconds=1,
     )
-
-    assert accepted == []
-    assert skipped[0]["reason"] == "matches_projected_source"
-
-
-def test_source_filter_keeps_real_occluder_in_projector_beam() -> None:
-    source = Image.new("RGB", (1280, 720), "white")
-    camera = source.copy()
-    ImageDraw.Draw(camera).rectangle((500, 130, 790, 390), fill="black")
-    people = [
-        overlay_server.PersonDetection(
-            bbox_xyxy=(500.0, 130.0, 790.0, 390.0),
-            confidence=0.9,
-            source="test",
-        )
-    ]
-
-    accepted, skipped = overlay_server._filter_source_projected_people(
-        people,
-        camera_image=camera,
-        source_frame=source,
-        projector_polygon=FULL_FRAME_PROJECTOR,
-        residual_threshold=28.0,
-        min_residual_area_px=1200,
-        min_residual_fraction=0.10,
-    )
-
-    assert len(accepted) == 1
-    assert skipped == []
-    assert accepted[0].debug["source_subtracted_residual_area_px"] > 1200
+    overlay_server._run_safety_samples(args, runtime=runtime, detector=Detector(), active_gate=gate, camera_stream=None)
+    assert len(snapshots) == 1
+    return snapshots[0]
 
 
-def test_source_filter_can_run_scaled_without_changing_detector_bbox() -> None:
-    source = Image.new("RGB", (1280, 720), "white")
-    camera = source.copy()
-    ImageDraw.Draw(camera).rectangle((500, 130, 790, 390), fill="black")
-    person = overlay_server.PersonDetection(
-        bbox_xyxy=(500.0, 130.0, 790.0, 390.0),
-        confidence=0.9,
-        source="test",
-    )
-
-    accepted, skipped = overlay_server._filter_source_projected_people(
-        [person],
-        camera_image=camera,
-        source_frame=source,
-        projector_polygon=FULL_FRAME_PROJECTOR,
-        residual_threshold=28.0,
-        min_residual_area_px=1200,
-        min_residual_fraction=0.10,
-        source_filter_scale=0.5,
-    )
-
-    assert skipped == []
-    assert accepted[0].bbox_xyxy == person.bbox_xyxy
-    assert accepted[0].debug["source_filter_scale"] == 0.5
+def test_full_frame_person_is_not_suppressed_by_matching_unbound_source(monkeypatch):
+    person = overlay_server.PersonDetection((15.0, 8.0, 45.0, 58.0), 0.9, "mobilenet")
+    snapshot = _one_safety_sample(monkeypatch, [person])
+    assert snapshot.result.status == "active"
+    assert len(snapshot.people) == 1
+    assert snapshot.people[0].bbox_xyxy == person.bbox_xyxy
+    assert snapshot.result.zones
+    assert snapshot.result.debug["raw_person_count"] == 1
 
 
-def test_source_filter_rejects_projected_video_content_from_reference_frame() -> None:
-    current_source = Image.new("RGB", (1280, 720), "white")
-    cat_intro_source = Image.new("RGB", (1280, 720), "white")
-    ImageDraw.Draw(cat_intro_source).ellipse((520, 160, 760, 360), fill="black")
-    camera = Image.fromarray(
-        overlay_server.source_subtraction.warp_source_to_camera(
-            cat_intro_source,
-            projector_polygon=FULL_FRAME_PROJECTOR,
-            width=1280,
-            height=720,
-        )
-    ).convert("RGB")
-    people = [
-        overlay_server.PersonDetection(
-            bbox_xyxy=(500.0, 130.0, 790.0, 390.0),
-            confidence=0.9,
-            source="test",
-        )
-    ]
-
-    accepted, skipped = overlay_server._filter_source_projected_people(
-        people,
-        camera_image=camera,
-        source_frame=current_source,
-        source_reference_frames=[cat_intro_source],
-        projector_polygon=FULL_FRAME_PROJECTOR,
-        residual_threshold=28.0,
-        min_residual_area_px=1200,
-        min_residual_fraction=0.10,
-    )
-
-    assert accepted == []
-    assert skipped[0]["reason"] == "matches_projected_source"
-    assert skipped[0]["best_reference_index"] == 1
+def test_safety_does_not_manufacture_person_from_unbound_source_residual(monkeypatch):
+    snapshot = _one_safety_sample(monkeypatch, [])
+    assert snapshot.result.status == "no_person"
+    assert snapshot.people == []
+    assert snapshot.result.zones == ()
 
 
-def test_source_filter_keeps_person_when_intro_cat_only_masks_body_residual() -> None:
-    current_source = Image.new("RGB", (1280, 720), "white")
-    intro_source = Image.new("RGB", (1280, 720), "white")
-    # A dark projected startup cat in the center can make the full person bbox
-    # look source-like, but the eye band still carries the physical occluder.
-    ImageDraw.Draw(intro_source).rectangle((460, 180, 820, 560), fill="black")
-    camera = Image.fromarray(
-        overlay_server.source_subtraction.warp_source_to_camera(
-            intro_source,
-            projector_polygon=FULL_FRAME_PROJECTOR,
-            width=1280,
-            height=720,
-        )
-    ).convert("RGB")
-    ImageDraw.Draw(camera).rectangle((500, 90, 790, 140), fill="black")
-    person = overlay_server.PersonDetection(
-        bbox_xyxy=(500.0, 70.0, 790.0, 590.0),
-        confidence=0.9,
-        source="test",
-    )
-
-    accepted, skipped = overlay_server._filter_source_projected_people(
-        [person],
-        camera_image=camera,
-        source_frame=current_source,
-        source_reference_frames=[intro_source],
-        projector_polygon=FULL_FRAME_PROJECTOR,
-        residual_threshold=28.0,
-        min_residual_area_px=1200,
-        min_residual_fraction=0.10,
-    )
-
-    assert skipped == []
-    assert len(accepted) == 1
-    assert accepted[0].bbox_xyxy == person.bbox_xyxy
-    assert accepted[0].debug["source_subtracted_best_reference_index"] == 1
-    assert accepted[0].debug["source_subtracted_residual_fraction"] < 0.10
-    assert accepted[0].debug["source_subtracted_eye_band_residual_fraction"] >= 0.10
-
-    result = overlay_server.compute_eye_safety_overlay(
-        camera_size=camera.size,
-        source_size=(1280, 720),
-        projector_polygon=FULL_FRAME_PROJECTOR,
-        people=accepted,
-        min_overlap_area_px=24,
-    )
-    assert result.status == "active"
-    rendered = overlay_server.render_eye_safety_overlay(current_source, result)
-    assert rendered.getpixel((640, 130)) == (0, 0, 0)
-
-
-def test_source_filter_does_not_create_eye_zone_from_residual_without_detector_person_by_default() -> None:
-    source = Image.new("RGB", (1280, 720), "white")
-    camera = source.copy()
-    ImageDraw.Draw(camera).rectangle((520, 180, 760, 520), fill="black")
-
-    accepted, skipped = overlay_server._filter_source_projected_people(
-        [],
-        camera_image=camera,
-        source_frame=source,
-        projector_polygon=FULL_FRAME_PROJECTOR,
-        residual_threshold=28.0,
-        min_residual_area_px=1200,
-        min_residual_fraction=0.10,
-    )
-
-    assert accepted == []
-    assert skipped == [{"reason": "residual_occluder_fallback_disabled"}]
-
-
-def test_source_filter_skips_residual_work_without_detector_people_by_default(monkeypatch) -> None:
-    def fail_build_residual_views(**_kwargs):
-        raise AssertionError("residual views should not be built without detector people")
-
-    monkeypatch.setattr(overlay_server, "_build_residual_views", fail_build_residual_views)
-
-    accepted, skipped = overlay_server._filter_source_projected_people(
-        [],
-        camera_image=Image.new("RGB", (1280, 720), "white"),
-        source_frame=Image.new("RGB", (1280, 720), "white"),
-        projector_polygon=FULL_FRAME_PROJECTOR,
-        residual_threshold=28.0,
-        min_residual_area_px=1200,
-        min_residual_fraction=0.10,
-    )
-
-    assert accepted == []
-    assert skipped == [{"reason": "residual_occluder_fallback_disabled"}]
-
-
-def test_source_filter_can_fall_back_to_physical_occluder_when_enabled() -> None:
-    source = Image.new("RGB", (1280, 720), "white")
-    camera = source.copy()
-    ImageDraw.Draw(camera).rectangle((520, 180, 760, 520), fill="black")
-
-    accepted, skipped = overlay_server._filter_source_projected_people(
-        [],
-        camera_image=camera,
-        source_frame=source,
-        projector_polygon=FULL_FRAME_PROJECTOR,
-        residual_threshold=28.0,
-        min_residual_area_px=1200,
-        min_residual_fraction=0.10,
-        enable_residual_occluder_fallback=True,
-    )
-
-    assert skipped == []
-    assert len(accepted) == 1
-    assert accepted[0].source == "source_subtracted_human_occluder"
-    assert accepted[0].bbox_xyxy == (520.0, 180.0, 761.0, 521.0)
-
-
-def test_source_filter_ignores_own_fixed_black_rect_feedback() -> None:
-    source = Image.new("RGB", (1280, 720), "white")
-    camera = source.copy()
-    ImageDraw.Draw(camera).rectangle((520, 260, 760, 420), fill="black")
-
-    accepted, skipped = overlay_server._filter_source_projected_people(
-        [],
-        camera_image=camera,
-        source_frame=source,
-        ignored_source_polygons=[((520.0, 260.0), (760.0, 260.0), (760.0, 420.0), (520.0, 420.0))],
-        projector_polygon=FULL_FRAME_PROJECTOR,
-        residual_threshold=28.0,
-        min_residual_area_px=1200,
-        min_residual_fraction=0.10,
-    )
-
-    assert accepted == []
-    assert skipped == []
+def test_person_detector_failure_keeps_safety_unavailable(monkeypatch):
+    snapshot = _one_safety_sample(monkeypatch, [], detector_error="weights unavailable")
+    assert snapshot.result.status == "safety_overlay_unavailable"
+    assert "person detector unavailable" in snapshot.camera_error
+    assert snapshot.people == []
 
 
 def test_eye_safety_hold_keeps_last_zone_during_short_detector_gap() -> None:
@@ -756,8 +550,6 @@ def test_runtime_defaults_prioritize_live_safety_camera_updates() -> None:
     args = overlay_server.parse_args(["--source-video", "cats.mp4"])
 
     assert args.fps == 20
-    assert args.source_reference_frames == 3
-    assert args.source_filter_scale == 0.35
     assert args.eye_band_top_fraction == 0.07
     assert args.eye_band_bottom_fraction == 0.19
     assert args.eye_band_left_fraction == 0.20
@@ -875,8 +667,6 @@ def test_safety_worker_does_not_renew_duplicate_frame_evidence(monkeypatch, fail
         clock[0] += seconds
 
     monkeypatch.setattr(overlay_server.time, "sleep", advance)
-    monkeypatch.setattr(overlay_server, "_sample_source_reference_frames", lambda *args, **kwargs: [])
-    monkeypatch.setattr(overlay_server, "_filter_source_projected_people", lambda *args, **kwargs: ([], []))
     args = overlay_server.parse_args(["--source-video", "source.mp4", "--source-size", "64x64"])
     gate = overlay_server.ProjectorActiveGate(
         ha_url=None, ha_config_path=None, active_entities=(), poll_interval_seconds=1, timeout_seconds=1,

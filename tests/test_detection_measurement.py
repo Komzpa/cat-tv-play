@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -176,7 +177,18 @@ def test_active_learning_auto_with_segmentation_model_selects_segmentation(tmp_p
     assert config["requested_backend"] == "auto"
 
 
-def test_legacy_source_subtracted_candidate_mask_becomes_detection_mask() -> None:
+def test_legacy_detector_ignores_installed_scripts_package(monkeypatch):
+    wrong = SimpleNamespace(cat_projector_frame_detector=SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "scripts", wrong)
+    monkeypatch.setitem(sys.modules, "cat_tv_play_frame_detector", frame_detector)
+    model, metadata = object(), {"model_path": "canonical-test.cbm"}
+    monkeypatch.setattr(frame_detector, "load_model", lambda *_args: (model, metadata))
+    detector = detection.LegacyContrastDetector()
+    assert detector._legacy is frame_detector
+    assert detector._model is model
+
+
+def test_ordinary_candidate_mask_becomes_detection_mask() -> None:
     mask = np.zeros((80, 120), dtype=bool)
     mask[30:70, 40:75] = True
     candidate = frame_detector.Candidate(
@@ -184,14 +196,11 @@ def test_legacy_source_subtracted_candidate_mask_becomes_detection_mask() -> Non
         top_x_px=57.0,
         top_y_px=30.0,
         area_px=int(mask.sum()),
-        source="source_subtracted_projector_residual",
+        source="dark_component",
         mask=mask,
     )
 
     class FakeLegacy:
-        def detect_source_subtracted_candidate_components(self, *_args, **_kwargs):
-            return [candidate]
-
         def score_candidates(self, *_args, **_kwargs):
             return [
                 SimpleNamespace(
@@ -211,7 +220,7 @@ def test_legacy_source_subtracted_candidate_mask_becomes_detection_mask() -> Non
 
     rows = detector.detect(
         Image.new("RGB", (120, 80), (200, 200, 200)),
-        detection.DetectorContext(debug={"projector_source_frame": Image.new("RGB", (120, 80), "white")}),
+        detection.DetectorContext(),
     )
 
     assert len(rows) == 1
@@ -221,6 +230,56 @@ def test_legacy_source_subtracted_candidate_mask_becomes_detection_mask() -> Non
     assert warning == ""
     assert point.point_type == "mask_top_p5"
     assert point.source == "segmentation_mask"
+
+
+@pytest.mark.parametrize("has_native_mask", [True, False])
+@pytest.mark.parametrize("state", ["missing", "invalid", "physical", "explained"])
+def test_legacy_detector_only_suppresses_independently_explained_candidate(state, has_native_mask):
+    mask = np.zeros((80, 120), dtype=bool)
+    mask[30:70, 40:75] = True
+    mask[40:50, 50:60] = False
+    native_mask = mask if has_native_mask else None
+    candidate = frame_detector.Candidate(
+        (40, 30, 35, 40), 57, 30, int(mask.sum()), "dark_component", mask=native_mask,
+    )
+    calls = []
+    explanation = frame_detector.source_subtraction.SourceExplanation(
+        structural_valid=True, photometric_valid=state in {"physical", "explained"},
+        explained=state == "explained", candidate_error=50.0 if state == "physical" else None,
+        family_errors=(("ordered", (50.0,)),) if state == "physical" else (),
+        reasons=("independent_photometric_evidence_unavailable",) if state in {"missing", "invalid"} else (),
+    )
+
+    def explain(**kwargs):
+        calls.append(kwargs)
+        return explanation
+
+    legacy = SimpleNamespace(
+        score_candidates=lambda *_args, **_kwargs: [SimpleNamespace(
+            candidate=candidate, cat_probability=0.91, model_path="test.cbm", features={},
+        )],
+        source_subtraction=SimpleNamespace(explain_projected_candidate=explain),
+    )
+    detector = object.__new__(detection.LegacyContrastDetector)
+    detector._legacy, detector._model, detector._metadata = legacy, object(), {}
+    detector.model_id, detector.min_probability = "test.cbm", 0.0
+    correspondence, photometry = object(), None if state == "missing" else object()
+    image = Image.new("RGB", (120, 80), "white")
+    rows = detector.detect(image, detection.DetectorContext(
+        source_correspondence=correspondence, photometric_evidence=photometry,
+    ))
+    assert len(rows) == (0 if state == "explained" else 1)
+    assert len(calls) == 1
+    assert calls[0]["correspondence"] is correspondence
+    assert calls[0]["photometry"] is photometry
+    expected_mask = mask.copy()
+    if not has_native_mask:
+        expected_mask[30:70, 40:75] = True
+    assert np.array_equal(calls[0]["candidate_mask"], expected_mask)
+    assert calls[0]["camera_frame"].mode == "RGB"
+    if rows:
+        assert rows[0].debug["source_explanation"]["explained"] is False
+        assert rows[0].mask is native_mask
 
 
 def test_mask_top_measurement_ignores_single_noise_pixel() -> None:

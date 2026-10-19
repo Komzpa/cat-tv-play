@@ -56,8 +56,41 @@ Recorder and delivery requirements:
   Apply the rule
   to all footage, never by clip path or hash; retain the 0.35 confidence floor,
   4 fps sampling, and 1280-pixel analysis width.
-- The original-footage oracle includes the cat-only June 6 source chunk
-  `20260606T010937_20260606T010921-cats-tv-october-compilation-fMiAfGtt9rc-seed30/chunk_0124.mp4`;
-  it MUST remain negative while all three known-human windows in
-  `test_cat_projector_clip_policy.py` remain positive, the May 27 cat-only
-  control remains negative, and all six fail-closed error cases remain blocked.
+- The original-footage oracle includes both cat-only windows: May 27
+  `20260527T220441_20260527T220434-cats-tv-october-compilation-fMiAfGtt9rc-seed30/chunk_0026.mp4`
+  and June 6
+  `20260606T010937_20260606T010921-cats-tv-october-compilation-fMiAfGtt9rc-seed30/chunk_0124.mp4`.
+  Both MUST remain `no_camera_human_detected`, not skipped or unavailable, while
+  June 1 `20260601T134003_20260601T133950-cats-tv-october-compilation-fMiAfGtt9rc-seed30/chunk_1176.mp4`
+  and October 18 `20261018T154344_20261018T153653-cats-tv-october-skipintro-30fps/bad_chunks/chunk_0002.bad.mp4`
+  remain human-positive. The June 5 candidate-5/6 representative frames show
+  furniture; their entire windows remain unadjudicated, not cleared.
+- The recorder MUST automatically produce guarded per-chunk native
+  correspondence before source-aware scoring/rendering/privacy explanation.
+  Native sample identity comes from same-decode RGB/PTS, never chunk arithmetic,
+  nominal seeks or modulo clocks. Reuse the retained index without a rebuild.
+  The recording manifest's `source_correspondence.qualification_controls` value
+  (or the canonical `<index-stem>.qualification-controls.json` sidecar when
+  unset) MUST be forwarded unchanged into `produce_chunk_correspondence`. This
+  control binding is generic and independent of missing valid photometry.
+  Missing/invalid/unqualified controls MUST keep ordinary detection and the
+  unconditional human veto; a missing sidecar surfaces the producer's
+  `unavailable`/`inapplicable` reason and an invalid receipt fails closed. No
+  July structural fixture transfers across captures; current-capture ordering
+  controls come from the producer, never a competing parser or residual winner.
+- Only crop-only person candidates may reach
+  `source_subtraction.explain_projected_candidate`. Supply the typed
+  `DetectorContext.source_correspondence`/`photometric_evidence`, native RGB and
+  the producer's native candidate mask (bbox only if absent). Suppression MUST
+  require independent, candidate-excluding frozen photometry valid across every
+  surviving source alternative. Missing/invalid evidence preserves ordinary
+  detection; structural matching alone is never privacy permission. Full-frame
+  persons retain unconditional precedence and errors remain fail closed.
+- Acceptance MUST use the production recorder entry on the complete real
+  windows at one frozen revision; no skips, fabricated evidence or API-only
+  success. Preserve the accepted May 18 native render's 71 PTS/contours and
+  existing delivered transport evidence without rerendering or resending.
+
+Lessons learned: sampler ordinals are not native timestamps, structural support
+is not validated color response, and a chair observation is not a human label
+or whole-window clearance. Keep these evidence boundaries executable.

@@ -67,7 +67,9 @@ def assess_recording(recording_dir: Path, *, model: dict[str, str],
             and bool(previous_inputs.get('chunks'))
             and all(Path(p).is_file() and file_sha256(Path(p)) == sha
                     for p, sha in previous_inputs.get('chunks', {}).items()))
-        if previous.get('assessment_id') == identity or retained_positive:
+        cached_verdict = (previous.get('assessment_id') == identity
+            and not str(previous.get('reason', '')).startswith('assessment_error:'))
+        if cached_verdict or retained_positive:
             return previous
     result = {'schema': SCHEMA, 'assessment_id': identity, 'created_at': datetime.now(UTC).isoformat(),
               'session_id': manifest.get('ha_session_id', ''),

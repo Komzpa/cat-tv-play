@@ -7,12 +7,19 @@ consume masks from segmentation detections when they are available.
 
 from __future__ import annotations
 
+import importlib.util
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .source_correspondence import FrameCorrespondence
+    from .source_subtraction import PhotometricEvidence
 
 import numpy as np
+
 from PIL import Image, ImageDraw
 
 BBoxXYWH = tuple[float, float, float, float]
@@ -26,6 +33,8 @@ class DetectorContext:
     source_video_path: str | None = None
     recording_id: str | None = None
     calibration_id: str | None = None
+    source_correspondence: FrameCorrespondence | None = None
+    photometric_evidence: PhotometricEvidence | None = None
     debug: dict[str, Any] = field(default_factory=dict)
 
 
@@ -136,7 +145,20 @@ class LegacyContrastDetector:
         metadata_path: Path | None = None,
         min_probability: float = 0.0,
     ) -> None:
-        from scripts import cat_projector_frame_detector as legacy
+        module_name = "cat_tv_play_frame_detector"
+        if module_name not in sys.modules:
+            path = Path(__file__).resolve().parents[2] / "scripts" / "cat_projector_frame_detector.py"
+            spec = importlib.util.spec_from_file_location(module_name, path)
+            if spec is None or spec.loader is None:
+                raise DetectorUnavailableError(f"cannot load canonical detector from {path}")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            try:
+                spec.loader.exec_module(module)
+            except Exception:
+                sys.modules.pop(module_name, None)
+                raise
+        legacy = sys.modules[module_name]
 
         self._legacy = legacy
         self._model, self._metadata = legacy.load_model(
@@ -146,72 +168,52 @@ class LegacyContrastDetector:
         self.model_id = str(self._metadata.get("model_path") or model_path or legacy.DEFAULT_MODEL_PATH)
         self.min_probability = min_probability
 
-    def _source_explains_candidate(
-        self,
-        frame: Image.Image,
-        bbox_xywh: BBoxXYWH,
-        reference_frames: list[Image.Image],
-        *,
-        residual_threshold: float = 26.0,
-        source_bright_threshold: int = 150,
-        max_dark_fraction: float = 0.16,
-        min_bright_coverage: float = 0.25,
-    ) -> bool:
-        x, y, width, height = bbox_xywh
-        left = max(0, min(frame.width, int(np.floor(x))))
-        top = max(0, min(frame.height, int(np.floor(y))))
-        right = max(left + 1, min(frame.width, int(np.ceil(x + width))))
-        bottom = max(top + 1, min(frame.height, int(np.ceil(y + height))))
-        for source_frame in reference_frames:
-            residual, warped_source = self._legacy.source_subtracted_residual(
-                frame.convert("RGB"),
-                source_frame=source_frame,
-            )
-            residual_patch = residual[top:bottom, left:right]
-            source_patch = warped_source[top:bottom, left:right]
-            bright = source_patch > source_bright_threshold
-            bright_coverage = float(bright.mean()) if bright.size else 0.0
-            if bright_coverage < min_bright_coverage:
-                continue
-            dark_fraction = float(((residual_patch > residual_threshold) & bright).mean())
-            if dark_fraction <= max_dark_fraction:
-                return True
-        return False
-
     def detect(self, frame: Image.Image, context: DetectorContext | None = None) -> list[CatDetection]:
-        candidates = None
-        source_frame = (context.debug or {}).get("projector_source_frame") if context else None
-        reference_frames = list((context.debug or {}).get("projector_source_reference_frames") or []) if context else []
-        if source_frame is not None:
-            candidates = self._legacy.detect_source_subtracted_candidate_components(
-                frame.convert("RGB"),
-                source_frame=source_frame,
-                room_background=(context.debug or {}).get("room_background") if context else None,
-                residual_baseline=(context.debug or {}).get("residual_baseline") if context else None,
-            )
         predictions = sorted(
             self._legacy.score_candidates(
                 frame.convert("RGB"),
                 model=self._model,
                 metadata=self._metadata,
-                candidates=candidates,
+                candidates=None,
             ),
             key=lambda item: item.cat_probability,
             reverse=True,
         )
-        detector_source = self.source
-        if candidates is not None:
-            detector_source = "legacy_contrast_catboost_source_subtracted"
+        context_debug = dict((context.debug or {}) if context else {})
         detections: list[CatDetection] = []
         for prediction in predictions:
             if prediction.candidate is None or prediction.cat_probability < self.min_probability:
                 continue
             bbox_xywh = tuple(float(value) for value in prediction.candidate.bbox_xywh)
-            if candidates is not None and self._source_explains_candidate(frame, bbox_xywh, reference_frames):
-                continue
-            context_debug = dict((context.debug or {}) if context else {})
-            context_debug.pop("projector_source_frame", None)
-            context_debug.pop("projector_source_reference_frames", None)
+            explanation_debug: dict[str, Any] = {}
+            if context is not None and context.source_correspondence is not None:
+                candidate_mask = getattr(prediction.candidate, "mask", None)
+                if candidate_mask is None:
+                    candidate_mask = np.zeros((frame.height, frame.width), dtype=bool)
+                    x, y, width, height = bbox_xywh
+                    left = max(0, min(frame.width, int(np.floor(x))))
+                    top = max(0, min(frame.height, int(np.floor(y))))
+                    right = max(left, min(frame.width, int(np.ceil(x + width))))
+                    bottom = max(top, min(frame.height, int(np.ceil(y + height))))
+                    candidate_mask[top:bottom, left:right] = True
+                explanation = self._legacy.source_subtraction.explain_projected_candidate(
+                    camera_frame=frame.convert("RGB"),
+                    correspondence=context.source_correspondence,
+                    candidate_mask=np.asarray(candidate_mask, dtype=bool),
+                    photometry=context.photometric_evidence,
+                )
+                explanation_debug = {
+                    "source_explanation": {
+                        "structural_valid": explanation.structural_valid,
+                        "photometric_valid": explanation.photometric_valid,
+                        "explained": explanation.explained,
+                        "candidate_error": explanation.candidate_error,
+                        "family_errors": explanation.family_errors,
+                        "reasons": explanation.reasons,
+                    }
+                }
+                if explanation.explained:
+                    continue
             detections.append(
                 CatDetection(
                     bbox_xywh=bbox_xywh,
@@ -222,9 +224,10 @@ class LegacyContrastDetector:
                     timestamp_seconds=context.timestamp_seconds if context else None,
                     mask=getattr(prediction.candidate, "mask", None),
                     debug={
-                        "backend": detector_source,
+                        "backend": self.source,
                         "features": prediction.features,
                         **context_debug,
+                        **explanation_debug,
                     },
                 )
             )
